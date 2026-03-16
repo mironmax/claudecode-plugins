@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import signal
 import sys
 from pathlib import Path
 
@@ -235,6 +236,28 @@ def create_mcp_server() -> Server:
                 }
             ),
             Tool(
+                name="kg_search",
+                description="Full-text search across node ids, gists, and notes in both active and archived nodes. Use when you don't know the exact node ID.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search term — matched against node id, gist, and notes (case-insensitive)"
+                        },
+                        "level": {
+                            "type": "string",
+                            "enum": ["user", "project", "both"],
+                            "description": "Graph level to search (default: both)"
+                        },
+                        "session_id": {
+                            "type": "string"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            ),
+            Tool(
                 name="kg_sync",
                 description="Get changes since session start from other sessions",
                 inputSchema={
@@ -335,13 +358,11 @@ def create_mcp_server() -> Server:
                 )]
 
             elif name == "kg_register_session":
-                project_path = arguments.get("project_path")
-                cwd = arguments.get("cwd")
-                if not project_path and cwd:
-                    # cwd is the project root; resolve to the standard graph.json location
-                    from core.constants import PROJECT_KNOWLEDGE_PATH
-                    project_path = str(Path(cwd) / PROJECT_KNOWLEDGE_PATH)
-                result = session_manager.register(project_path)
+                # Store project root path directly; store layer resolves to centralized graph path
+                project_root = arguments.get("cwd") or arguments.get("project_path")
+                if project_root:
+                    project_root = str(Path(project_root).resolve())
+                result = session_manager.register(project_root)
                 return [TextContent(
                     type="text",
                     text=f"Session registered: {result['session_id']}\nStart time: {result['start_ts']}"
@@ -351,17 +372,73 @@ def create_mcp_server() -> Server:
                 session_id = arguments.get("session_id")
                 graphs = store.read_graphs(session_id)
 
-                # Format output
-                user_nodes = len(graphs["user"]["nodes"])
-                user_edges = len(graphs["user"]["edges"])
-                proj_nodes = len(graphs["project"]["nodes"])
-                proj_edges = len(graphs["project"]["edges"])
+                def format_graph_compact(level_label: str, nodes: list, edges: list) -> str:
+                    """Compact text format: active nodes as id:gist, archived as id only, edges as triples."""
+                    active = [n for n in nodes if not n.get("_archived")]
+                    archived = [n for n in nodes if n.get("_archived")]
 
-                import json
-                return [TextContent(
-                    type="text",
-                    text=f"Knowledge Graph:\n\nUser level: {user_nodes} nodes, {user_edges} edges\nProject level: {proj_nodes} nodes, {proj_edges} edges\n\n{json.dumps(graphs, indent=2)}"
-                )]
+                    lines = [f"=== {level_label.upper()} — {len(active)} active, {len(archived)} archived ==="]
+
+                    if active:
+                        lines.append("ACTIVE:")
+                        for n in active:
+                            lines.append(f"  {n['id']}: {n.get('gist', '')}")
+
+                    if archived:
+                        lines.append("ARCHIVED (use kg_recall <id> for full content):")
+                        for n in archived:
+                            lines.append(f"  {n['id']}")
+
+                    if edges:
+                        lines.append("EDGES:")
+                        for e in edges:
+                            note = f" [{e['notes'][0]}]" if e.get("notes") else ""
+                            lines.append(f"  {e['from']} --{e['rel']}--> {e['to']}{note}")
+
+                    return "\n".join(lines)
+
+                user_text = format_graph_compact("User Graph", graphs["user"]["nodes"], graphs["user"]["edges"])
+                proj_text = format_graph_compact("Project Graph", graphs["project"]["nodes"], graphs["project"]["edges"])
+
+                # Append health stats
+                def health_line(nodes: list, edges: list) -> str:
+                    active = [n for n in nodes if not n.get("_archived")]
+                    orphans = []
+                    connected_ids = set()
+                    for e in edges:
+                        connected_ids.add(e["from"])
+                        connected_ids.add(e["to"])
+                    for n in active:
+                        if n["id"] not in connected_ids:
+                            orphans.append(n["id"])
+                    n_count = len(active)
+                    e_count = len(edges)
+                    o_count = len(orphans)
+                    o_pct = round(100 * o_count / n_count) if n_count else 0
+                    avg_edges = round(e_count / n_count, 1) if n_count else 0
+                    return f"HEALTH: {n_count} nodes, {e_count} edges, {o_count} orphans ({o_pct}%), avg {avg_edges} edges/node"
+
+                user_health = health_line(graphs["user"]["nodes"], graphs["user"]["edges"])
+                proj_health = health_line(graphs["project"]["nodes"], graphs["project"]["edges"])
+
+                full_user = user_text + "\n" + user_health
+                full_proj = proj_text + "\n" + proj_health
+                total_chars = len(full_user) + len(full_proj)
+
+                # Claude Code persists tool output >50K chars to disk and shows
+                # only a 2000-char preview. Warn when approaching this limit.
+                size_warning = ""
+                if total_chars > 40000:
+                    size_warning = (
+                        f"\n\n⚠️ WARNING: Graph output is {total_chars} chars — approaching "
+                        f"Claude Code's ~50K tool result limit. Beyond this, output gets "
+                        f"truncated to a preview and you lose graph context. "
+                        f"Run /skill memory → MAINTAIN to review and clean up the graph."
+                    )
+
+                return [
+                    TextContent(type="text", text=full_user + "\n" + full_proj + size_warning),
+                ]
 
             elif name == "kg_put_node":
                 sid = arguments.get("session_id")
@@ -375,10 +452,20 @@ def create_mcp_server() -> Server:
                     touches=arguments.get("touches"),
                     session_id=arguments.get("session_id")
                 )
-                return [TextContent(
-                    type="text",
-                    text=f"Node '{arguments['id']}' saved to {arguments['level']} graph"
-                )]
+                msg = f"Node '{arguments['id']}' saved to {arguments['level']} graph"
+
+                # Gentle nudge: check if node has any edges
+                graph_key = store._get_graph_key(arguments["level"], sid)
+                edges = store.graphs.get(graph_key, {}).get("edges", {})
+                node_id = arguments["id"]
+                has_edges = any(
+                    e["from"] == node_id or e["to"] == node_id
+                    for e in edges.values()
+                )
+                if not has_edges:
+                    msg += "\nTip: connect this node with kg_put_edge to strengthen the graph"
+
+                return [TextContent(type="text", text=msg)]
 
             elif name == "kg_put_edge":
                 sid = arguments.get("session_id")
@@ -437,9 +524,58 @@ def create_mcp_server() -> Server:
                     node_id=arguments["id"],
                     session_id=arguments.get("session_id")
                 )
+                import json
+                node = result["node"]
                 return [TextContent(
                     type="text",
-                    text=f"Recalled node '{arguments['id']}' from {arguments['level']} graph archive"
+                    text=f"Recalled node '{arguments['id']}' from {arguments['level']} graph archive:\n\n{json.dumps(node, indent=2)}"
+                )]
+
+            elif name == "kg_search":
+                import json
+                query = arguments["query"].lower()
+                level_filter = arguments.get("level", "both")
+                sid = arguments.get("session_id")
+                if sid:
+                    session_manager.increment_ops(sid)
+
+                def search_graph(graph_key: str, label: str) -> list[dict]:
+                    if graph_key not in store.graphs:
+                        return []
+                    nodes = store.graphs[graph_key]["nodes"]
+                    matches = []
+                    for node_id, node in nodes.items():
+                        searchable = " ".join([
+                            node_id,
+                            node.get("gist", ""),
+                            " ".join(node.get("notes", [])),
+                            " ".join(node.get("touches", [])),
+                        ]).lower()
+                        if query in searchable:
+                            matches.append({
+                                "level": label,
+                                "id": node_id,
+                                "gist": node.get("gist", ""),
+                                "archived": node.get("_archived", False),
+                                "notes": node.get("notes", []),
+                            })
+                    return matches
+
+                results = []
+                if level_filter in ("user", "both"):
+                    results += search_graph("user", "user")
+                if level_filter in ("project", "both"):
+                    project_path = session_manager.get_project_path(sid) if sid else None
+                    if project_path:
+                        graph_key = f"project:{project_path}"
+                        results += search_graph(graph_key, "project")
+
+                if not results:
+                    return [TextContent(type="text", text=f"No nodes found matching '{arguments['query']}'")]
+
+                return [TextContent(
+                    type="text",
+                    text=f"Found {len(results)} node(s) matching '{arguments['query']}':\n\n{json.dumps(results, indent=2)}"
                 )]
 
             elif name == "kg_sync":
@@ -457,10 +593,20 @@ def create_mcp_server() -> Server:
                 if user_updates == 0 and proj_updates == 0:
                     return [TextContent(type="text", text="No updates from other sessions")]
 
-                import json
+                def format_sync_compact(level_label: str, diff: dict) -> str:
+                    lines = [f"{level_label}: {len(diff['nodes'])} node changes, {len(diff['edges'])} edge changes"]
+                    for nid, node in diff["nodes"].items():
+                        archived = " [archived]" if node.get("_archived") else ""
+                        lines.append(f"  node {nid}{archived}: {node.get('gist', '')[:100]}")
+                    for eid, edge in diff["edges"].items():
+                        lines.append(f"  edge {edge['from']} --{edge['rel']}--> {edge['to']}")
+                    return "\n".join(lines)
+
                 return [TextContent(
                     type="text",
-                    text=f"Updates from other sessions:\n\nUser: {user_updates} changes\nProject: {proj_updates} changes\n\n{json.dumps(updates, indent=2)}"
+                    text="Updates from other sessions:\n\n"
+                        + format_sync_compact("User", updates["user"]) + "\n"
+                        + format_sync_compact("Project", updates["project"])
                 )]
 
             elif name == "kg_progress_get":
@@ -544,12 +690,14 @@ async def main():
     global store, session_manager, connection_manager, mcp_server
 
     # Load configuration
+    from core.constants import get_storage_root, user_graph_path
     config = GraphConfig(
-        max_tokens=int(os.getenv("KG_MAX_TOKENS", "5000")),
-        orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", "7")),
-        grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", "7")),
+        max_tokens=int(os.getenv("KG_MAX_TOKENS", "3000")),
+        orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", "30")),
+        grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", "3")),
         save_interval=int(os.getenv("KG_SAVE_INTERVAL", "30")),
-        user_path=Path(os.getenv("KG_USER_PATH", str(Path.home() / ".claude/knowledge/user.json"))),
+        storage_root=get_storage_root(),
+        user_path=user_graph_path(),
     )
 
     session_manager = HTTPSessionManager()
@@ -593,10 +741,10 @@ async def main():
         }
 
     @rest_api.get("/api/graph/read")
-    async def rest_read_graphs(session_id: str | None = None, project_path: str | None = None):
-        """Read all graphs."""
+    async def rest_read_graphs(session_id: str | None = None, project_path: str | None = None, reload: bool = False):
+        """Read all graphs. Pass reload=true to force re-read from disk."""
         try:
-            return store.read_graphs(session_id=session_id, project_path=project_path)
+            return store.read_graphs(session_id=session_id, project_path=project_path, force_reload=reload)
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
@@ -813,9 +961,10 @@ async def main():
             logger.info("MCP session manager running")
             yield
 
-        # Shutdown
+        # Shutdown — mark store as already shut down to avoid double-flush
         if store:
             store.shutdown()
+            store._shutdown_done = True
         logger.info("Server stopped")
 
     # Wrap ASGI app with lifespan
@@ -851,7 +1000,23 @@ async def main():
         log_level=log_level.lower()
     )
     server_uvi = uvicorn.Server(config_uvi)
+
+    # Signal handlers for graceful shutdown — trigger uvicorn's shutdown
+    # instead of sys.exit() so connections drain properly
+    def handle_signal(signum, frame):
+        sig_name = signal.Signals(signum).name
+        logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+        server_uvi.should_exit = True
+
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+
     await server_uvi.serve()
+
+    # After uvicorn exits, flush store (if lifespan didn't already)
+    if store and not getattr(store, '_shutdown_done', False):
+        logger.info("Saving data before exit...")
+        store.shutdown()
 
 
 if __name__ == "__main__":

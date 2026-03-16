@@ -17,20 +17,20 @@ Extract and remember patterns, insights, and relationships worth preserving acro
 - 🗜️ Auto-compaction to manage context window size
 - ♻️ Smart archiving with recoverable nodes
 
-**Location:** `memory-plugin/` in this marketplace repository
+**Location:** `knowledge-graph/` in this marketplace repository
 
 ## Installation
 
 ### 1. Add This Marketplace
 
 ```
-/plugin marketplace add mironmax/claude-plugins-marketplace
+/plugin marketplace add mironmax/claudecode-plugins-mironmax
 ```
 
 ### 2. Install Plugins
 
 ```
-/plugin install memory@maxim-plugins
+/plugin install knowledge-graph@maxim-plugins
 ```
 
 ### 3. Enable Auto-Loading (Important!)
@@ -39,10 +39,10 @@ Add the knowledge graph instructions to your Claude configuration:
 
 ```bash
 # If you don't have ~/.claude/CLAUDE.md yet:
-cp ~/.claude/plugins/memory/templates/CLAUDE.md ~/.claude/CLAUDE.md
+cp ~/.claude/plugins/knowledge-graph/templates/CLAUDE.md ~/.claude/CLAUDE.md
 
 # If you already have ~/.claude/CLAUDE.md:
-# Manually append the content from ~/.claude/plugins/memory/templates/CLAUDE.md
+# Manually append the content from ~/.claude/plugins/knowledge-graph/templates/CLAUDE.md
 # to your existing file
 ```
 

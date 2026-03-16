@@ -6,26 +6,31 @@ import os
 import time
 import uuid
 from pathlib import Path
-from core.constants import SESSION_ID_LENGTH, SESSION_TTL_SECONDS
-from core.exceptions import SessionNotFoundError
+from core.constants import SESSION_ID_LENGTH, SESSION_TTL_SECONDS, sessions_file_path
 
 logger = logging.getLogger(__name__)
 
-SESSIONS_FILE = Path.home() / ".claude/knowledge/sessions.json"
-
 
 class HTTPSessionManager:
-    """Manages sessions with project_path tracking for multi-project support."""
+    """Manages sessions with project_path tracking for multi-project support.
+
+    Sessions store project root paths (not graph file paths).
+    The store layer resolves project roots to centralized graph paths.
+    """
 
     def __init__(self, session_ttl: int = SESSION_TTL_SECONDS):
         self.session_ttl = session_ttl
         self._sessions: dict[str, dict] = {}
+        self._sessions_file = sessions_file_path()
         self._load_sessions()
 
     def register(self, project_path: str | None = None) -> dict:
         """
-        Register a new session with optional project path.
+        Register a new session with optional project root path.
         Returns {"session_id": str, "start_ts": float}.
+
+        Args:
+            project_path: Absolute path to the project root directory.
         """
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
         ts = time.time()
@@ -63,7 +68,7 @@ class HTTPSessionManager:
         logger.info(f"Session auto-recovered: {session_id} (no project_path — was lost on restart)")
 
     def get_project_path(self, session_id: str) -> str | None:
-        """Get project path for a session. Auto-recovers lost sessions."""
+        """Get project root path for a session. Auto-recovers lost sessions."""
         self.ensure_session(session_id)
         self._update_activity(session_id)
         return self._sessions[session_id]["project_path"]
@@ -150,11 +155,11 @@ class HTTPSessionManager:
 
     def _load_sessions(self) -> None:
         """Load sessions from disk on startup."""
-        if not SESSIONS_FILE.exists():
+        if not self._sessions_file.exists():
             return
 
         try:
-            with open(SESSIONS_FILE) as f:
+            with open(self._sessions_file) as f:
                 saved = json.load(f)
 
             now = time.time()
@@ -171,23 +176,23 @@ class HTTPSessionManager:
                 logger.info(f"Restored {restored} session(s) from disk")
 
         except Exception as e:
-            logger.warning(f"Failed to load sessions from {SESSIONS_FILE}: {e}")
+            logger.warning(f"Failed to load sessions from {self._sessions_file}: {e}")
 
     def save_sessions(self) -> None:
         """Save active sessions to disk. Called periodically by store's save loop."""
         try:
-            SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self._sessions_file.parent.mkdir(parents=True, exist_ok=True)
 
-            temp_path = SESSIONS_FILE.with_suffix(".tmp")
+            temp_path = self._sessions_file.with_suffix(".tmp")
             with open(temp_path, 'w') as f:
                 json.dump(self._sessions, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
 
-            temp_path.replace(SESSIONS_FILE)
+            temp_path.replace(self._sessions_file)
 
         except Exception as e:
             logger.warning(f"Failed to save sessions: {e}")
-            temp_path = SESSIONS_FILE.with_suffix(".tmp")
+            temp_path = self._sessions_file.with_suffix(".tmp")
             if temp_path.exists():
                 temp_path.unlink()

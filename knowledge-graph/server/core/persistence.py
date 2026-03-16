@@ -68,6 +68,8 @@ class GraphPersistence:
             meta = {"versions": versions}
             if progress:
                 meta["progress"] = progress
+            if hasattr(self, '_project_path') and self._project_path:
+                meta["project_path"] = self._project_path
 
             data = {
                 "nodes": graph["nodes"],

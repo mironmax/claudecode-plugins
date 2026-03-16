@@ -1,7 +1,8 @@
 """
 Project discovery utilities for visual editor.
 
-Discovers Claude Code projects from ~/.claude/projects/ directory.
+Discovers Claude Code projects from ~/.claude/projects/ directory
+and loads graph data from centralized ~/.knowledge-graph/projects/ storage.
 """
 
 import json
@@ -11,6 +12,9 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# Centralized storage root
+STORAGE_ROOT = Path.home() / ".knowledge-graph"
 
 
 @dataclass
@@ -69,12 +73,11 @@ def decode_claude_project_path_from_cwd(project_dir: Path) -> Path | None:
         return None
 
     # Read first few lines of multiple session files to find .cwd
-    # (first line might be summary, and some files might not have cwd at all)
-    for session_file in session_files[:3]:  # Try first 3 session files
+    for session_file in session_files[:3]:
         try:
             with open(session_file, 'r') as f:
                 for i, line in enumerate(f):
-                    if i >= 10:  # Check first 10 lines max per file
+                    if i >= 10:
                         break
                     try:
                         data = json.loads(line)
@@ -95,25 +98,11 @@ def decode_claude_project_path(encoded: str) -> Path:
 
     WARNING: This is ambiguous for paths containing hyphens!
     Use decode_claude_project_path_from_cwd() when possible.
-
-    Examples:
-        "-home-maxim-DevProj-my-project" -> Path("/home/maxim/DevProj/my-project")
-        But "-home-maxim-DevProj-claude-plugins-marketplace" could be either:
-          - "/home/maxim/DevProj/claude-plugins-marketplace" (correct)
-          - "/home/maxim/DevProj/claude/plugins/marketplace" (wrong)
-
-    Args:
-        encoded: Encoded directory name from ~/.claude/projects/
-
-    Returns:
-        Decoded Path object (may be incorrect!)
     """
     if encoded.startswith("-"):
-        # Absolute path: first - becomes /, rest become /
         decoded = "/" + encoded[1:].replace("-", "/")
         return Path(decoded)
     else:
-        # Relative path (rare)
         return Path(encoded)
 
 
@@ -121,73 +110,68 @@ def format_project_name(project_path: Path) -> str:
     """
     Extract short, readable name from project path.
 
-    Strategy:
-    - If path depth >= 2: show parent/name (e.g., "DevProj/my-project")
-    - Otherwise: show name only
-    - Max length: 50 chars (truncate if needed)
-
-    Args:
-        project_path: Absolute path to project root
-
-    Returns:
-        Display name for UI
+    Strategy: parent/name for depth >= 2, else name only. Max 50 chars.
     """
     parts = project_path.parts
 
     if len(parts) >= 2:
-        # Show parent/name
         display = f"{parts[-2]}/{parts[-1]}"
     else:
-        # Show name only
         display = parts[-1] if parts else str(project_path)
 
-    # Truncate if too long
     if len(display) > 50:
         display = display[:47] + "..."
 
     return display
 
 
-def load_graph_stats(graph_path: Path) -> tuple[bool, Optional[int], Optional[int]]:
-    """
-    Load graph statistics from graph.json file.
+def project_slug(project_path: Path) -> str:
+    """Derive slug from project path (last component)."""
+    return project_path.name
 
-    Args:
-        graph_path: Path to .claude/knowledge/graph.json
+
+def load_graph_stats(project_path: Path) -> tuple[bool, Optional[int], Optional[int]]:
+    """
+    Load graph statistics from centralized storage.
+
+    Checks ~/.knowledge-graph/projects/<slug>/graph.json first,
+    falls back to legacy <project>/.claude/knowledge/graph.json.
 
     Returns:
         Tuple of (has_graph, node_count, edge_count)
     """
+    slug = project_slug(project_path)
+    centralized_path = STORAGE_ROOT / "projects" / slug / "graph.json"
+    legacy_path = project_path / ".claude" / "knowledge" / "graph.json"
+
+    # Prefer centralized
+    graph_path = centralized_path if centralized_path.exists() else legacy_path
+
     if not graph_path.exists():
         return False, None, None
 
     try:
         data = json.loads(graph_path.read_text())
-
-        # Graph format: {"nodes": {...}, "edges": {...}}
         nodes = data.get("nodes", {})
         edges = data.get("edges", {})
-
         node_count = len(nodes) if isinstance(nodes, dict) else 0
         edge_count = len(edges) if isinstance(edges, dict) else 0
-
         return True, node_count, edge_count
     except Exception as e:
         logger.error(f"Error reading graph {graph_path}: {e}")
-        return True, None, None  # File exists but couldn't parse
+        return True, None, None
 
 
 def load_scraper_status(project_path: Path) -> dict:
     """
     Load scraper status from .scraper_status.json file.
-
-    Args:
-        project_path: Path to project root
-
-    Returns:
-        Dict with "history" and "codebase" scraper status
+    Checks centralized storage first, falls back to legacy location.
     """
-    status_path = project_path / ".claude/knowledge/.scraper_status.json"
+    slug = project_slug(project_path)
+    centralized_status = STORAGE_ROOT / "projects" / slug / ".scraper_status.json"
+    legacy_status = project_path / ".claude/knowledge/.scraper_status.json"
+
+    status_path = centralized_status if centralized_status.exists() else legacy_status
 
     if status_path.exists():
         try:
@@ -241,16 +225,12 @@ def discover_projects() -> list[dict]:
             logger.warning(f"Using fallback path decoding for {project_dir.name} -> {project_path}")
 
         # Check if project directory still exists
-        project_exists = project_path.exists()
-
-        if not project_exists:
+        if not project_path.exists():
             logger.debug(f"Project directory deleted: {project_path}")
-            continue  # Skip deleted projects
+            continue
 
         # Get conversation stats from .jsonl files
         jsonl_files = list(project_dir.glob("*.jsonl"))
-
-        # Filter out agent files (optional, or keep them)
         conversation_files = [
             f for f in jsonl_files
             if not f.name.startswith("agent-")
@@ -261,9 +241,8 @@ def discover_projects() -> list[dict]:
         else:
             last_used = 0
 
-        # Get graph stats
-        graph_path = project_path / ".claude" / "knowledge" / "graph.json"
-        has_graph, node_count, edge_count = load_graph_stats(graph_path)
+        # Get graph stats (checks centralized then legacy)
+        has_graph, node_count, edge_count = load_graph_stats(project_path)
 
         # Get scraper status
         scraper_status = load_scraper_status(project_path)
@@ -299,8 +278,8 @@ if __name__ == "__main__":
 
     print(f"\nFound {len(projects)} projects:\n")
 
-    for p in projects[:5]:  # Show first 5
-        print(f"📁 {p['display_name']}")
+    for p in projects[:5]:
+        print(f"  {p['display_name']}")
         print(f"   Path: {p['project_path']}")
         print(f"   Conversations: {p['conversation_count']}")
 

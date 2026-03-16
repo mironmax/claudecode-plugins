@@ -1,4 +1,4 @@
-# Memory Plugin - Architecture Documentation
+# Knowledge Graph - Architecture Documentation
 
 ## Origin & Evolution
 
@@ -149,7 +149,7 @@ KnowledgeGraphManager (in-memory + file-backed)
    - Simple beats clever
 
 4. **Dual-Mode Access**
-   - **Always loaded**: Core knowledge in every session (~5000 tokens)
+   - **Always loaded**: Core knowledge in every session (~3000 tokens)
    - **Recall on demand**: Archived nodes retrieved when needed
    - **Memory traces**: Edges to archived nodes guide discovery
    - Sequential reading surfaces "hidden" knowledge
@@ -206,16 +206,16 @@ KnowledgeGraphManager (in-memory + file-backed)
              │  - User graph (singleton)    │
              │  - Project graphs (N)        │
              │  - Auto-save (30s interval)  │
-             │  - Auto-compact (5000 tokens)│
+             │  - Auto-compact (3000 tokens)│
              └──────────┬───────────────────┘
                         │
                 ┌───────┴────────┐
                 ↓                ↓
-      ┌─────────────────┐  ┌──────────────────┐
-      │  user.json      │  │  project graphs  │
-      │  ~/.claude/     │  │  .knowledge/     │
-      │  knowledge/     │  │  graph.json      │
-      └─────────────────┘  └──────────────────┘
+      ┌─────────────────┐  ┌──────────────────────────┐
+      │  user.json      │  │  project graphs           │
+      │  ~/.knowledge-  │  │  ~/.knowledge-graph/      │
+      │  graph/         │  │  projects/<slug>/graph.json│
+      └─────────────────┘  └──────────────────────────┘
 ```
 
 ---
@@ -385,12 +385,17 @@ WebSocket          ← Visual editor (we control the client)
 ### File Structure
 
 ```
-~/.claude/knowledge/
-  └── user.json              # Cross-project insights (singleton)
-
-<project-root>/.knowledge/
-  └── graph.json             # Project-specific knowledge
+~/.knowledge-graph/
+  ├── user.json                          # Cross-project insights (singleton)
+  ├── sessions.json                      # Session registry
+  └── projects/
+      └── <slug>/
+          └── graph.json                 # Project-specific knowledge
 ```
+
+**Design decision: Centralized storage.** Previous iterations stored project graphs inside project directories (`.claude/knowledge/graph.json`). This created issues with discovery, backup, and git tracking across multiple projects. Centralizing under `~/.knowledge-graph/` simplifies management while keeping project isolation via slug-based subdirectories.
+
+**Write-through persistence.** Every mutation (node/edge create, update, delete) is immediately persisted to disk. The previous periodic auto-save approach (30s interval) risked data loss on crashes. Write-through eliminates this at negligible performance cost for the typical write frequency.
 
 ### Why JSON Files?
 
@@ -409,29 +414,16 @@ WebSocket          ← Visual editor (we control the client)
 
 ## Future Development Directions
 
-### 1. Visual Editor (Phase 5-6)  
-- D3.js force-directed graph  
-- Real-time via WebSocket ✅ (infrastructure ready)
-- CRUD operations
-- Multi-panel UI
+### Completed
 
-### 2. History Scraper
-- Parse past Claude Code conversation logs
-- LLM extracts insights retroactively
-- Backfill knowledge graph from existing work
-- Bootstrap new graph with historical context
+- **Visual Editor** — D3.js force-directed graph with real-time WebSocket updates, full CRUD, multi-panel UI, project selector. Managed via `manage_visual.sh` / `kg-visual` command.
+- **Scout Skill** (`/skill scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
+- **Extract Skill** (`/skill extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
+- **Full-Text Search** — `kg_search` tool for content search across active and archived nodes.
 
-### 3. Codebase Scraper  
-- Command: `/memory-scan` (or similar)
-- Analyze project architecture, patterns, conventions
-- Generate compressed knowledge nodes
-- Link to file paths (`touches` field)
-- New sessions start with project context pre-loaded
-
-### 4. Planned Features
+### Planned Features
 - Collaborative editing (multi-user visual editor)
 - Import/export (share graph snippets)
-- Search interface (full-text + graph traversal)
 - Analytics (graph metrics, usage patterns)
 - Plugin ecosystem (custom archival/scoring algorithms)
 
@@ -472,6 +464,6 @@ WebSocket          ← Visual editor (we control the client)
 
 ---
 
-**Last Updated:** 2025-12-26  
-**Version:** 0.5.12  
-**Architecture Status:** Stable (MCP complete, Visual editor pending)
+**Last Updated:** 2026-03-16
+**Version:** 0.7.0
+**Architecture Status:** Stable (MCP, visual editor, skills, centralized storage all complete)

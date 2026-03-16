@@ -5,7 +5,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from core import (
     TokenEstimator,
@@ -15,13 +15,15 @@ from core import (
     Graph,
     GRACE_PERIOD_DAYS,
     ORPHAN_GRACE_DAYS,
-    PROJECT_KNOWLEDGE_PATH,
     is_archived,
     version_key_node,
     version_key_edge,
     NodeNotFoundError,
     NodeNotArchivedError,
     validate_level,
+    get_storage_root,
+    project_graph_path,
+    user_graph_path,
 )
 from .session_manager import HTTPSessionManager
 
@@ -35,7 +37,8 @@ class GraphConfig:
     orphan_grace_days: int = ORPHAN_GRACE_DAYS
     grace_period_days: int = GRACE_PERIOD_DAYS
     save_interval: int = 30
-    user_path: Path = Path.home() / ".claude/knowledge/user.json"
+    storage_root: Path = field(default_factory=get_storage_root)
+    user_path: Path = field(default_factory=user_graph_path)
 
 
 class MultiProjectGraphStore:
@@ -44,7 +47,11 @@ class MultiProjectGraphStore:
 
     Structure:
     - graphs["user"] = shared user graph
-    - graphs["project:/path/to/graph.json"] = project-specific graphs
+    - graphs["project:<project_root>"] = project-specific graphs
+
+    Storage:
+    - User graph: ~/.knowledge-graph/user.json
+    - Project graphs: ~/.knowledge-graph/projects/<slug>/graph.json
     """
 
     def __init__(self, config: GraphConfig, session_manager: HTTPSessionManager, broadcast_callback=None):
@@ -57,7 +64,7 @@ class MultiProjectGraphStore:
         self.scorer = NodeScorer(config.grace_period_days)
         self.compactor = Compactor(self.scorer, self.estimator, config.max_tokens)
 
-        # Graph storage: key = "user" or "project:/path/to/graph.json"
+        # Graph storage: key = "user" or "project:<project_root>"
         self.graphs: dict[str, Graph] = {}
         self._versions: dict[str, dict] = {}
         self._progress: dict[str, dict] = {}
@@ -95,22 +102,30 @@ class MultiProjectGraphStore:
 
             logger.info(f"Loaded user graph: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
 
-    def _ensure_project_loaded(self, graph_path: str):
+    def _ensure_project_loaded(self, project_root: str, force_reload: bool = False):
         """
         Load a project graph if not already loaded. Caller must hold lock.
-        graph_path: Full path to graph.json file
+        project_root: Absolute path to project root directory.
+        force_reload: If True, reload from disk even if already cached.
         """
-        project_key = f"project:{graph_path}"
+        project_key = f"project:{project_root}"
 
-        if project_key in self.graphs:
+        if project_key in self.graphs and not force_reload:
             return
 
+        # Resolve project root to centralized graph path
+        # (handles renames via alias lookup and auto-migration)
+        graph_path = project_graph_path(project_root)
+
         # Load from disk
-        persistence = GraphPersistence(Path(graph_path))
+        persistence = GraphPersistence(graph_path)
         graph, versions, progress = persistence.load()
 
         # Clean up orphaned edges (edges pointing to non-existent nodes)
         self._clean_orphaned_edges(graph)
+
+        # Stamp project_path on persistence for rename detection
+        persistence._project_path = project_root
 
         self.graphs[project_key] = graph
         self._versions[project_key] = versions
@@ -118,7 +133,7 @@ class MultiProjectGraphStore:
         self._persistence[project_key] = persistence
         self.dirty[project_key] = False
 
-        logger.info(f"Loaded project graph from {graph_path}: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
+        logger.info(f"Loaded project graph for {project_root}: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges (path: {graph_path})")
 
     def _get_graph_key(self, level: str, session_id: str | None) -> str:
         """Get the graph storage key for a level and session."""
@@ -130,11 +145,11 @@ class MultiProjectGraphStore:
             if not session_id:
                 raise ValueError("session_id required for project-level operations")
 
-            project_path = self.session_manager.get_project_path(session_id)
-            if not project_path:
+            project_root = self.session_manager.get_project_path(session_id)
+            if not project_root:
                 raise ValueError(f"Session {session_id} has no project_path registered")
 
-            return f"project:{project_path}"
+            return f"project:{project_root}"
 
     def _bump_version(self, graph_key: str, key: str, session_id: str | None = None) -> dict:
         """Increment version for a key and return new version. Caller must hold lock."""
@@ -168,21 +183,45 @@ class MultiProjectGraphStore:
         except Exception as e:
             logger.error(f"Error broadcasting: {e}")
 
+    def _write_through(self, graph_key: str):
+        """Immediately save a graph to disk after mutation. Caller must hold lock."""
+        if graph_key in self._persistence:
+            self._save_to_disk(graph_key)
+            self.dirty[graph_key] = False
+
     # ========================================================================
     # Public API
     # ========================================================================
 
-    def read_graphs(self, session_id: str | None = None, project_path: str | None = None) -> dict:
+    def reload_user_graph(self):
+        """Force reload user graph from disk. Thread-safe."""
+        with self.lock:
+            self._load_user_graph()
+            logger.info("User graph reloaded from disk")
+
+    def reload_project_graph(self, project_root: str):
+        """Force reload a specific project graph from disk. Thread-safe."""
+        with self.lock:
+            self._ensure_project_loaded(project_root, force_reload=True)
+            logger.info(f"Project graph reloaded from disk: {project_root}")
+
+    def read_graphs(self, session_id: str | None = None, project_path: str | None = None, force_reload: bool = False) -> dict:
         """
         Read all accessible graphs for a session or project.
 
         Args:
             session_id: Session ID (uses session's registered project path)
             project_path: Direct project root path (alternative to session_id)
+            force_reload: If True, reload graphs from disk before returning.
+                          Use when data may have been modified externally.
 
         Returns dict with "user" and "project" keys.
         """
         with self.lock:
+            # Reload user graph from disk if requested
+            if force_reload:
+                self._load_user_graph()
+
             result = {
                 "user": {
                     "nodes": list(self.graphs["user"]["nodes"].values()),
@@ -191,43 +230,33 @@ class MultiProjectGraphStore:
                 "project": {"nodes": [], "edges": []}
             }
 
-            # Determine graph path
-            graph_path = None
+            # Determine project root
+            project_root = None
 
-            logger.info(f"read_graphs called with session_id={session_id}, project_path={project_path}")
+            logger.info(f"read_graphs called with session_id={session_id}, project_path={project_path}, force_reload={force_reload}")
 
             if session_id:
                 try:
-                    graph_path = self.session_manager.get_project_path(session_id)
+                    project_root = self.session_manager.get_project_path(session_id)
                 except Exception as e:
                     logger.warning(f"Could not get project path for session {session_id}: {e}")
 
             elif project_path:
                 # Direct project path provided (e.g., from visual editor)
-                # Convert project root to graph file path using hardcoded standard location
-                project_root = Path(project_path)
-                graph_file = project_root / PROJECT_KNOWLEDGE_PATH
-
-                logger.info(f"Loading project graph: {graph_file} (exists: {graph_file.exists()})")
-
-                if graph_file.exists():
-                    graph_path = str(graph_file)
-                    logger.info(f"Set graph_path to: {graph_path}")
-                else:
-                    logger.warning(f"Graph file not found: {graph_file}")
+                project_root = str(Path(project_path).resolve())
 
             # Load project graph if we have a path
-            if graph_path:
+            if project_root:
                 try:
-                    project_key = f"project:{graph_path}"
-                    self._ensure_project_loaded(graph_path)
+                    self._ensure_project_loaded(project_root, force_reload=force_reload)
+                    project_key = f"project:{project_root}"
 
                     result["project"] = {
                         "nodes": list(self.graphs[project_key]["nodes"].values()),
                         "edges": list(self.graphs[project_key]["edges"].values()),
                     }
                 except Exception as e:
-                    logger.warning(f"Could not load project graph from {graph_path}: {e}")
+                    logger.warning(f"Could not load project graph for {project_root}: {e}")
 
             return result
 
@@ -246,8 +275,8 @@ class MultiProjectGraphStore:
 
             # Ensure project graph is loaded
             if graph_key.startswith("project:"):
-                project_path = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_path)
+                project_root = graph_key.split(":", 1)[1]
+                self._ensure_project_loaded(project_root)
 
             nodes = self.graphs[graph_key]["nodes"]
 
@@ -272,6 +301,9 @@ class MultiProjectGraphStore:
             self._bump_version(graph_key, ver_key, session_id)
 
             self.dirty[graph_key] = True
+
+            # Write-through: save immediately
+            self._write_through(graph_key)
 
             # Advance sync timestamp so this write is not returned by kg_sync for this session
             if session_id:
@@ -305,8 +337,8 @@ class MultiProjectGraphStore:
 
             # Ensure project graph is loaded
             if graph_key.startswith("project:"):
-                project_path = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_path)
+                project_root = graph_key.split(":", 1)[1]
+                self._ensure_project_loaded(project_root)
 
             edges = self.graphs[graph_key]["edges"]
             edge_key = (from_ref, to_ref, rel)
@@ -323,6 +355,9 @@ class MultiProjectGraphStore:
             self._bump_version(graph_key, ver_key, session_id)
 
             self.dirty[graph_key] = True
+
+            # Write-through: save immediately
+            self._write_through(graph_key)
 
             # Advance sync timestamp so this write is not returned by kg_sync for this session
             if session_id:
@@ -345,8 +380,8 @@ class MultiProjectGraphStore:
 
             # Ensure project graph is loaded
             if graph_key.startswith("project:"):
-                project_path = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_path)
+                project_root = graph_key.split(":", 1)[1]
+                self._ensure_project_loaded(project_root)
 
             nodes = self.graphs[graph_key]["nodes"]
             edges = self.graphs[graph_key]["edges"]
@@ -367,6 +402,9 @@ class MultiProjectGraphStore:
             del nodes[node_id]
 
             self.dirty[graph_key] = True
+
+            # Write-through: save immediately
+            self._write_through(graph_key)
 
             # Broadcast change
             self._broadcast(
@@ -392,8 +430,8 @@ class MultiProjectGraphStore:
 
             # Ensure project graph is loaded
             if graph_key.startswith("project:"):
-                project_path = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_path)
+                project_root = graph_key.split(":", 1)[1]
+                self._ensure_project_loaded(project_root)
 
             edges = self.graphs[graph_key]["edges"]
             edge_key = (from_ref, to_ref, rel)
@@ -401,6 +439,9 @@ class MultiProjectGraphStore:
             if edge_key in edges:
                 del edges[edge_key]
                 self.dirty[graph_key] = True
+
+                # Write-through: save immediately
+                self._write_through(graph_key)
 
                 # Broadcast change
                 self._broadcast(
@@ -421,8 +462,8 @@ class MultiProjectGraphStore:
 
             # Ensure project graph is loaded
             if graph_key.startswith("project:"):
-                project_path = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_path)
+                project_root = graph_key.split(":", 1)[1]
+                self._ensure_project_loaded(project_root)
 
             nodes = self.graphs[graph_key]["nodes"]
 
@@ -444,6 +485,9 @@ class MultiProjectGraphStore:
             self._bump_version(graph_key, ver_key, session_id)
 
             self.dirty[graph_key] = True
+
+            # Write-through: save immediately
+            self._write_through(graph_key)
 
             # Broadcast change
             self._broadcast(
@@ -493,9 +537,9 @@ class MultiProjectGraphStore:
 
             # Add project updates if session has one
             try:
-                project_path = self.session_manager.get_project_path(session_id)
-                if project_path:
-                    project_key = f"project:{project_path}"
+                project_root = self.session_manager.get_project_path(session_id)
+                if project_root:
+                    project_key = f"project:{project_root}"
                     if project_key in self.graphs:
                         result["project"] = get_updates(project_key)
             except Exception as e:
@@ -521,6 +565,10 @@ class MultiProjectGraphStore:
                 self._progress[graph_key] = {}
             self._progress[graph_key][task_id] = state
             self.dirty[graph_key] = True
+
+            # Write-through: save immediately
+            self._write_through(graph_key)
+
             return {"task_id": task_id, "stored": True}
 
     # ========================================================================
@@ -537,6 +585,8 @@ class MultiProjectGraphStore:
 
         if archived:
             self.dirty[graph_key] = True
+            # Write-through after compaction
+            self._write_through(graph_key)
 
     def _clean_orphaned_edges(self, graph: dict):
         """
@@ -633,7 +683,8 @@ class MultiProjectGraphStore:
         return success
 
     def _periodic_save(self):
-        """Background thread for periodic saves and maintenance."""
+        """Background thread for periodic maintenance (compaction, pruning).
+        Write-through handles immediate persistence; this handles background tasks."""
         while self.running:
             time.sleep(self.config.save_interval)
 
@@ -643,7 +694,7 @@ class MultiProjectGraphStore:
                     self._maybe_compact(graph_key)
                     self._prune_orphans(graph_key)
 
-                    # Save if dirty
+                    # Save if dirty (from maintenance operations)
                     if self.dirty.get(graph_key, False):
                         if self._save_to_disk(graph_key):
                             self.dirty[graph_key] = False

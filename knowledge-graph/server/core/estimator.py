@@ -8,10 +8,12 @@ class TokenEstimator:
 
     @staticmethod
     def estimate_node(node: dict) -> int:
-        """Estimate token cost for a single node."""
+        """Estimate token cost for a single node.
+        Only gist counts — notes are detail fetched on-demand via kg_recall,
+        not included in the active context budget.
+        """
         gist_tokens = len(node.get("gist", "")) // CHARS_PER_TOKEN
-        notes_tokens = sum(len(n) // CHARS_PER_TOKEN for n in node.get("notes", []))
-        return BASE_NODE_TOKENS + gist_tokens + notes_tokens
+        return BASE_NODE_TOKENS + gist_tokens
 
     @staticmethod
     def estimate_graph(nodes: dict, edges: dict, include_archived: bool = False) -> int:

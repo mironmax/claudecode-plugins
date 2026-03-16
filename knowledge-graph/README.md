@@ -1,16 +1,17 @@
-# Knowledge Graph, Memory Plugin for Claude Code
+# Knowledge Graph for Claude Code
 
 Extract and remember patterns, insights, and relationships worth preserving across sessions.
 
 ## Features
 
 - 🧠 **Persistent Memory** — Knowledge survives across sessions
-- ⚡ **Fast Operations** — In-memory with periodic disk sync
+- ⚡ **Write-Through Persistence** — Every mutation saved immediately to disk
 - 🔄 **Multi-Session** — Share knowledge across parallel sessions and agents
 - 🎯 **Two Levels** — User (cross-project) and Project (codebase-specific)
 - 🗜️ **Auto-Compaction** — Automatically manages context window size
 - ♻️ **Memory Traces** — Archived knowledge remains discoverable
 - 📊 **Progress Tracking** — Persistent state for long-running tasks (scout, extract)
+- 🔍 **Full-Text Search** — `kg_search` across active and archived nodes
 - 🔍 **Scout Skill** — Mine conversation history for patterns (`/skill scout`)
 - 🗺️ **Extract Skill** — Map codebase architecture into the graph (`/skill extract`)
 
@@ -26,19 +27,19 @@ Most of the time system works out of the box. But one useful pattern is this:
 
 ```bash
 # 1. Add the marketplace
-/plugin marketplace add mironmax/claude-plugins-marketplace
+/plugin marketplace add mironmax/claudecode-plugins-mironmax
 
 # 2. Install the plugin
-/plugin install memory@maxim-plugins
+/plugin install knowledge-graph@maxim-plugins
 
 # 3. Add instructions to your CLAUDE.md
 # If you don't have ~/.claude/CLAUDE.md yet:
-cp ~/.claude/plugins/memory/templates/CLAUDE.md ~/.claude/CLAUDE.md
+cp ~/.claude/plugins/knowledge-graph/templates/CLAUDE.md ~/.claude/CLAUDE.md
 
 # If you already have one, append the template content manually
 
 # 4. Install global command (optional but recommended)
-bash ~/.claude/plugins/memory/install_command.sh
+bash ~/.claude/plugins/knowledge-graph/install_command.sh
 
 # 5. Restart Claude Code
 ```
@@ -63,7 +64,8 @@ To skip permission prompts, add these permissions to your `~/.claude/settings.js
       "mcp__plugin_memory_kg__kg_recall",
       "mcp__plugin_memory_kg__kg_progress_get",
       "mcp__plugin_memory_kg__kg_progress_set",
-      "mcp__plugin_memory_kg__kg_session_stats"
+      "mcp__plugin_memory_kg__kg_session_stats",
+      "mcp__plugin_memory_kg__kg_search"
     ]
   }
 }
@@ -86,7 +88,8 @@ To skip permission prompts, add these permissions to your `~/.claude/settings.js
       "mcp__plugin_memory_kg__kg_recall",
       "mcp__plugin_memory_kg__kg_progress_get",
       "mcp__plugin_memory_kg__kg_progress_set",
-      "mcp__plugin_memory_kg__kg_session_stats"
+      "mcp__plugin_memory_kg__kg_session_stats",
+      "mcp__plugin_memory_kg__kg_search"
     ],
     "deny": [/* ... your existing denies ... */]
   }
@@ -115,7 +118,7 @@ kg-memory logs      # View logs (tail -f)
 
 **Direct script (alternative):**
 ```bash
-cd ~/.claude/plugins/memory/server
+cd ~/.claude/plugins/knowledge-graph/server
 ./manage_server.sh status
 ```
 
@@ -128,7 +131,7 @@ cd ~/.claude/plugins/memory/server
 - Endpoint: `http://127.0.0.1:8765/`
 - Health check: `http://127.0.0.1:8765/health`
 - Logs: `/tmp/mcp_server.log`
-- PID file: `~/.claude/plugins/memory/server/.mcp_server.pid`
+- PID file: `/tmp/.mcp_server.pid`
 
 **Advanced: systemd service (optional)**
 
@@ -137,7 +140,7 @@ For auto-start on boot and auto-restart on crashes (Linux only):
 ```bash
 # Link service file
 mkdir -p ~/.config/systemd/user
-ln -s ~/.claude/plugins/memory/server/memory-mcp.service ~/.config/systemd/user/
+ln -s ~/.claude/plugins/knowledge-graph/server/memory-mcp.service ~/.config/systemd/user/memory-mcp.service
 
 # Enable and start
 systemctl --user enable memory-mcp.service
@@ -167,27 +170,29 @@ Once the server is running:
 
 ## Configuration
 
-Edit `~/.claude/plugins/memory/.mcp.json` to customize:
+Edit `~/.claude/plugins/knowledge-graph/.mcp.json` to customize:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
-| `KG_MAX_TOKENS` | `5000` | Token limit before compaction, per graph file |
-| `KG_ORPHAN_GRACE_DAYS` | `90` | Days before orphaned nodes deleted |
+| `KG_MAX_TOKENS` | `3000` | Token limit before compaction, per graph file |
+| `KG_ORPHAN_GRACE_DAYS` | `30` | Days before orphaned nodes deleted |
+| `KG_GRACE_PERIOD_DAYS` | `3` | Days a node is protected after update |
+| `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
 
-**Note:** Paths are hardcoded and not configurable for consistency.
+**Note:** Storage is centralized at `~/.knowledge-graph/` by default. Override with `KG_STORAGE_ROOT`.
 
 ## Data Locations
 
-- **User level:** `~/.claude/knowledge/user.json` — Cross-project knowledge, never shared
-- **Project level:** `<project>/.claude/knowledge/graph.json` — Codebase-specific
+All data is centralized under `~/.knowledge-graph/` (git-tracked):
+
+- **User level:** `~/.knowledge-graph/user.json` — Cross-project knowledge
+- **Project level:** `~/.knowledge-graph/projects/<slug>/graph.json` — Codebase-specific
+- **Sessions:** `~/.knowledge-graph/sessions.json` — Session registry
 
 ### Git and Sharing
 
-Each project's `.claude/knowledge/` directory contains a `.gitignore` file that:
-- **By default**: Ignores `graph.json` (knowledge stays private)
-- **To share with team**: Comment out the `graph.json` line, review for sensitive data, then commit
-- **Backup files**: Always ignored (`.bak.*` files are for local recovery only)
+The `~/.knowledge-graph/` directory is designed to be git-tracked for backup and portability. Backup files (`.bak.*`) are excluded via `.gitignore`.
 
 ## Backup and Recovery
 
@@ -213,10 +218,10 @@ If you need to restore from a backup:
 
 ```bash
 # For user-level graph:
-cp ~/.claude/knowledge/user.json.bak.1 ~/.claude/knowledge/user.json
+cp ~/.knowledge-graph/user.json.bak.1 ~/.knowledge-graph/user.json
 
 # For project-level graph:
-cp .claude/knowledge/graph.json.bak.daily.3 .claude/knowledge/graph.json
+cp ~/.knowledge-graph/projects/<slug>/graph.json.bak.daily.3 ~/.knowledge-graph/projects/<slug>/graph.json
 ```
 
 Choose the appropriate backup tier based on when the corruption occurred. The plugin will automatically reload on next session.
@@ -228,10 +233,15 @@ All saves use atomic writes (write-to-temp, then rename) to prevent corruption f
 ## Uninstallation
 
 ```bash
-/plugin uninstall memory@maxim-plugins
+/plugin uninstall knowledge-graph@maxim-plugins
 ```
 
 Your knowledge data is preserved in the locations above.
+
+### Migration Tools
+
+- **`server/tools/migrate_storage.py`** — Migrate from old per-project storage to centralized `~/.knowledge-graph/`
+- **`server/tools/replay_sessions.py`** — Replay session history for debugging or recovery
 
 ## License
 
@@ -239,9 +249,26 @@ MIT License — see [LICENSE](LICENSE)
 
 ## Version
 
-0.6.0
+0.7.0
 
 ### Changelog
+
+**0.7.0**
+- Renamed plugin from "memory" to "knowledge-graph"
+- Centralized storage at `~/.knowledge-graph/` (user, projects, sessions)
+- Write-through persistence: every mutation saved immediately to disk
+- Added `kg_search` tool for full-text search across active and archived nodes
+- Added migration tool (`server/tools/migrate_storage.py`) for old storage layout
+- Added session replay tool (`server/tools/replay_sessions.py`)
+- Safe server restart with `setsid`, PID validation, `stop-port` command
+- Added `manage_visual.sh` for visual editor management (`kg-visual` symlink)
+- `KG_MAX_TOKENS` default 3000 (kept low to avoid Claude Code tool result overflow)
+- Updated `KG_ORPHAN_GRACE_DAYS` default to 30, `KG_GRACE_PERIOD_DAYS` to 3
+- Added `KG_STORAGE_ROOT` env var for storage location override
+
+**0.6.1**
+- Fixed session startup order and sync deduplication
+- Project discovery improvements
 
 **0.6.0**
 - Added `kg_progress_get` / `kg_progress_set` tools for persistent task progress tracking

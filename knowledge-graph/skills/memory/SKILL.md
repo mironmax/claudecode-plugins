@@ -11,8 +11,8 @@ Capture insights worth remembering. Retrieve them when relevant.
 
 Every session, immediately:
 ```
-kg_read()              # Load graph
-kg_register_session()  # Enable sync
+kg_register_session(cwd="<project root>")  # Register session, get session_id
+kg_read(session_id="<id>")                 # Load graph
 ```
 
 ## Core Mental Model
@@ -41,6 +41,7 @@ kg_delete_edge(level, from, to, rel, session_id?)              # Remove edge
 kg_progress_get(task_id, level?)                               # Read task progress
 kg_progress_set(task_id, state, level?, session_id?)           # Write task progress
 kg_session_stats(session_id)                                   # Session duration, ops, graph sizes
+kg_search(query, level?, session_id?)                          # Full-text search across nodes
 kg_ping()                                                       # Health check
 ```
 

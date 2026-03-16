@@ -9,11 +9,18 @@
    kg-memory start
    ```
 
-2. **Start Visual Editor**:
+2. **Start Visual Editor** (recommended):
    ```bash
-   cd memory-plugin/visual-editor/backend
+   kg-visual start
+   ```
+
+   Or manually:
+   ```bash
+   cd knowledge-graph/visual-editor/backend
    ../venv/bin/python server.py
    ```
+
+   The `manage_visual.sh` script (symlinked as `kg-visual`) handles starting, stopping, and checking status of the visual editor.
 
 3. **Open in Browser**:
    Navigate to: `http://localhost:3000`
@@ -214,7 +221,7 @@ Store project-specific knowledge:
 ## Version Information
 
 - **Editor Version**: 0.1.0
-- **MCP Server**: 0.6.0+
+- **MCP Server**: 0.7.0+
 - **Transport**: Streamable HTTP + WebSocket
 
 ---

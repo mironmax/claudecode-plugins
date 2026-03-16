@@ -1,172 +1,128 @@
-# Capturing Knowledge — Detailed Reference
+# Capturing Knowledge
 
-## The Capture Imperative
+## The Art of Node Placement
 
-Capture knowledge **immediately when you discover it**, not at session end. Context degrades quickly. The insight that took 20 minutes to discover takes 20 seconds to record — but only if you do it now.
+A knowledge graph's power comes from compression through reuse. When you write `I → likes → pizza` and `Bob → likes → pizza`, the concept `pizza` exists once and is referenced twice. Every additional reference to `pizza` is essentially free — the node has already paid its token cost. This is why node placement matters: place nodes at concepts that will be referenced from multiple contexts.
 
-## Decision: Should I Capture This?
+Think of it like vocabulary. A word becomes useful when it appears in many sentences. A node becomes powerful when it participates in many edges.
 
+### Capture immediately
+
+Capture knowledge **when you discover it**, not at session end. The insight that took 20 minutes to discover takes 20 seconds to record — but only while the context is fresh.
+
+### Should I capture this?
+
+Three questions, in order:
+1. **Recoverable from artifacts?** (code, docs, config) → Don't capture
+2. **Required non-trivial effort to discover?** → If no, probably skip
+3. **Would this help future sessions?** → If yes, capture it
+
+### Capture triggers
+
+| Trigger | What to capture | Level |
+|---------|----------------|-------|
+| 10+ min debugging | Root cause pattern, not just the fix | project |
+| User corrected approach | Signal you missed, how to recognize it | user |
+| Explaining same thing twice | The explanation as a reusable node | project |
+| Undocumented dependency | The relationship as an edge | project |
+| Architectural decision | Decision AND rationale | project |
+| Pattern from another project | Generalized pattern | user |
+| Got confused about something obvious | Why it's confusing | user |
+
+## Compression Through Reuse
+
+The graph's compression works like language. Consider this example:
+
+**Without reuse** (3 separate nodes):
 ```
-Is this recoverable from existing artifacts (code, docs, config)?
-├─ YES → Don't capture. At most, add a `touches` reference.
-└─ NO → Continue...
-
-Did discovering this require non-trivial effort?
-├─ NO → Probably don't capture.
-└─ YES → Continue...
-
-Would this help future sessions avoid repeated work?
-├─ YES → Capture it.
-└─ NO → Don't capture.
+node: "api-auth-needs-session" — API auth requires active session
+node: "websocket-auth-needs-session" — WebSocket auth requires active session
+node: "cron-auth-needs-session" — Cron auth requires active session
 ```
 
-## Capture Triggers
-
-| Trigger | What to Capture | Level |
-|---------|-----------------|-------|
-| Spent 10+ min debugging something | Root cause pattern, not just the fix | project |
-| User corrected your approach | What signal you missed, how to recognize it | user |
-| Found yourself explaining same thing twice | The explanation as a reusable node | project |
-| Discovered undocumented dependency | The relationship as an edge | project |
-| Made an architectural decision | The decision AND its rationale | project |
-| Recognized a pattern from another project | The generalized pattern | user |
-| Got confused about something obvious | Why it's confusing, how to avoid | user |
-
-## Decision: Node vs Edge vs Note
-
+**With reuse** (1 node + 3 edges):
 ```
-Connecting two things that already exist (nodes, files, concepts)?
-├─ YES → Create an EDGE
-└─ NO → Continue...
-
-Standalone insight that could be referenced later?
-├─ YES → Create a NODE
-└─ NO → Continue...
-
-Caveat, detail, or context for an existing node?
-├─ YES → Add to existing node's `notes`
-└─ NO → Continue...
-
-Tentative/weak association?
-├─ YES → Add to existing node's `touches`
-└─ NO → Reconsider if worth capturing
+node: "session-handler" — Session lifecycle manager, provides auth context
+edge: api/auth.py --requires--> session-handler
+edge: websocket/auth.py --requires--> session-handler
+edge: cron/auth.py --requires--> session-handler
 ```
+
+Same information, one-third the tokens, and `session-handler` is now a reusable concept. Future references cost zero.
+
+## Choosing Node Granularity
+
+A node should be **atomic** — one concept, one headline. If your gist uses "and" to join independent ideas, split into two nodes with an edge.
+
+**Too broad:** "Config system loads env vars, validates them, and manages reload signals"
+**Right granularity:** Three nodes — `config-loader`, `config-validator`, `config-reloader` — connected by edges.
+
+**Too narrow:** Creating a node for every file or variable
+**Right granularity:** Nodes for concepts, edges to specific files via `touches` or edge references.
+
+The sweet spot: would you reference this concept from another context? If yes, it deserves a node.
 
 ## Edge-First Thinking
 
-Before creating a node, ask: **"Can I express this as a relationship?"**
+Before creating a node, ask: **"Can I express this as a relationship between existing things?"**
 
-Edges are more powerful because they:
-1. Encode meaning in structure, not just text
-2. Connect to existing knowledge
-3. Survive better during compaction (connectedness score)
+Edges encode meaning in structure. They connect to existing knowledge. They survive compaction better (connected nodes score higher).
 
-**Example transformation:**
-
-What you might write as a node:
+**As a node:**
 ```
 id: "api-auth-requires-session"
-gist: "API auth system requires active session from handler before validating tokens"
+gist: "API auth system requires active session before validating tokens"
 ```
 
-Better as an edge:
+**Better as an edge:**
 ```
 from: "api/auth.py" → to: "session-handler"
 rel: "requires-active"
 notes: ["token validation fails silently without session"]
 ```
 
-Same information, but reuses existing references, encodes relationship type explicitly, and is discoverable from either end.
+Same information, but reuses existing references, makes the relationship explicit, and is discoverable from either end.
 
 ## Compression Techniques
 
-### Level 1: Remove Filler Words
-
-Strip articles, hedging, unnecessary context.
-
-Bad: "I discovered that the configuration file needs to be loaded before the database module initializes, otherwise connections fail"
-
+### Remove filler
+Bad: "I discovered that the configuration file needs to be loaded before the database module initializes"
 Good: "config must load before db init; silent connection failure otherwise"
 
-### Level 2: Use References Instead of Descriptions
-
-Don't describe what can be pointed to.
-
+### Use references
 Bad: "The user authentication module that handles login and token validation"
+Good: `auth-module` (node ID)
 
-Good: `auth/` or `auth-module` (node ID)
-
-### Level 3: Encode Relationships as Structure
-
-Bad: Node "config-depends-on-env-vars" with gist explaining the dependency
-
+### Encode as structure
+Bad: Node "config-depends-on-env-vars" with gist explaining dependency
 Good: Edge `config.py --reads--> .env` with notes for specifics
 
-### Level 4: Generalize When Patterns Repeat
+### Generalize after repetition
+When you see the same pattern 3+ times:
+Bad: Three nodes: "config-init-bug", "auth-init-bug", "cache-init-bug"
+Good: One node: `silent-init-order-deps` — "modules with implicit init order fail silently; seen in config, auth, cache"
 
-When you see the same pattern 3+ times, generalize.
-
-Bad: Three nodes: "config-load-order-bug", "auth-init-order-bug", "cache-init-order-bug"
-
-Good: One node:
-```
-id: "silent-init-order-deps"
-gist: "modules with implicit init order deps fail silently; seen in config, auth, cache"
-touches: ["config.py", "auth/init.py", "cache/init.py"]
-```
-
-### Level 5: The Headline Test
-
-A node's `gist` should read like a newspaper headline — informative but terse.
-
-Bad: "During the debugging session on Tuesday, I found that the reason the API was returning 500 errors was because..."
-
+### The headline test
+A gist should read like a newspaper headline — informative but terse.
+Bad: "During debugging I found the API was returning 500 errors because..."
 Good: "API 500s: db pool exhausted under concurrent auth checks"
-
-## What to Capture at Each Level
-
-### User Level (Cross-Project Wisdom)
-
-**Capture:**
-- Meta-cognitive patterns: "I tend to X when I should Y"
-- User interaction signals: "When user says 'focus', I'm being too scattered"
-- Architectural principles: "Agentic pipelines need explicit data contracts"
-- Tool/technique insights: "pytest fixtures > manual setup for stateful tests"
-- Own failure patterns: "I assume X, but usually Y"
-
-**Don't capture:** Project-specific details, temporary preferences, facts about specific codebases.
-
-**Quality bar:** Would this help in a completely different project?
-
-### Project Level (Codebase-Specific)
-
-**Capture:**
-- Architecture decisions and rationale
-- Non-obvious dependencies between components
-- Debugging discoveries: "X fails when Y because Z"
-- Code conventions not in docs
-- Performance gotchas, integration points
-
-**Don't capture:** Things obvious from reading code, standard framework behavior, temporary state (WIP).
-
-**Quality bar:** Would a new developer benefit from knowing this?
 
 ## API Usage
 
-### Creating a Node
+### Creating a node
 ```
 kg_put_node(
   level="project",           # or "user"
   id="kebab-case-id",        # descriptive, unique within level
-  gist="the insight itself", # terse but complete
+  gist="the insight itself", # terse but complete (~15 words)
   touches=["file.py"],       # optional: related artifacts
   notes=["caveat or context"] # optional: additional details
 )
 ```
 
-**ID conventions:** kebab-case, descriptive, include domain hint (`auth-token-refresh` not `refresh`).
+**Then connect it** — an unconnected node shows a tip reminding you to add an edge.
 
-### Creating an Edge
+### Creating an edge
 ```
 kg_put_edge(
   level="project",
@@ -177,16 +133,24 @@ kg_put_edge(
 )
 ```
 
-**Direct artifact references** — reference files without wrapping in nodes:
+Direct artifact references work without wrapping in nodes:
 ```
 kg_put_edge(level="project", from="src/api/auth.py", to="src/session/handler.py",
             rel="requires-init", notes=["auth.validate() assumes session.current exists"])
 ```
 
-## Anti-Patterns
+## What to Capture at Each Level
 
-- **Capturing obvious things** — "Python uses indentation for blocks"
-- **Duplicating documentation** — "The API endpoint /users accepts POST"
-- **Storing temporary state** — "Currently working on auth refactor"
-- **Creating orphan nodes** — No edges, no touches. Ask: what does this connect to?
-- **Over-specifying** — 500-word gist. Use terse gist + notes + edge to file instead
+### User Level (cross-project wisdom)
+- Meta-cognitive patterns: "I tend to X when I should Y"
+- Interaction signals: "When user says 'focus', I'm being too scattered"
+- Architectural principles: "Agentic pipelines need explicit data contracts"
+- Tool insights: "pytest fixtures > manual setup for stateful tests"
+- Quality bar: Would this help in a completely different project?
+
+### Project Level (codebase-specific)
+- Architecture decisions and rationale
+- Non-obvious dependencies between components
+- Debugging discoveries: "X fails when Y because Z"
+- Code conventions not in docs
+- Quality bar: Would a new developer benefit from knowing this?

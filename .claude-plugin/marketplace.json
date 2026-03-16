@@ -9,9 +9,14 @@
   },
   "plugins": [
     {
-      "name": "memory",
+      "name": "knowledge-graph",
       "description": "Extract and remember patterns, insights, and relationships across sessions. Fast in-memory MCP server with git-style sync.",
-      "source": "./memory-plugin"
+      "source": "./knowledge-graph"
+    },
+    {
+      "name": "scheduler",
+      "description": "Schedule automatic Claude Code session resumption using systemd timers. Survives sleep/hibernate. Linux-only.",
+      "source": "./scheduler-plugin"
     }
   ]
 }

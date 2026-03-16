@@ -1,8 +1,25 @@
 /**
  * Knowledge Graph Visual Editor - Main Application
  *
- * Read-only graph visualization using D3.js force-directed layout
+ * D3.js force-directed graph visualization with CRUD operations
  */
+
+// ============================================================================
+// SVG Icon Templates
+// ============================================================================
+
+const ICONS = {
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+    recall: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
+    link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+    close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+};
+
+function icon(name, size = '') {
+    const cls = size ? `icon icon-${size}` : 'icon';
+    return `<span class="${cls}">${ICONS[name] || ''}</span>`;
+}
 
 // ============================================================================
 // Configuration
@@ -11,13 +28,13 @@
 const CONFIG = {
     apiBaseUrl: window.location.origin,
     mcpServerUrl: 'http://127.0.0.1:8765',
-    refreshInterval: 30000, // 30 seconds
+    refreshInterval: 30000,
     simulation: {
-        linkDistance: 120,        // Reduced from 150 to bring nodes closer
-        linkStrength: 0.4,        // Increased from 0.3 for tighter clustering
-        chargeStrength: -300,     // Reduced from -400 to decrease repulsion
-        centerStrength: 0.3,      // Increased from 0.1 to pull disconnected nodes toward center
-        collisionRadius: 45,      // Slightly reduced from 50
+        linkDistance: 120,
+        linkStrength: 0.4,
+        chargeStrength: -300,
+        centerStrength: 0.3,
+        collisionRadius: 45,
     },
     node: {
         radius: 8,
@@ -32,9 +49,9 @@ const CONFIG = {
 const state = {
     graphData: null,
     selectedNode: null,
-    graphLevel: 'user',  // 'user' or 'project'
-    selectedProject: null,  // project_path when level='project'
-    projects: [],  // Available projects from /api/projects
+    graphLevel: null,       // null = nothing selected, 'user' or 'project'
+    selectedProject: null,
+    projects: [],
     simulation: null,
     zoom: null,
     sessionId: null,
@@ -58,9 +75,23 @@ function hideElement(id) {
 function setConnectionStatus(status, text) {
     const statusDot = document.getElementById('connection-status');
     const statusText = document.getElementById('connection-text');
-
     statusDot.className = `status-dot status-${status}`;
     statusText.textContent = text;
+}
+
+function updateCurrentGraphLabel() {
+    const label = document.getElementById('current-graph-label');
+    if (!state.graphLevel) {
+        label.innerHTML = 'No graph selected';
+    } else if (state.graphLevel === 'user') {
+        label.innerHTML = 'Viewing: <strong>User Graph</strong>';
+    } else if (state.graphLevel === 'project' && state.selectedProject) {
+        const proj = state.projects.find(p => p.project_path === state.selectedProject);
+        const name = proj ? proj.display_name : state.selectedProject.split('/').pop();
+        label.innerHTML = `Viewing: <strong>${escapeHtml(name)}</strong>`;
+    } else {
+        label.innerHTML = 'Select a project';
+    }
 }
 
 function updateStats(nodeCount, edgeCount) {
@@ -71,6 +102,7 @@ function updateStats(nodeCount, edgeCount) {
 function showError(message) {
     document.getElementById('error-message').textContent = message;
     hideElement('graph-loading');
+    hideElement('graph-welcome');
     showElement('graph-error');
     setConnectionStatus('error', 'Disconnected');
 }
@@ -85,7 +117,7 @@ function connectWebSocket() {
 
     state.ws.onopen = () => {
         console.log('WebSocket connected');
-        setConnectionStatus('connected', 'Live Updates Active');
+        setConnectionStatus('connected', 'Live');
     };
 
     state.ws.onmessage = (event) => {
@@ -95,12 +127,12 @@ function connectWebSocket() {
 
     state.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        setConnectionStatus('error', 'Live Updates Failed');
+        setConnectionStatus('error', 'Error');
     };
 
     state.ws.onclose = () => {
         console.log('WebSocket disconnected');
-        setConnectionStatus('error', 'Disconnected');
+        setConnectionStatus('error', 'Offline');
         setTimeout(() => connectWebSocket(), 5000);
     };
 }
@@ -117,7 +149,7 @@ function handleWebSocketMessage(message) {
         case 'edge_updated':
         case 'edge_deleted':
         case 'node_recalled':
-            if (message.level === state.graphLevel) {
+            if (state.graphLevel && message.level === state.graphLevel) {
                 loadGraph();
                 showToast(formatUpdateMessage(message), 'success');
             }
@@ -129,8 +161,8 @@ function formatUpdateMessage(message) {
     const actions = {
         'node_updated': `Node updated: ${message.node?.id}`,
         'node_deleted': `Node deleted: ${message.node_id}`,
-        'edge_updated': `Edge updated: ${message.edge?.from} → ${message.edge?.to}`,
-        'edge_deleted': `Edge deleted: ${message.from} → ${message.to}`,
+        'edge_updated': `Edge updated: ${message.edge?.from} \u2192 ${message.edge?.to}`,
+        'edge_deleted': `Edge deleted: ${message.from} \u2192 ${message.to}`,
         'node_recalled': `Node recalled: ${message.node?.id}`
     };
     return actions[message.type] || 'Graph updated';
@@ -155,9 +187,7 @@ function showToast(message, type = 'info') {
 async function fetchProjects() {
     try {
         const response = await fetch(`${CONFIG.apiBaseUrl}/api/projects`);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         return await response.json();
     } catch (error) {
         console.error('Error fetching projects:', error);
@@ -173,13 +203,8 @@ async function fetchGraphData() {
         }
 
         const response = await fetch(`${CONFIG.apiBaseUrl}/api/graph${params}`);
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        return data;
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        return await response.json();
     } catch (error) {
         console.error('Error fetching graph data:', error);
         throw error;
@@ -195,11 +220,11 @@ async function checkHealth() {
             setConnectionStatus('connected', 'Connected');
             return true;
         } else {
-            setConnectionStatus('error', 'MCP Server Down');
+            setConnectionStatus('error', 'Server down');
             return false;
         }
     } catch (error) {
-        setConnectionStatus('error', 'Connection Failed');
+        setConnectionStatus('error', 'Unreachable');
         return false;
     }
 }
@@ -220,16 +245,15 @@ async function loadProjects() {
             const option = document.createElement('option');
             option.value = project.project_path;
 
-            // Format: "DevProj/project-name (235N • 127E)"
             let label = project.display_name;
             if (project.has_graph && project.node_count !== null) {
-                label += ` (${project.node_count}N • ${project.edge_count}E)`;
+                label += ` (${project.node_count}N \u00b7 ${project.edge_count}E)`;
             } else {
                 label += ' (no graph)';
             }
 
             option.textContent = label;
-            option.title = project.project_path;  // Tooltip shows full path
+            option.title = project.project_path;
             selector.appendChild(option);
         });
 
@@ -244,25 +268,9 @@ async function loadProjects() {
 // ============================================================================
 
 function transformGraphData(rawData) {
-    /**
-     * Transform MCP graph format into D3.js-compatible format
-     *
-     * Input format:
-     * {
-     *   "user": { "nodes": {...}, "edges": {...} },
-     *   "project": { "nodes": {...}, "edges": {...} }
-     * }
-     *
-     * Output format:
-     * {
-     *   nodes: [{id, gist, level, archived, orphaned, ...}, ...],
-     *   links: [{source, target, rel, ...}, ...]
-     * }
-     */
     const nodes = [];
     const links = [];
 
-    // Process user-level nodes
     if (rawData.user?.nodes) {
         Object.values(rawData.user.nodes).forEach(node => {
             nodes.push({
@@ -274,7 +282,6 @@ function transformGraphData(rawData) {
         });
     }
 
-    // Process project-level nodes
     if (rawData.project?.nodes) {
         Object.values(rawData.project.nodes).forEach(node => {
             nodes.push({
@@ -286,50 +293,19 @@ function transformGraphData(rawData) {
         });
     }
 
-    // Create node ID set for validation
     const nodeIds = new Set(nodes.map(n => n.id));
 
-    // Process user-level edges (with validation)
     if (rawData.user?.edges) {
         Object.values(rawData.user.edges).forEach(edge => {
-            // Skip orphaned edges (pointing to non-existent nodes)
-            if (!nodeIds.has(edge.from)) {
-                console.warn(`Skipping orphaned edge: ${edge.from} -> ${edge.to} (source node missing)`);
-                return;
-            }
-            if (!nodeIds.has(edge.to)) {
-                console.warn(`Skipping orphaned edge: ${edge.from} -> ${edge.to} (target node missing)`);
-                return;
-            }
-
-            links.push({
-                ...edge,
-                source: edge.from,
-                target: edge.to,
-                level: 'user',
-            });
+            if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) return;
+            links.push({ ...edge, source: edge.from, target: edge.to, level: 'user' });
         });
     }
 
-    // Process project-level edges (with validation)
     if (rawData.project?.edges) {
         Object.values(rawData.project.edges).forEach(edge => {
-            // Skip orphaned edges (pointing to non-existent nodes)
-            if (!nodeIds.has(edge.from)) {
-                console.warn(`Skipping orphaned edge: ${edge.from} -> ${edge.to} (source node missing)`);
-                return;
-            }
-            if (!nodeIds.has(edge.to)) {
-                console.warn(`Skipping orphaned edge: ${edge.from} -> ${edge.to} (target node missing)`);
-                return;
-            }
-
-            links.push({
-                ...edge,
-                source: edge.from,
-                target: edge.to,
-                level: 'project',
-            });
+            if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) return;
+            links.push({ ...edge, source: edge.from, target: edge.to, level: 'project' });
         });
     }
 
@@ -337,19 +313,15 @@ function transformGraphData(rawData) {
 }
 
 function applyLevelFilter(data, graphLevel) {
-    // With new design: user OR project (not both, not "all")
-    const filter = graphLevel === 'user' ? 'user' : 'project';
+    if (!graphLevel) return { nodes: [], links: [] };
 
-    const filteredNodes = data.nodes.filter(n => n.level === filter);
+    const filteredNodes = data.nodes.filter(n => n.level === graphLevel);
     const nodeIds = new Set(filteredNodes.map(n => n.id));
     const filteredLinks = data.links.filter(
         l => nodeIds.has(l.source.id || l.source) && nodeIds.has(l.target.id || l.target)
     );
 
-    return {
-        nodes: filteredNodes,
-        links: filteredLinks,
-    };
+    return { nodes: filteredNodes, links: filteredLinks };
 }
 
 // ============================================================================
@@ -363,7 +335,7 @@ function openModal(title, content, actions) {
     container.innerHTML = `
         <div class="modal-header">
             <h3>${title}</h3>
-            <button class="modal-close" onclick="closeModal()">✕</button>
+            <button class="modal-close" onclick="closeModal()">${icon('close')}</button>
         </div>
         <div class="modal-body">${content}</div>
         <div class="modal-footer">${actions}</div>
@@ -511,7 +483,7 @@ async function submitEdgeForm() {
 function confirmDeleteNode(node) {
     openModal('Confirm Deletion', `
         <p>Delete node <strong>${escapeHtml(node.id)}</strong>?</p>
-        <p style="color: var(--warning-color)">Connected edges will also be deleted.</p>
+        <p style="color: var(--warning-color); margin-top: 0.5rem;">Connected edges will also be deleted.</p>
     `, `
         <button class="btn" onclick="closeModal()">Cancel</button>
         <button class="btn btn-danger" onclick="deleteNode('${escapeHtml(node.id)}')">Delete</button>
@@ -556,18 +528,18 @@ function createContextMenu() {
     menu.id = 'context-menu';
     menu.className = 'context-menu hidden';
     menu.innerHTML = `
-        <div class="context-menu-item" data-action="edit">✏️ Edit Node</div>
-        <div class="context-menu-item" data-action="delete">🗑️ Delete Node</div>
-        <div class="context-menu-item" data-action="recall">↩️ Recall</div>
+        <div class="context-menu-item" data-action="edit">${icon('edit')} Edit Node</div>
+        <div class="context-menu-item" data-action="delete">${icon('trash')} Delete Node</div>
+        <div class="context-menu-item" data-action="recall">${icon('recall')} Recall</div>
         <div class="context-menu-divider"></div>
-        <div class="context-menu-item" data-action="create-edge">🔗 Create Edge</div>
+        <div class="context-menu-item" data-action="create-edge">${icon('link')} Create Edge</div>
     `;
     document.body.appendChild(menu);
 
     menu.addEventListener('click', (e) => {
-        const action = e.target.dataset.action;
-        if (action) {
-            handleContextMenuAction(action);
+        const item = e.target.closest('[data-action]');
+        if (item) {
+            handleContextMenuAction(item.dataset.action);
             hideContextMenu();
         }
     });
@@ -596,7 +568,7 @@ function handleContextMenuAction(action) {
         case 'delete': confirmDeleteNode(node); break;
         case 'recall':
             if (node.archived) recallNode(node);
-            else showToast('Node not archived', 'warning');
+            else showToast('Node is not archived', 'warning');
             break;
         case 'create-edge': startEdgeCreation(node); break;
     }
@@ -612,7 +584,6 @@ function initializeGraph() {
     const svg = d3.select('#graph-svg');
     const container = svg.append('g');
 
-    // Setup zoom behavior
     state.zoom = d3.zoom()
         .scaleExtent([0.1, 4])
         .on('zoom', (event) => {
@@ -621,7 +592,6 @@ function initializeGraph() {
 
     svg.call(state.zoom);
 
-    // Create force simulation
     const width = document.getElementById('graph-container').clientWidth;
     const height = document.getElementById('graph-container').clientHeight;
 
@@ -630,8 +600,8 @@ function initializeGraph() {
         .force('charge', d3.forceManyBody().strength(CONFIG.simulation.chargeStrength))
         .force('center', d3.forceCenter(width / 2, height / 2).strength(CONFIG.simulation.centerStrength))
         .force('collision', d3.forceCollide().radius(CONFIG.simulation.collisionRadius))
-        .force('x', d3.forceX(width / 2).strength(0.05))  // Pull all nodes toward horizontal center
-        .force('y', d3.forceY(height / 2).strength(0.05)); // Pull all nodes toward vertical center
+        .force('x', d3.forceX(width / 2).strength(0.05))
+        .force('y', d3.forceY(height / 2).strength(0.05));
 
     return { svg, container };
 }
@@ -643,13 +613,10 @@ function renderGraph(graphData) {
         state.svgElements = { svg, container };
     }
 
-    // Clear existing elements
     container.selectAll('*').remove();
 
-    // Apply level filter
     const filteredData = applyLevelFilter(graphData, state.graphLevel);
 
-    // Update stats
     updateStats(filteredData.nodes.length, filteredData.links.length);
 
     if (filteredData.nodes.length === 0) {
@@ -657,7 +624,31 @@ function renderGraph(graphData) {
         return;
     }
 
-    // Create links
+    // --- Compute per-node metrics ---
+    // Degree: count of connections
+    const degreeMap = {};
+    filteredData.nodes.forEach(n => degreeMap[n.id] = 0);
+    filteredData.links.forEach(l => {
+        const src = l.source.id || l.source;
+        const tgt = l.target.id || l.target;
+        if (degreeMap[src] !== undefined) degreeMap[src]++;
+        if (degreeMap[tgt] !== undefined) degreeMap[tgt]++;
+    });
+    const maxDegree = Math.max(1, ...Object.values(degreeMap));
+
+    // Content weight: rough char count of gist + notes
+    filteredData.nodes.forEach(n => {
+        const degree = degreeMap[n.id] || 0;
+        // Radius: base 8, scales up to 12 (1.5x) via sqrt of normalized degree
+        n._radius = CONFIG.node.radius * (1 + 0.5 * Math.sqrt(degree / maxDegree));
+        // Content weight: gist length + notes length (capped)
+        const gistLen = (n.gist || '').length;
+        const notesLen = (n.notes || []).reduce((sum, note) => sum + note.length, 0);
+        n._contentWeight = Math.min(gistLen + notesLen, 1000); // cap at 1000 chars
+    });
+    const maxContent = Math.max(1, ...filteredData.nodes.map(n => n._contentWeight));
+
+    // Links
     const link = container.append('g')
         .selectAll('line')
         .data(filteredData.links)
@@ -666,7 +657,7 @@ function renderGraph(graphData) {
         .attr('class', 'link')
         .attr('stroke-width', 1.5);
 
-    // Create link labels
+    // Link labels
     const linkLabel = container.append('g')
         .selectAll('text')
         .data(filteredData.links)
@@ -675,7 +666,7 @@ function renderGraph(graphData) {
         .attr('class', 'link-label')
         .text(d => d.rel);
 
-    // Create nodes
+    // Nodes — radius varies by connection count
     const node = container.append('g')
         .selectAll('circle')
         .data(filteredData.nodes)
@@ -687,7 +678,7 @@ function renderGraph(graphData) {
             if (d.orphaned) classes.push('node-orphan');
             return classes.join(' ');
         })
-        .attr('r', CONFIG.node.radius)
+        .attr('r', d => d._radius)
         .on('click', (event, d) => handleNodeClick(event, d))
         .on('contextmenu', (event, d) => {
             event.preventDefault();
@@ -698,17 +689,30 @@ function renderGraph(graphData) {
             .on('drag', dragged)
             .on('end', dragEnded));
 
-    // Create node labels
+    // Node labels — offset scales with radius
     const nodeLabel = container.append('g')
         .selectAll('text')
         .data(filteredData.nodes)
         .enter()
         .append('text')
-        .attr('class', 'node-label')
-        .attr('dy', -15)
+        .attr('class', d => {
+            let cls = 'node-label';
+            if (d.archived) cls += ' node-label-archived';
+            if (d.orphaned) cls += ' node-label-orphan';
+            return cls;
+        })
+        .attr('dy', d => -(d._radius + 6))
         .text(d => truncateText(d.id, 20));
 
-    // Update simulation
+    // --- Simulation with per-node forces ---
+    // Charge: content-heavy nodes pull 1.5–2.5x harder
+    state.simulation.force('charge', d3.forceManyBody().strength(d => {
+        const contentRatio = d._contentWeight / maxContent; // 0..1
+        return CONFIG.simulation.chargeStrength * (1 + contentRatio);
+    }));
+    // Collision: match visual radius + padding
+    state.simulation.force('collision', d3.forceCollide().radius(d => d._radius + 4));
+
     state.simulation
         .nodes(filteredData.nodes)
         .on('tick', () => {
@@ -748,9 +752,8 @@ function showEmptyState(message) {
         .attr('x', width / 2)
         .attr('y', height / 2)
         .attr('text-anchor', 'middle')
-        .attr('class', 'empty-state')
-        .style('fill', '#cbd5e1')
-        .style('font-size', '1.1rem')
+        .style('fill', 'var(--text-secondary)')
+        .style('font-size', '0.9375rem')
         .text(message);
 }
 
@@ -759,7 +762,6 @@ function showEmptyState(message) {
 // ============================================================================
 
 function handleNodeClick(event, node) {
-    // Update selection state
     d3.selectAll('.node').classed('selected', false);
     d3.select(event.target).classed('selected', true);
 
@@ -783,7 +785,7 @@ function renderNodeDetails(node) {
                     <div class="detail-value">
                         <span class="badge badge-${node.level}">${node.level}</span>
                         ${node.archived ? '<span class="badge badge-archived">Archived</span>' : ''}
-                        ${node.orphaned ? '<span class="badge badge-archived">Orphaned</span>' : ''}
+                        ${node.orphaned ? '<span class="badge badge-orphaned">Orphaned</span>' : ''}
                     </div>
                 </div>
                 <div class="detail-field">
@@ -837,8 +839,14 @@ function dragEnded(event, d) {
 // ============================================================================
 
 async function loadGraph() {
+    if (!state.graphLevel) return;
+
+    // For project level, need a selected project
+    if (state.graphLevel === 'project' && !state.selectedProject) return;
+
     try {
         hideElement('graph-error');
+        hideElement('graph-welcome');
         showElement('graph-loading');
 
         const rawData = await fetchGraphData();
@@ -847,11 +855,23 @@ async function loadGraph() {
         renderGraph(state.graphData);
 
         hideElement('graph-loading');
-        setConnectionStatus('connected', 'Connected');
+        updateCurrentGraphLabel();
     } catch (error) {
         console.error('Failed to load graph:', error);
         showError(`Failed to load graph: ${error.message}`);
     }
+}
+
+function showWelcome() {
+    // Clear any existing graph
+    if (state.svgElements?.container) {
+        state.svgElements.container.selectAll('*').remove();
+    }
+    hideElement('graph-loading');
+    hideElement('graph-error');
+    showElement('graph-welcome');
+    updateStats(0, 0);
+    updateCurrentGraphLabel();
 }
 
 async function initialize() {
@@ -864,19 +884,28 @@ async function initialize() {
         return;
     }
 
-    // Connect WebSocket for real-time updates
+    // Connect WebSocket
     connectWebSocket();
 
-    // Load projects and populate dropdown
+    // Load projects
     await loadProjects();
 
-    // Load initial graph
-    await loadGraph();
+    // Show welcome state (no graph loaded by default)
+    hideElement('graph-loading');
+    showWelcome();
 
-    // Setup event listeners
-    document.getElementById('refresh-btn').addEventListener('click', loadGraph);
+    // Event listeners
+    document.getElementById('refresh-btn').addEventListener('click', () => {
+        if (state.graphLevel) loadGraph();
+    });
     document.getElementById('retry-btn').addEventListener('click', loadGraph);
-    document.getElementById('create-node-btn').addEventListener('click', () => openEditNodeModal());
+    document.getElementById('create-node-btn').addEventListener('click', () => {
+        if (!state.graphLevel) {
+            showToast('Select a graph level first', 'warning');
+            return;
+        }
+        openEditNodeModal();
+    });
 
     document.getElementById('zoom-in-btn').addEventListener('click', () => {
         state.svgElements?.svg.transition().call(state.zoom.scaleBy, 1.3);
@@ -890,7 +919,7 @@ async function initialize() {
         state.svgElements?.svg.transition().call(state.zoom.transform, d3.zoomIdentity);
     });
 
-    // Level selector radio buttons
+    // Level selector
     document.getElementById('level-user').addEventListener('change', (e) => {
         if (e.target.checked) {
             state.graphLevel = 'user';
@@ -907,11 +936,12 @@ async function initialize() {
             if (selector.value) {
                 state.selectedProject = selector.value;
                 loadGraph();
+            } else {
+                updateCurrentGraphLabel();
             }
         }
     });
 
-    // Project selector dropdown
     document.getElementById('project-selector').addEventListener('change', (e) => {
         state.selectedProject = e.target.value;
         if (state.graphLevel === 'project' && state.selectedProject) {

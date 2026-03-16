@@ -11,7 +11,10 @@
     <!-- Mobile/Small Screen Warning -->
     <div id="unsupported-screen" class="unsupported-message">
         <div class="message-content">
-            <h1>📱 Desktop Required</h1>
+            <h1>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18"/></svg>
+                Desktop Required
+            </h1>
             <p>The Knowledge Graph Visual Editor requires a minimum screen width of 1366px.</p>
             <p>Please access this page from a desktop or laptop computer.</p>
             <p class="specs">Current width: <span id="current-width"></span>px</p>
@@ -22,12 +25,29 @@
     <div id="app-container">
         <!-- Header -->
         <header class="app-header">
-            <h1>📊 Knowledge Graph Visual Editor</h1>
+            <div class="header-brand">
+                <!-- KG Logo: three interconnected nodes (palette: sapphire, lavender, green) -->
+                <svg class="logo" viewBox="0 0 32 32" fill="none">
+                    <line x1="8" y1="10" x2="24" y2="10" stroke="#B2DCE2" stroke-width="1.5" opacity="0.4"/>
+                    <line x1="8" y1="10" x2="16" y2="24" stroke="#B2DCE2" stroke-width="1.5" opacity="0.4"/>
+                    <line x1="24" y1="10" x2="16" y2="24" stroke="#B2DCE2" stroke-width="1.5" opacity="0.4"/>
+                    <circle cx="8" cy="10" r="3.5" fill="#6596F3" opacity="0.9"/>
+                    <circle cx="24" cy="10" r="3.5" fill="#D3A4EA" opacity="0.9"/>
+                    <circle cx="16" cy="24" r="3.5" fill="#83B366" opacity="0.9"/>
+                </svg>
+                <h1>Knowledge Graph</h1>
+            </div>
             <div class="header-controls">
-                <button id="refresh-btn" class="btn btn-primary">🔄 Refresh</button>
-                <div class="status-indicator">
+                <span id="current-graph-label" class="current-graph-label">No graph selected</span>
+                <button id="refresh-btn" class="btn btn-sm" title="Reload graph data">
+                    <span class="icon icon-sm">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </span>
+                    Refresh
+                </button>
+                <div class="status-indicator" id="status-wrapper" title="Server connection status">
                     <span id="connection-status" class="status-dot status-checking"></span>
-                    <span id="connection-text">Checking...</span>
+                    <span id="connection-text">Checking</span>
                 </div>
             </div>
         </header>
@@ -37,18 +57,40 @@
             <!-- Graph Visualization Panel -->
             <section class="graph-panel">
                 <div class="panel-header">
-                    <h2>Graph Visualization</h2>
+                    <h2>Graph</h2>
                     <div class="panel-controls">
-                        <button id="create-node-btn" class="btn btn-primary btn-sm">➕ New Node</button>
-                        <button id="zoom-in-btn" class="btn btn-sm">➕</button>
-                        <button id="zoom-out-btn" class="btn btn-sm">➖</button>
-                        <button id="zoom-reset-btn" class="btn btn-sm">⟲</button>
+                        <button id="create-node-btn" class="btn btn-primary btn-sm">
+                            <span class="icon icon-sm">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            </span>
+                            New Node
+                        </button>
 
-                        <!-- Level Selector: User OR Project (not both) -->
+                        <span class="controls-divider"></span>
+
+                        <button id="zoom-in-btn" class="btn-icon btn-sm" title="Zoom in">
+                            <span class="icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                            </span>
+                        </button>
+                        <button id="zoom-out-btn" class="btn-icon btn-sm" title="Zoom out">
+                            <span class="icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+                            </span>
+                        </button>
+                        <button id="zoom-reset-btn" class="btn-icon btn-sm" title="Reset zoom">
+                            <span class="icon">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><polyline points="3 3 3 8 8 8"/></svg>
+                            </span>
+                        </button>
+
+                        <span class="controls-divider"></span>
+
+                        <!-- Level Selector: User OR Project -->
                         <div class="level-selector">
                             <label class="radio-label">
-                                <input type="radio" name="graph-level" value="user" id="level-user" checked>
-                                <span>User Graph</span>
+                                <input type="radio" name="graph-level" value="user" id="level-user">
+                                <span>User</span>
                             </label>
                             <label class="radio-label">
                                 <input type="radio" name="graph-level" value="project" id="level-project">
@@ -62,13 +104,32 @@
                 </div>
                 <div id="graph-container" class="graph-viewport">
                     <svg id="graph-svg"></svg>
-                    <div id="graph-loading" class="loading-overlay">
+
+                    <!-- Welcome state: shown when no graph is selected -->
+                    <div id="graph-welcome" class="welcome-state">
+                        <svg class="welcome-icon" viewBox="0 0 32 32" fill="none">
+                            <line x1="8" y1="10" x2="24" y2="10" stroke="#B2DCE2" stroke-width="1.5" opacity="0.2"/>
+                            <line x1="8" y1="10" x2="16" y2="24" stroke="#B2DCE2" stroke-width="1.5" opacity="0.2"/>
+                            <line x1="24" y1="10" x2="16" y2="24" stroke="#B2DCE2" stroke-width="1.5" opacity="0.2"/>
+                            <circle cx="8" cy="10" r="3.5" fill="#6596F3" opacity="0.4"/>
+                            <circle cx="24" cy="10" r="3.5" fill="#D3A4EA" opacity="0.4"/>
+                            <circle cx="16" cy="24" r="3.5" fill="#83B366" opacity="0.4"/>
+                        </svg>
+                        <p>Select <strong>User</strong> or a <strong>Project</strong> graph to begin</p>
+                    </div>
+
+                    <div id="graph-loading" class="loading-overlay hidden">
                         <div class="spinner"></div>
-                        <p>Loading knowledge graph...</p>
+                        <p>Loading graph...</p>
                     </div>
                     <div id="graph-error" class="error-overlay hidden">
                         <div class="error-content">
-                            <h3>⚠️ Connection Error</h3>
+                            <h3>
+                                <span class="icon icon-xl">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--error-color)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                </span>
+                                Connection Error
+                            </h3>
                             <p id="error-message"></p>
                             <button id="retry-btn" class="btn btn-primary">Retry</button>
                         </div>
@@ -78,15 +139,15 @@
                     <div class="legend">
                         <div class="legend-item">
                             <span class="legend-node node-active"></span>
-                            <span>Active Node</span>
+                            <span>Active</span>
                         </div>
                         <div class="legend-item">
                             <span class="legend-node node-archived"></span>
-                            <span>Archived Node</span>
+                            <span>Archived</span>
                         </div>
                         <div class="legend-item">
                             <span class="legend-node node-orphan"></span>
-                            <span>Orphaned Node</span>
+                            <span>Orphaned</span>
                         </div>
                     </div>
                     <div class="stats">
@@ -99,11 +160,14 @@
             <!-- Detail Panel (Bottom) -->
             <section class="detail-panel">
                 <div class="panel-header">
-                    <h2>Node Details</h2>
+                    <h2>Details</h2>
                 </div>
                 <div id="detail-content" class="detail-content">
                     <div class="empty-state">
-                        <p>👆 Click a node to view details</p>
+                        <span class="icon icon-xl">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"/></svg>
+                        </span>
+                        <p>Click a node to view details</p>
                     </div>
                 </div>
             </section>

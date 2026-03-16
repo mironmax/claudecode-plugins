@@ -1,143 +1,110 @@
-# Maintaining the Knowledge Graph — Detailed Reference
+# Maintaining the Knowledge Graph
+
+## What a Healthy Graph Looks Like
+
+A healthy graph is a mesh of connections, not a collection of isolated facts. Most nodes participate in at least one edge. Concepts branch and cross-reference naturally. The health stats in `kg_read` output show this at a glance:
+
+- **Low orphan rate** (<20%) — most nodes are connected
+- **Reasonable edge density** (1-3 edges/node) — concepts are linked but not over-connected
+- **Mix of levels** — user-level patterns inform project-level decisions
+
+When you notice many orphans after loading, look for natural connections. This isn't an obligation — it's an opportunity to strengthen the graph's compression power.
 
 ## Self-Reflection Triggers
 
-Patterns that should cause you to pause, reflect, and potentially capture a meta-learning.
+### Spinning wheels
+**Pattern:** 3+ attempts at the same action without progress.
+**Response:** STOP. Ask: What am I assuming? Have I seen this before? (`kg_sync()` then `kg_search()`)
+**Capture:** Meta-learning at user level, specific issue at project level.
 
-### Trigger 1: Spinning Wheels
+### User correction
+**Pattern:** "No," "that's wrong," "focus," "step back."
+**Response:** STOP. Understand what the user actually wants. Identify the signal you missed.
+**Capture:** The pattern at user level — so you recognize the signal next time.
 
-**Pattern:** 3+ attempts at the same type of action without progress.
+### Confusion about known state
+**Pattern:** "Where is this data?" about something you should know.
+**Response:** Trace the data flow explicitly instead of guessing.
+**Capture:** Poor organization → project level; your pattern → user level.
 
-**Response:**
-1. STOP. Don't try a fourth time.
-2. Ask: What am I assuming that might be wrong? Have I seen this before? (`kg_sync()`)
-3. If you discover something: capture meta-learning (user level), specific issue (project level).
+### Unexpected result
+**Pattern:** Tool output doesn't match expectation.
+**Response:** Understand WHY before working around it.
+**Capture:** Wrong mental model (user), undocumented behavior (project), or actual bug.
 
-### Trigger 2: User Correction
-
-**Pattern:** User says "no," "that's wrong," "focus," "step back," "not what I meant."
-
-**Response:**
-1. STOP. Don't continue in the same direction.
-2. Understand what the user actually wants.
-3. Identify the signal you missed: misinterpretation? over-complication? wrong assumption?
-4. Capture the pattern at user level.
-
-### Trigger 3: Confusion About Known State
-
-**Pattern:** Asking "where is this data?" or "did X happen?" about something you should know.
-
-**Response:**
-1. Red flag — you're guessing instead of tracing.
-2. Explicitly trace the data/state flow.
-3. Capture: poor code organization → project level; your own pattern → user level.
-
-### Trigger 4: Unexpected Tool/Agent Result
-
-**Pattern:** Output doesn't match expectation.
-
-**Response:**
-1. Don't work around it — understand WHY.
-2. The mismatch reveals: wrong mental model (user), undocumented behavior (project), or actual bug.
-
-### Trigger 5: Deja Vu
-
-**Pattern:** "I feel like I've solved this before" or "This seems familiar."
-
-**Response:**
-1. Check the knowledge graph — you probably have.
-2. If found: use existing nodes. If not found but should have been captured: capture now.
+### Deja vu
+**Pattern:** "I feel like I've solved this before."
+**Response:** Check the graph — `kg_search()`. If found: use it. If missing: capture now.
 
 ## Session Lifecycle
 
-### Session Start
-
-**Always, immediately:**
+### Start
+Always, immediately:
 ```
-kg_read()
-kg_register_session()
+kg_register_session(cwd="<project root>")
+kg_read(session_id="<id>")
 ```
+Scan loaded graph for anything relevant to upcoming work. Notice health stats — if orphan rate is high, keep connection opportunities in mind.
 
-Then scan the loaded graph for anything relevant to the upcoming task.
+### During
+Every ~30 minutes: Have you captured anything? If not, why not?
+`kg_sync()` to check for updates from other sessions.
+After completing a non-trivial task: What relationships are worth recording?
 
-### During Session
-
-**Every ~30 minutes or after significant work:**
-- Have you captured anything? If not, why not?
-- `kg_sync()` to check for updates from other sessions
-
-**After completing a non-trivial task:**
-- What did you learn that's worth keeping?
-- Are there relationships to record?
-
-### Session End
-
-When user says "wrap up," "ending session," or conversation winds down naturally:
-
-1. **Flush** — Capture any pending insights not yet recorded
-2. **Reflect** — "What took longer than expected? What would help next session?"
-3. **Maintain** — Run a quick graph health check if time allows
-4. **Suggest** — If spare capacity remains, mention `/skill scout` or `/skill extract`
-
-Use `kg_session_stats(session_id)` to check session duration and operation count.
-
-### "Use Remaining Capacity"
-
-When user explicitly says to use spare capacity:
-- `/skill scout` — mine conversation history for patterns
-- `/skill extract` — map current codebase architecture
-- Graph maintenance — review orphaned/disconnected nodes
+### End
+When user says "wrap up" or conversation winds down:
+1. **Flush** — Capture pending insights
+2. **Reflect** — What took longer than expected? What would help next session?
+3. **Suggest** — If spare capacity: `/skill scout` or `/skill extract`
 
 ## Graph Health
 
-### Compaction (Automatic)
-
+### Compaction (automatic)
 System archives low-value nodes when graph exceeds token limits.
 
-**What keeps a node alive:**
-- Recent updates (within 7 days)
-- Connections to other active nodes (edges)
-- Rich content (gist + notes)
-
+**What keeps a node alive:** Recent updates (7 days), connections (edges), rich content (gist + notes).
 **What gets archived first:** Old, isolated, sparse nodes.
+**Your role:** If a node matters, connect it or update it occasionally.
 
-**Your role:** If a node is important, update it occasionally or connect it to active knowledge.
+### Orphan awareness
+Nodes without edges are at risk of archival and add cost without compression benefit. When creating a node, the server will gently remind you if it has no connections. Take the hint — even one edge makes a node significantly more valuable.
 
-### Orphan Detection
+### Maintenance operations
+When auditing the graph with `kg_read()`:
 
-Nodes with no edges and no touches are at risk. When creating a node, always consider:
-- What does it connect to?
-- What edges should exist?
+- **Disconnected nodes** — appear in no edges. Either connect them or delete if stale.
+- **Duplicates** — overlapping gists or IDs. Merge: keep the richer one, delete the other.
+- **Stale knowledge** — about removed code or old decisions. `kg_delete_node()`.
+- **Broken edges** — pointing to outdated concepts. `kg_delete_edge()`.
 
-### Maintenance Operations
+## Operational Safety
 
-For manual graph maintenance, use `kg_read()` to audit, then:
+### Tool result size limit
+Claude Code truncates tool results over ~50K characters to a 2000-char preview. The `kg_read` output is the full graph as text — if it exceeds this limit, the agent loses graph context silently. This is why `KG_MAX_TOKENS` defaults to 3000.
 
-**Find disconnected nodes:**
-Look for nodes that appear in no edges (neither `from` nor `to`). Either connect them or delete if stale.
+**If kg_read output shows a size warning (>40K chars):**
+1. Ask the user if they want to run graph maintenance
+2. Review nodes for staleness, duplicates, and disconnected entries
+3. Delete or merge low-value nodes to reduce graph size
+4. Do NOT increase `KG_MAX_TOKENS` — the limit exists to prevent truncation
 
-**Find duplicates:**
-Nodes with overlapping gists or IDs. Merge: keep the richer one, add missing info, delete the other.
+### Project renames
+When a project folder is renamed, the graph slug changes and the server creates a new empty graph. The system handles this automatically via alias detection and migration, but if you notice a project graph is unexpectedly empty:
+1. Check `~/.knowledge-graph/projects/` for a directory matching the old name
+2. The old data is still there — the server will migrate it on next access
+3. If auto-migration didn't trigger, report this as a bug
 
-**Clean up stale knowledge:**
-Nodes about things that no longer exist (removed code, old decisions). Delete with `kg_delete_node()`.
-
-**Verify edges:**
-Edges pointing to non-existent files or outdated concepts. Delete with `kg_delete_edge()`.
+### Server restart safety
+The MCP server can be safely restarted from within Claude Code (`kg-memory restart`). The server:
+- Validates PIDs before killing (won't kill non-server processes)
+- Launches new process in a separate session (setsid)
+- Drains connections gracefully before shutdown
+- Write-through persistence means no data loss on restart
 
 ## First Session in a Project
 
 When the project graph is empty:
-
-1. **Don't capture everything.** Resist the urge to document the whole codebase.
-2. **Capture high-value observations:** Surprising architectural choices, non-obvious dependencies, things that confused you initially.
-3. **Create foundational nodes** for major components (2-5 nodes max).
-4. **Add edges** as you discover relationships during actual work.
-5. **Bootstrap from exploration:** As you explore for the user's task, capture incidentally. Don't make a separate documentation pass.
-
-## Anti-Patterns
-
-- **Deferring capture to session end** — Context is lost by then
-- **Over-reflecting** — If pausing every 2 minutes, you're overdoing it. Triggers are for notable moments.
-- **Ignoring memory traces** — If edges to archived nodes are relevant, recall them
-- **Capturing without connecting** — Isolated nodes are less valuable. Always consider edges.
+1. Don't document the whole codebase. Capture what surprises you.
+2. 2-5 foundational nodes for major components, connected by edges.
+3. Add knowledge organically as you work on the user's actual task.
+4. Quality over quantity — every node should earn its place through reuse.
