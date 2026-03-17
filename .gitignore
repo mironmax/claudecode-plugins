@@ -2,3 +2,6 @@
 .knowledge/
 
 .claude/
+
+# Temporary dev notes (not part of release)
+knowledge-graph/devdocs/

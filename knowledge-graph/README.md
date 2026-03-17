@@ -32,17 +32,35 @@ Most of the time system works out of the box. But one useful pattern is this:
 # 2. Install the plugin
 /plugin install knowledge-graph@maxim-plugins
 
-# 3. Add instructions to your CLAUDE.md
+# 3. Set up your CLAUDE.md (see below)
+
+# 4. Disable Claude Code's built-in auto-memory (see below)
+
+# 5. Install global command (optional but recommended)
+bash ~/.claude/plugins/knowledge-graph/install_command.sh
+
+# 6. Restart Claude Code
+```
+
+### CLAUDE.md Setup
+
+The plugin ships a template that tells Claude to auto-load the knowledge graph each session. **Use only this one global CLAUDE.md** — project-level CLAUDE.md files in individual repos are not recommended. Multiple CLAUDE.md files create contradicting instructions and bloat context. The knowledge graph replaces that need: project-specific knowledge lives in the graph, not in scattered config files.
+
+```bash
 # If you don't have ~/.claude/CLAUDE.md yet:
 cp ~/.claude/plugins/knowledge-graph/templates/CLAUDE.md ~/.claude/CLAUDE.md
 
-# If you already have one, append the template content manually
-
-# 4. Install global command (optional but recommended)
-bash ~/.claude/plugins/knowledge-graph/install_command.sh
-
-# 5. Restart Claude Code
+# If you already have ~/.claude/CLAUDE.md, append the template content to it
 ```
+
+### Disable Built-in Auto-Memory
+
+Claude Code has a built-in auto-memory system that writes to `~/.claude/projects/*/memory/`. It runs in parallel with the knowledge graph, causing duplicate, contradicting memory and wasted context. Disable it:
+
+1. Open Claude Code settings: **⚙ Settings → Memory**
+2. Toggle **Auto-memory** off
+
+With auto-memory off, the knowledge graph is the single source of persistent memory.
 
 ### Enable Auto-Approval (Optional)
 
@@ -249,9 +267,21 @@ MIT License — see [LICENSE](LICENSE)
 
 ## Version
 
-0.7.0
+0.7.2
 
 ### Changelog
+
+**0.7.2**
+- Recommend disabling Claude Code built-in auto-memory to avoid duplicate/conflicting memory
+- Recommend single global CLAUDE.md only — project-level CLAUDE.md files cause contradicting instructions
+- User profile added as top-priority capture target in CAPTURE.md (calibrate explanations to user's domain knowledge)
+- Notes explicitly framed as home for rationale/"why" — recalled on demand, keeps active context lean
+- References/external pointer examples added to CAPTURE.md
+- devdocs/ moved to gitignore (internal scratch only)
+
+**0.7.1**
+- Renamed skills to `kg-` prefix to avoid name collisions
+- Improved archival scoring and recall strategy
 
 **0.7.0**
 - Renamed plugin from "memory" to "knowledge-graph"

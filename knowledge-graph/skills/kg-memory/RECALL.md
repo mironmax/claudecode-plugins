@@ -14,7 +14,10 @@ Output format:
 - **Edges**: `from --rel--> to`
 - **Health stats**: node count, edge count, orphan count/%, avg edges/node
 
+### Notes
+
 Notes are never included in `kg_read` — they're on-demand via `kg_recall` or `kg_search`.
+So use those when you need details about particular nodes.
 
 ### Health awareness after loading
 
@@ -60,7 +63,7 @@ By content (when you don't know the ID):
 kg_search(query="chown permissions docker", level="project", session_id="...")
 ```
 
-**Recall liberally when:** Making architectural decisions, debugging something familiar, user asks "why did we do X?", you need historical context.
+**Recall liberally when:** Making architectural decisions, debugging something familiar, user asks "why did we do X?", you need historical context. Notes are only available via recall — if a node is likely to have rationale or constraints that matter, recall it even if it's active.
 
 ### Batch recall
 
@@ -90,4 +93,4 @@ When spawning subagents that need domain context:
 2. Subagent writes are visible to parent via shared server
 3. After completion, call `kg_sync()` to see their discoveries
 
-Skip graph loading for simple subagents (file operations, searches) — unnecessary context.
+Skip graph loading for subagents that do not require it (straightforward tasks), unnecessary context bloat. Instruct them accordingly.

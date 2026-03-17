@@ -33,22 +33,27 @@ Extract and remember patterns, insights, and relationships worth preserving acro
 /plugin install knowledge-graph@maxim-plugins
 ```
 
-### 3. Enable Auto-Loading (Important!)
+### 3. Set Up CLAUDE.md
 
-Add the knowledge graph instructions to your Claude configuration:
+Add the knowledge graph instructions to your global Claude configuration:
 
 ```bash
 # If you don't have ~/.claude/CLAUDE.md yet:
 cp ~/.claude/plugins/knowledge-graph/templates/CLAUDE.md ~/.claude/CLAUDE.md
 
 # If you already have ~/.claude/CLAUDE.md:
-# Manually append the content from ~/.claude/plugins/knowledge-graph/templates/CLAUDE.md
-# to your existing file
+# Append the template content to your existing file
 ```
 
-**Why this matters:** The template contains instructions that tell Claude to automatically load the knowledge graph at session start and register for sync tracking. Without it, you'll need to manually call tools each session.
+**Why this matters:** The template tells Claude to auto-load the knowledge graph at session start. Without it, you'll need to manually call tools each session.
 
-### 4. Restart Claude Code
+**Important:** Use only this one global `~/.claude/CLAUDE.md`. Avoid project-level CLAUDE.md files in individual repos — they create contradicting instructions and bloat context. The knowledge graph is designed to replace that need.
+
+### 4. Disable Built-in Auto-Memory
+
+Claude Code has a built-in auto-memory system that runs in parallel with the knowledge graph, causing duplicate memory and wasted context. Disable it in **⚙ Settings → Memory → Auto-memory** (toggle off).
+
+### 5. Restart Claude Code
 
 The plugin will be available after restart.
 

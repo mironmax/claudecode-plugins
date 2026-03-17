@@ -4,8 +4,8 @@
 
 A healthy graph is a mesh of connections, not a collection of isolated facts. Most nodes participate in at least one edge. Concepts branch and cross-reference naturally. The health stats in `kg_read` output show this at a glance:
 
-- **Low orphan rate** (<20%) — most nodes are connected
-- **Reasonable edge density** (1-3 edges/node) — concepts are linked but not over-connected
+- **Low orphan rate** — most nodes are connected
+- **Reasonable edge density** — concepts are linked but not over-connected
 - **Mix of levels** — user-level patterns inform project-level decisions
 
 When you notice many orphans after loading, look for natural connections. This isn't an obligation — it's an opportunity to strengthen the graph's compression power.
@@ -13,9 +13,9 @@ When you notice many orphans after loading, look for natural connections. This i
 ## Self-Reflection Triggers
 
 ### Spinning wheels
-**Pattern:** 3+ attempts at the same action without progress.
-**Response:** STOP. Ask: What am I assuming? Have I seen this before? (`kg_sync()` then `kg_search()`)
-**Capture:** Meta-learning at user level, specific issue at project level.
+**Pattern:** Few attempts at the same action without progress.
+**Response:** STOP. Ask: What am I assuming? What am I doing wrong? Have I seen this before? (`kg_sync()` or `kg_search()` or ask user and then capture)
+**Capture:** Meta-learning at user level, specific approach at project level.
 
 ### User correction
 **Pattern:** "No," "that's wrong," "focus," "step back."
@@ -25,7 +25,7 @@ When you notice many orphans after loading, look for natural connections. This i
 ### Confusion about known state
 **Pattern:** "Where is this data?" about something you should know.
 **Response:** Trace the data flow explicitly instead of guessing.
-**Capture:** Poor organization → project level; your pattern → user level.
+**Capture:** Organization → project level; your pattern → user level.
 
 ### Unexpected result
 **Pattern:** Tool output doesn't match expectation.
@@ -47,7 +47,7 @@ kg_read(session_id="<id>")
 Scan loaded graph for anything relevant to upcoming work. Notice health stats — if orphan rate is high, keep connection opportunities in mind.
 
 ### During
-Every ~30 minutes: Have you captured anything? If not, why not?
+Every now and then: Have you captured anything? If not, why not?
 `kg_sync()` to check for updates from other sessions.
 After completing a non-trivial task: What relationships are worth recording?
 
@@ -62,7 +62,7 @@ When user says "wrap up" or conversation winds down:
 ### Compaction (automatic)
 System archives low-value nodes when graph exceeds token limits.
 
-**What keeps a node alive:** Recent updates (7 days), connections (edges), rich content (gist + notes).
+**What keeps a node alive:** Recent updates, connections (edges), rich content (gist + notes).
 **What gets archived first:** Old, isolated, sparse nodes.
 **Your role:** If a node matters, connect it or update it occasionally.
 

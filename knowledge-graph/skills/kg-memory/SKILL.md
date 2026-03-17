@@ -49,6 +49,7 @@ kg_ping()                                                       # Health check
 
 | Priority | What | Level |
 |----------|------|-------|
+| Highest | User profile: domain expertise, background knowledge — calibrate explanations to what they already know | user |
 | Highest | Meta-patterns: "I tend to X when I should Y" | user |
 | High | Architectural principles that apply across projects | user |
 | High | User interaction signals and preferences | user |
@@ -58,12 +59,14 @@ kg_ping()                                                       # Health check
 
 **Capture trigger:** Would this help avoid a similar mistake/inefficiency next time? → Capture it.
 
+**Notes vs gist:** Gist = compressed fact (always visible). Notes = rationale, constraints, "why" (recalled on demand). When a decision has context that matters later, put it in notes — not lost, just out of the hot path.
+
 ## Compression Rules
 
 1. Remove filler words — articles, hedging, unnecessary context
 2. Use references instead of descriptions — `auth/` not "the auth module"
 3. Encode relationships as structure — edges over verbose nodes
-4. Generalize when patterns repeat (3+ times)
+4. Generalize when patterns repeat
 5. Headline test — gist should read like a newspaper headline
 
 ## Memory Traces
@@ -72,7 +75,7 @@ Edges to archived nodes remain visible as hints. Use `kg_recall(level, id)` when
 
 ## Auto-Compaction
 
-System archives lowest-scored nodes when graph exceeds token limit. Nodes protected for 7 days after update. Score = 0.25×recency + 0.50×connectedness + 0.25×richness (weighted sum of percentiles). Archived nodes remain on disk; edges to them stay visible.
+System archives lowest-scored nodes when graph exceeds token limit. Nodes protected for 3 days after update. Score = 0.25×recency + 0.50×connectedness + 0.25×richness (weighted sum of percentiles). Archived nodes remain on disk; edges to them stay visible.
 
 ## Available Skills
 

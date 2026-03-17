@@ -83,6 +83,18 @@ notes: ["token validation fails silently without session"]
 
 Same information, but reuses existing references, makes the relationship explicit, and is discoverable from either end.
 
+## Notes: Preserving the "Why"
+
+The gist carries the compressed fact. Notes carry what the gist can't — rationale, constraints, cautionary context. This is especially valuable for:
+
+- **Decisions:** `notes=["chose Redis over Postgres pub/sub because Postgres max_connections was already near limit"]`
+- **Feedback from user:** `notes=["user: avoid mocking DB — prod migration failed when mocks diverged"]`
+- **Non-obvious constraints:** `notes=["must init before auth.py or token validation silently skips"]`
+
+Notes are excluded from `kg_read` (keeping active context lean) but retrieved on demand via `kg_recall`. This makes them ideal for context that matters when revisiting a decision but would bloat everyday reads.
+
+**Recall notes when:** Making architectural decisions near a related node, debugging familiar-feeling failures, user asks "why did we do X?". The gist tells you what; the notes tell you why.
+
 ## Compression Techniques
 
 ### Remove filler
@@ -93,12 +105,19 @@ Good: "config must load before db init; silent connection failure otherwise"
 Bad: "The user authentication module that handles login and token validation"
 Good: `auth-module` (node ID)
 
+This extends to external resources — point to where things live rather than paraphrasing them:
+```
+kg_put_edge(level="project", from="pipeline-bugs", to="Linear:INGEST",
+            rel="tracked-in", notes=["all ingestion tickets filed here"])
+```
+Facts stay in the graph; the artifact stays authoritative.
+
 ### Encode as structure
 Bad: Node "config-depends-on-env-vars" with gist explaining dependency
 Good: Edge `config.py --reads--> .env` with notes for specifics
 
 ### Generalize after repetition
-When you see the same pattern 3+ times:
+When you see the same pattern few times:
 Bad: Three nodes: "config-init-bug", "auth-init-bug", "cache-init-bug"
 Good: One node: `silent-init-order-deps` — "modules with implicit init order fail silently; seen in config, auth, cache"
 
@@ -142,6 +161,7 @@ kg_put_edge(level="project", from="src/api/auth.py", to="src/session/handler.py"
 ## What to Capture at Each Level
 
 ### User Level (cross-project wisdom)
+- **User profile:** Who the user is — domain expertise, background, what they already know deeply vs what is new to them. Use this to calibrate explanation depth and anchor analogies to their existing knowledge rather than starting from scratch.
 - Meta-cognitive patterns: "I tend to X when I should Y"
 - Interaction signals: "When user says 'focus', I'm being too scattered"
 - Architectural principles: "Agentic pipelines need explicit data contracts"

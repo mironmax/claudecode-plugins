@@ -111,7 +111,7 @@ kg_progress_set(task_id="extract", state={
 
 ## Guidelines
 
-- **Sparse is better:** 10 well-connected nodes > 50 isolated ones
+- **Sparse is better:** 20 well-connected nodes > 50 isolated ones
 - **Prefer edges:** Relationships are more valuable than descriptions
 - **One-sentence gists:** If your gist needs a paragraph, you're over-describing
 - **Don't duplicate docs:** If README explains it well, just reference with `touches`
