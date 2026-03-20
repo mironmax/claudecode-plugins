@@ -9,7 +9,7 @@ class TokenEstimator:
     @staticmethod
     def estimate_node(node: dict) -> int:
         """Estimate token cost for a single node.
-        Only gist counts — notes are detail fetched on-demand via kg_recall,
+        Only gist counts — notes are detail fetched on-demand via kg_read(id),
         not included in the active context budget.
         """
         gist_tokens = len(node.get("gist", "")) // CHARS_PER_TOKEN

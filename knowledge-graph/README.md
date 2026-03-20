@@ -32,25 +32,12 @@ Most of the time system works out of the box. But one useful pattern is this:
 # 2. Install the plugin
 /plugin install knowledge-graph@maxim-plugins
 
-# 3. Set up your CLAUDE.md (see below)
+# 3. Disable Claude Code's built-in auto-memory (see below)
 
-# 4. Disable Claude Code's built-in auto-memory (see below)
-
-# 5. Install global command (optional but recommended)
+# 4. Install global command (optional but recommended)
 bash ~/.claude/plugins/knowledge-graph/install_command.sh
 
-# 6. Restart Claude Code
-```
-
-### CLAUDE.md Setup
-
-The plugin ships a template that tells Claude to auto-load the knowledge graph each session. **Use only this one global CLAUDE.md** — project-level CLAUDE.md files in individual repos are not recommended. Multiple CLAUDE.md files create contradicting instructions and bloat context. The knowledge graph replaces that need: project-specific knowledge lives in the graph, not in scattered config files.
-
-```bash
-# If you don't have ~/.claude/CLAUDE.md yet:
-cp ~/.claude/plugins/knowledge-graph/templates/CLAUDE.md ~/.claude/CLAUDE.md
-
-# If you already have ~/.claude/CLAUDE.md, append the template content to it
+# 5. Restart Claude Code
 ```
 
 ### Disable Built-in Auto-Memory
@@ -72,18 +59,14 @@ To skip permission prompts, add these permissions to your `~/.claude/settings.js
 {
   "permissions": {
     "allow": [
-      "mcp__plugin_memory_kg__kg_read",
-      "mcp__plugin_memory_kg__kg_register_session",
-      "mcp__plugin_memory_kg__kg_put_node",
-      "mcp__plugin_memory_kg__kg_put_edge",
-      "mcp__plugin_memory_kg__kg_sync",
-      "mcp__plugin_memory_kg__kg_delete_node",
-      "mcp__plugin_memory_kg__kg_delete_edge",
-      "mcp__plugin_memory_kg__kg_recall",
-      "mcp__plugin_memory_kg__kg_progress_get",
-      "mcp__plugin_memory_kg__kg_progress_set",
-      "mcp__plugin_memory_kg__kg_session_stats",
-      "mcp__plugin_memory_kg__kg_search"
+      "mcp__plugin_knowledge-graph_kg__kg_read",
+      "mcp__plugin_knowledge-graph_kg__kg_put_node",
+      "mcp__plugin_knowledge-graph_kg__kg_put_edge",
+      "mcp__plugin_knowledge-graph_kg__kg_sync",
+      "mcp__plugin_knowledge-graph_kg__kg_delete_node",
+      "mcp__plugin_knowledge-graph_kg__kg_delete_edge",
+      "mcp__plugin_knowledge-graph_kg__kg_search",
+      "mcp__plugin_knowledge-graph_kg__kg_progress"
     ]
   }
 }
@@ -96,18 +79,14 @@ To skip permission prompts, add these permissions to your `~/.claude/settings.js
   "permissions": {
     "allow": [
       // ... your existing permissions ...
-      "mcp__plugin_memory_kg__kg_read",
-      "mcp__plugin_memory_kg__kg_register_session",
-      "mcp__plugin_memory_kg__kg_put_node",
-      "mcp__plugin_memory_kg__kg_put_edge",
-      "mcp__plugin_memory_kg__kg_sync",
-      "mcp__plugin_memory_kg__kg_delete_node",
-      "mcp__plugin_memory_kg__kg_delete_edge",
-      "mcp__plugin_memory_kg__kg_recall",
-      "mcp__plugin_memory_kg__kg_progress_get",
-      "mcp__plugin_memory_kg__kg_progress_set",
-      "mcp__plugin_memory_kg__kg_session_stats",
-      "mcp__plugin_memory_kg__kg_search"
+      "mcp__plugin_knowledge-graph_kg__kg_read",
+      "mcp__plugin_knowledge-graph_kg__kg_put_node",
+      "mcp__plugin_knowledge-graph_kg__kg_put_edge",
+      "mcp__plugin_knowledge-graph_kg__kg_sync",
+      "mcp__plugin_knowledge-graph_kg__kg_delete_node",
+      "mcp__plugin_knowledge-graph_kg__kg_delete_edge",
+      "mcp__plugin_knowledge-graph_kg__kg_search",
+      "mcp__plugin_knowledge-graph_kg__kg_progress"
     ],
     "deny": [/* ... your existing denies ... */]
   }
@@ -176,15 +155,19 @@ Once the server is running:
 
 - Claude captures insights as you work
 - Knowledge persists across sessions
-- Use `/skill kg-memory` for detailed documentation
+- The plugin's hidden skills automatically guide Claude's memory behavior
+- No CLAUDE.md setup required — behavioral rules are loaded via skill descriptions
 
 ### Available Skills
 
-| Skill | Purpose |
-|-------|---------|
-| `/skill kg-memory` | Full API reference, compression rules, best practices |
-| `/skill kg-scout` | Mine conversation history for patterns and insights |
-| `/skill kg-extract` | Map codebase architecture into the knowledge graph |
+| Skill | Type | Purpose |
+|-------|------|---------|
+| `kg-core` | Hidden (auto-loaded) | Session protocol, self-awareness, API reference |
+| `kg-capture` | Hidden (auto-loaded) | Capture rules, compression, search-before-put |
+| `kg-recall` | Hidden (auto-loaded) | Proactive recall, memory traces, sync timing |
+| `kg-maintain` | Hidden (auto-loaded) | Self-reflection triggers, graph health, lifecycle |
+| `/skill kg-scout` | User-invocable | Mine conversation history for patterns and insights |
+| `/skill kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
 
 ## Configuration
 
@@ -193,7 +176,7 @@ Edit `~/.claude/plugins/knowledge-graph/.mcp.json` to customize:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
-| `KG_MAX_TOKENS` | `3000` | Token limit before compaction, per graph file |
+| `KG_MAX_TOKENS` | `4000` | Token limit before compaction, per graph level. Two graphs ≈ 32K chars, safe under Claude Code's 50K tool output limit. Not recommended to raise — nodes in grace period (3 days) can temporarily exceed the limit. |
 | `KG_ORPHAN_GRACE_DAYS` | `30` | Days before orphaned nodes deleted |
 | `KG_GRACE_PERIOD_DAYS` | `3` | Days a node is protected after update |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
@@ -267,16 +250,31 @@ MIT License — see [LICENSE](LICENSE)
 
 ## Version
 
-0.7.2
+0.9.0
 
 ### Changelog
 
+**0.9.0**
+- Consolidated MCP tools from 13 to 8: removed `kg_ping`, `kg_session_stats`, `kg_register_session`, `kg_recall`, `kg_progress_get`, `kg_progress_set`
+- `kg_read(cwd)` now initializes session and returns `session_id` (replaces `kg_register_session`)
+- `kg_read(cwd, id)` reads a single node's full content and promotes archived nodes (replaces `kg_recall`)
+- `kg_progress` merges get/set — omit `state` to read, include to write
+- `kg_delete_node` and `kg_delete_edge` auto-resolve graph level (no `level` param needed)
+- Removed repetitive "connect with edge" tip from `kg_put_node` response (guidance lives in skill descriptions)
+- Updated all skill files to reference new tool API
+- Updated permission names to use `knowledge-graph` plugin prefix
+
+**0.8.0**
+- Zero-setup behavioral guidance: 4 hidden skills (kg-core, kg-capture, kg-recall, kg-maintain) auto-load rules into every session via skill descriptions (~8K chars, within 16K budget)
+- Eliminated CLAUDE.md template requirement — plugin works out of the box after install
+- Enriched MCP tool descriptions with point-of-use behavioral nudges (search-before-put, recall-bias, session-awareness)
+- Restructured from single kg-memory skill into 6 focused skills (4 hidden + 2 user-invocable)
+- Self-awareness mechanism: Claude checks if graph is loaded before any task, not just at session start
+
 **0.7.2**
 - Recommend disabling Claude Code built-in auto-memory to avoid duplicate/conflicting memory
-- Recommend single global CLAUDE.md only — project-level CLAUDE.md files cause contradicting instructions
-- User profile added as top-priority capture target in CAPTURE.md (calibrate explanations to user's domain knowledge)
+- User profile added as top-priority capture target
 - Notes explicitly framed as home for rationale/"why" — recalled on demand, keeps active context lean
-- References/external pointer examples added to CAPTURE.md
 - devdocs/ moved to gitignore (internal scratch only)
 
 **0.7.1**
@@ -292,7 +290,7 @@ MIT License — see [LICENSE](LICENSE)
 - Added session replay tool (`server/tools/replay_sessions.py`)
 - Safe server restart with `setsid`, PID validation, `stop-port` command
 - Added `manage_visual.sh` for visual editor management (`kg-visual` symlink)
-- `KG_MAX_TOKENS` default 3000 (kept low to avoid Claude Code tool result overflow)
+- `KG_MAX_TOKENS` default raised to 4000 (safe within Claude Code's 10K warning / 25K cap per tool output)
 - Updated `KG_ORPHAN_GRACE_DAYS` default to 30, `KG_GRACE_PERIOD_DAYS` to 3
 - Added `KG_STORAGE_ROOT` env var for storage location override
 
@@ -301,8 +299,8 @@ MIT License — see [LICENSE](LICENSE)
 - Project discovery improvements
 
 **0.6.0**
-- Added `kg_progress_get` / `kg_progress_set` tools for persistent task progress tracking
-- Added `kg_session_stats` tool for session duration, operation counts, and graph sizes
+- Added `kg_progress_get` / `kg_progress_set` tools for persistent task progress tracking (consolidated to `kg_progress` in v0.9.0)
+- Added `kg_session_stats` tool for session duration, operation counts, and graph sizes (removed in v0.9.0)
 - Added operation counting per session (tracked via `session_manager.increment_ops()`)
 - Added `/skill kg-scout` — mine conversation history for patterns and insights
 - Added `/skill kg-extract` — map codebase architecture into the knowledge graph

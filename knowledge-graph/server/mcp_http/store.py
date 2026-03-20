@@ -19,7 +19,6 @@ from core import (
     version_key_node,
     version_key_edge,
     NodeNotFoundError,
-    NodeNotArchivedError,
     validate_level,
     get_storage_root,
     project_graph_path,
@@ -373,21 +372,26 @@ class MultiProjectGraphStore:
             logger.debug(f"Put edge {from_ref}->{to_ref}:{rel} in {level} graph")
             return {"edge": edge, "level": level}
 
-    def delete_node(self, level: str, node_id: str, session_id: str | None = None) -> dict:
-        """Delete a node and its connected edges."""
+    def delete_node(self, node_id: str, level: str | None = None, session_id: str | None = None) -> dict:
+        """Delete a node and its connected edges. Level auto-resolved if not provided."""
         with self.lock:
-            graph_key = self._get_graph_key(level, session_id)
-
-            # Ensure project graph is loaded
-            if graph_key.startswith("project:"):
-                project_root = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_root)
+            if level:
+                graph_key = self._get_graph_key(level, session_id)
+                if graph_key.startswith("project:"):
+                    project_root = graph_key.split(":", 1)[1]
+                    self._ensure_project_loaded(project_root)
+                resolved_level = level
+            else:
+                result = self.find_node_level(node_id, session_id)
+                if not result:
+                    raise NodeNotFoundError("both", node_id)
+                resolved_level, graph_key = result
 
             nodes = self.graphs[graph_key]["nodes"]
             edges = self.graphs[graph_key]["edges"]
 
             if node_id not in nodes:
-                raise NodeNotFoundError(level, node_id)
+                raise NodeNotFoundError(resolved_level, node_id)
 
             # Delete connected edges
             edges_to_delete = [
@@ -408,30 +412,53 @@ class MultiProjectGraphStore:
 
             # Broadcast change
             self._broadcast(
-                {"type": "node_deleted", "level": level, "node_id": node_id, "source_session": session_id},
-                level,
+                {"type": "node_deleted", "level": resolved_level, "node_id": node_id, "source_session": session_id},
+                resolved_level,
                 session_id
             )
 
-            logger.info(f"Deleted node '{node_id}' and {len(edges_to_delete)} edges from {level} graph")
-            return {"deleted": node_id, "level": level, "edges_deleted": len(edges_to_delete)}
+            logger.info(f"Deleted node '{node_id}' and {len(edges_to_delete)} edges from {resolved_level} graph")
+            return {"deleted": node_id, "level": resolved_level, "edges_deleted": len(edges_to_delete)}
+
+    def find_edge_level(self, from_ref: str, to_ref: str, rel: str, session_id: str | None = None) -> tuple[str, str] | None:
+        """Find which graph contains an edge. Returns (level, graph_key) or None. Caller must hold lock."""
+        edge_key = (from_ref, to_ref, rel)
+        if edge_key in self.graphs["user"]["edges"]:
+            return ("user", "user")
+        if session_id:
+            try:
+                project_root = self.session_manager.get_project_path(session_id)
+                if project_root:
+                    project_key = f"project:{project_root}"
+                    self._ensure_project_loaded(project_root)
+                    if project_key in self.graphs and edge_key in self.graphs[project_key]["edges"]:
+                        return ("project", project_key)
+            except Exception:
+                pass
+        return None
 
     def delete_edge(
         self,
-        level: str,
         from_ref: str,
         to_ref: str,
         rel: str,
+        level: str | None = None,
         session_id: str | None = None,
     ) -> dict:
-        """Delete an edge."""
+        """Delete an edge. Level auto-resolved if not provided."""
         with self.lock:
-            graph_key = self._get_graph_key(level, session_id)
-
-            # Ensure project graph is loaded
-            if graph_key.startswith("project:"):
-                project_root = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_root)
+            if level:
+                graph_key = self._get_graph_key(level, session_id)
+                if graph_key.startswith("project:"):
+                    project_root = graph_key.split(":", 1)[1]
+                    self._ensure_project_loaded(project_root)
+                resolved_level = level
+            else:
+                result = self.find_edge_level(from_ref, to_ref, rel, session_id)
+                if result:
+                    resolved_level, graph_key = result
+                else:
+                    return {"deleted": False, "level": "unknown"}
 
             edges = self.graphs[graph_key]["edges"]
             edge_key = (from_ref, to_ref, rel)
@@ -445,59 +472,95 @@ class MultiProjectGraphStore:
 
                 # Broadcast change
                 self._broadcast(
-                    {"type": "edge_deleted", "level": level, "from": from_ref, "to": to_ref, "rel": rel, "source_session": session_id},
-                    level,
+                    {"type": "edge_deleted", "level": resolved_level, "from": from_ref, "to": to_ref, "rel": rel, "source_session": session_id},
+                    resolved_level,
                     session_id
                 )
 
-                logger.debug(f"Deleted edge {from_ref}->{to_ref}:{rel} from {level} graph")
-                return {"deleted": True, "level": level}
+                logger.debug(f"Deleted edge {from_ref}->{to_ref}:{rel} from {resolved_level} graph")
+                return {"deleted": True, "level": resolved_level}
             else:
-                return {"deleted": False, "level": level}
+                return {"deleted": False, "level": resolved_level}
 
-    def recall_node(self, level: str, node_id: str, session_id: str | None = None) -> dict:
-        """Recall (unarchive) an archived node."""
+    def find_node_level(self, node_id: str, session_id: str | None = None) -> tuple[str, str] | None:
+        """
+        Find which graph contains a node. Returns (level, graph_key) or None.
+        Caller must hold lock.
+        """
+        # Check user graph first
+        if node_id in self.graphs["user"]["nodes"]:
+            return ("user", "user")
+
+        # Check project graph if session has one
+        if session_id:
+            try:
+                project_root = self.session_manager.get_project_path(session_id)
+                if project_root:
+                    project_key = f"project:{project_root}"
+                    self._ensure_project_loaded(project_root)
+                    if project_key in self.graphs and node_id in self.graphs[project_key]["nodes"]:
+                        return ("project", project_key)
+            except Exception:
+                pass
+
+        return None
+
+    def read_node(self, node_id: str, level: str | None = None, session_id: str | None = None) -> dict:
+        """
+        Read a single node's full content (gist + notes + touches).
+        If the node is archived, promotes it to active as a side effect.
+
+        Args:
+            node_id: Node ID to read
+            level: Optional level hint. If None, auto-resolves by searching both graphs.
+            session_id: Session ID (needed to resolve project graph)
+
+        Returns dict with "node" and "level" keys.
+        """
         with self.lock:
-            graph_key = self._get_graph_key(level, session_id)
-
-            # Ensure project graph is loaded
-            if graph_key.startswith("project:"):
-                project_root = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_root)
+            # Resolve which graph the node is in
+            if level:
+                graph_key = self._get_graph_key(level, session_id)
+                if graph_key.startswith("project:"):
+                    project_root = graph_key.split(":", 1)[1]
+                    self._ensure_project_loaded(project_root)
+                resolved_level = level
+            else:
+                result = self.find_node_level(node_id, session_id)
+                if not result:
+                    raise NodeNotFoundError("both", node_id)
+                resolved_level, graph_key = result
 
             nodes = self.graphs[graph_key]["nodes"]
 
             if node_id not in nodes:
-                raise NodeNotFoundError(level, node_id)
+                raise NodeNotFoundError(resolved_level, node_id)
 
             node = nodes[node_id]
 
-            if not is_archived(node):
-                raise NodeNotArchivedError(level, node_id)
+            # If archived, promote to active
+            was_archived = is_archived(node)
+            if was_archived:
+                del node["_archived"]
+                if "_orphaned_ts" in node:
+                    del node["_orphaned_ts"]
 
-            # Unarchive
-            del node["_archived"]
-            if "_orphaned_ts" in node:
-                del node["_orphaned_ts"]
+                # Update version
+                ver_key = version_key_node(node_id)
+                self._bump_version(graph_key, ver_key, session_id)
 
-            # Update version
-            ver_key = version_key_node(node_id)
-            self._bump_version(graph_key, ver_key, session_id)
+                self.dirty[graph_key] = True
+                self._write_through(graph_key)
 
-            self.dirty[graph_key] = True
+                self._broadcast(
+                    {"type": "node_recalled", "level": resolved_level, "node": node, "source_session": session_id},
+                    resolved_level,
+                    session_id
+                )
 
-            # Write-through: save immediately
-            self._write_through(graph_key)
+                logger.info(f"Recalled archived node '{node_id}' in {resolved_level} graph")
 
-            # Broadcast change
-            self._broadcast(
-                {"type": "node_recalled", "level": level, "node": node, "source_session": session_id},
-                level,
-                session_id
-            )
-
-            logger.info(f"Recalled node '{node_id}' in {level} graph")
-            return {"node": node, "level": level}
+            return {"node": node, "level": resolved_level, "was_archived": was_archived}
 
     def get_sync_diff(self, session_id: str, start_ts: float) -> dict:
         """

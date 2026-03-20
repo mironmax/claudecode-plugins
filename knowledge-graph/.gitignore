@@ -10,4 +10,5 @@ __pycache__/
 .idea/
 .claude/
 dev/
+devdocs/
 .mcp_server.pid

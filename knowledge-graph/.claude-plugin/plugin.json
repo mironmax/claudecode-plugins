@@ -1,6 +1,6 @@
 {
   "name": "knowledge-graph",
-  "version": "0.7.2",
+  "version": "0.9.0",
   "description": "Extract and remember patterns, insights, and relationships worth preserving across sessions. Shared HTTP/SSE MCP server with auto-compaction and real-time multi-session collaboration.",
   "author": {
     "name": "Maxim",

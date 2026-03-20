@@ -11,15 +11,14 @@ Scout extracts knowledge from Claude Code conversation history using a **tension
 
 The goal is **not** to extract everything — it's to find patterns worth preserving while being economical with tokens.
 
-**No special tools needed.** You read history files directly with Read/Bash. Progress persists via `kg_progress_set`.
+**No special tools needed.** You read history files directly with Read/Bash. Progress persists via `kg_progress`.
 
 ## Prerequisites
 
 Before scouting, ensure:
 ```
-kg_read()                              # Load existing graph (avoid duplicates)
-kg_register_session()                  # Enable sync
-kg_progress_get(task_id="scout")       # Check where you left off
+kg_read(cwd="<project root>")         # Load graph + get session_id
+kg_progress(session_id, task_id="scout")  # Check where you left off
 ```
 
 ## Data Sources
@@ -54,7 +53,7 @@ Don't read full sessions blindly. Use history.jsonl to identify **tension signal
 
 ### Step 1: Check Progress
 ```
-kg_progress_get(task_id="scout")
+kg_progress(session_id, task_id="scout")
 ```
 If progress exists, continue from `last_ts`. If empty, start from beginning.
 
@@ -92,7 +91,7 @@ Always:
 
 ### Step 5: Mark Progress
 ```
-kg_progress_set(task_id="scout", state={
+kg_progress(session_id, task_id="scout", state={
   "last_ts": 1770000000,
   "sessions_reviewed": ["abc123", "def456"],
   "patterns_found": ["docker-networking", "pytest-fixtures"],

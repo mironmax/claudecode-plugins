@@ -150,7 +150,7 @@ KnowledgeGraphManager (in-memory + file-backed)
 
 4. **Dual-Mode Access**
    - **Always loaded**: Core knowledge in every session (~3000 tokens)
-   - **Recall on demand**: Archived nodes retrieved when needed
+   - **Read on demand**: `kg_read(cwd, id)` retrieves any node's full content (promotes archived nodes)
    - **Memory traces**: Edges to archived nodes guide discovery
    - Sequential reading surfaces "hidden" knowledge
 
@@ -166,11 +166,11 @@ KnowledgeGraphManager (in-memory + file-backed)
 - Archival scores nodes by: 0.25×recency + 0.50×connectivity + 0.25×richness (weighted sum of percentiles)
 - Archive bottom 20% least-important nodes
 - Keep edges to archived nodes (memory traces)
-- `kg_recall(id)` resurrects archived nodes on demand
+- `kg_read(cwd, id)` retrieves full content and promotes archived nodes
 
 **Memory traces enable graph traversal:**
 - See edge to archived node → know something related exists
-- Traverse via `kg_recall()` → surface hidden knowledge
+- Traverse via `kg_read(cwd, id)` → surface hidden knowledge
 - Sequential reading reconstructs context
 
 **Result:** Simplicity + reliability >> algorithmic complexity
@@ -260,15 +260,15 @@ With stateless=False (stateful mode):
   Client → POST / (initialize)
   Server → Response with mcp-session-id: abc123
   
-  Client → POST / (tools/call kg_ping)
+  Client → POST / (tools/call kg_read)
   ❌ No mcp-session-id header sent!
   Server → ERROR: "No valid session ID provided"
 
 With stateless=True:
   Client → POST / (initialize)
   Server → Creates transport, responds ✅
-  
-  Client → POST / (tools/call kg_ping)  
+
+  Client → POST / (tools/call kg_read)
   Server → Creates new transport, responds ✅
 ```
 
@@ -464,6 +464,6 @@ WebSocket          ← Visual editor (we control the client)
 
 ---
 
-**Last Updated:** 2026-03-16
-**Version:** 0.7.0
+**Last Updated:** 2026-03-20
+**Version:** 0.9.0
 **Architecture Status:** Stable (MCP, visual editor, skills, centralized storage all complete)

@@ -32,7 +32,6 @@ from core.exceptions import (
     KGError,
     NodeNotFoundError,
     SessionNotFoundError,
-    NodeNotArchivedError,
 )
 
 # Configure logging
@@ -65,45 +64,59 @@ def create_mcp_server() -> Server:
         return [
             Tool(
                 name="kg_read",
-                description="Read the full knowledge graph (user + project levels)",
+                description="Read the knowledge graph. First call must include cwd to initialize session — returns session_id for subsequent use. Without id: returns all nodes (gist only) and edges from both user and project levels. With id: returns a single node's full content (gist + notes + touches). If the node is archived, it gets promoted to active.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "cwd": {
+                            "type": "string",
+                            "description": "Project root directory. Required on first call to initialize session and load project graph."
+                        },
+                        "id": {
+                            "type": "string",
+                            "description": "Node ID to read in full. Returns gist + notes + touches. Promotes archived nodes to active."
+                        },
+                        "level": {
+                            "type": "string",
+                            "enum": ["user", "project"],
+                            "description": "Hint which graph the node is in. If omitted, searches both."
+                        }
+                    },
+                    "required": ["cwd"]
+                }
+            ),
+            Tool(
+                name="kg_search",
+                description="Full-text search across node IDs, gists, and notes in both user and project graphs. Returns matching nodes with full content. Use before kg_put_node to check for duplicates. Use when a problem feels familiar — memory likely has the answer.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search term (case-insensitive, matched against node id, gist, notes, touches)"
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "Session ID (to include project graph in search)"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            ),
+            Tool(
+                name="kg_put_node",
+                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, fields are merged (omitted fields unchanged). Search before creating to avoid duplicates. Connect with kg_put_edge after — unconnected nodes risk archival.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "session_id": {
                             "type": "string",
-                            "description": "Session ID from kg_register_session. Required to load project-level graph."
-                        }
-                    },
-                    "required": []
-                }
-            ),
-            Tool(
-                name="kg_register_session",
-                description="Register a session for sync tracking. Call once at session start.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "project_path": {
-                            "type": "string",
-                            "description": "Optional path to project graph.json"
+                            "description": "Session ID from kg_read"
                         },
-                        "cwd": {
-                            "type": "string",
-                            "description": "Current working directory (project root). Pass os.getcwd() or the project root path. Server resolves it to the correct graph.json location."
-                        }
-                    }
-                }
-            ),
-            Tool(
-                name="kg_put_node",
-                description="Add or update a node in the knowledge graph",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
                         "level": {
                             "type": "string",
                             "enum": ["user", "project"],
-                            "description": "Graph level"
+                            "description": "Storage level"
                         },
                         "id": {
                             "type": "string",
@@ -111,36 +124,85 @@ def create_mcp_server() -> Server:
                         },
                         "gist": {
                             "type": "string",
-                            "description": "Node description"
+                            "description": "Compressed headline — what this node captures"
                         },
                         "notes": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Additional context"
+                            "description": "Rationale, constraints, 'why' — recalled on demand"
                         },
                         "touches": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Related artifacts"
-                        },
-                        "session_id": {
-                            "type": "string",
-                            "description": "Session ID (from kg_register_session)"
+                            "description": "Related file paths or artifact references"
                         }
                     },
-                    "required": ["level", "id", "gist"]
+                    "required": ["session_id", "level", "id", "gist"]
                 }
             ),
             Tool(
                 name="kg_put_edge",
-                description="Add or update an edge in the knowledge graph",
+                description="Create or update a relationship between two nodes or file paths. Prefer edges over new nodes — relationships are cheaper and reuse existing concepts. Edges protect connected nodes from archival.",
                 inputSchema={
                     "type": "object",
                     "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": "Session ID from kg_read"
+                        },
                         "level": {
                             "type": "string",
                             "enum": ["user", "project"],
-                            "description": "Graph level"
+                            "description": "Storage level"
+                        },
+                        "from": {
+                            "type": "string",
+                            "description": "Source node ID or file path"
+                        },
+                        "to": {
+                            "type": "string",
+                            "description": "Target node ID or file path"
+                        },
+                        "rel": {
+                            "type": "string",
+                            "description": "Relationship type (kebab-case)"
+                        },
+                        "notes": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Additional context for this relationship"
+                        }
+                    },
+                    "required": ["session_id", "level", "from", "to", "rel"]
+                }
+            ),
+            Tool(
+                name="kg_delete_node",
+                description="Delete a node by ID and all its connected edges. Automatically finds which graph the node is in.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": "Session ID from kg_read"
+                        },
+                        "id": {
+                            "type": "string",
+                            "description": "Node ID to delete"
+                        }
+                    },
+                    "required": ["session_id", "id"]
+                }
+            ),
+            Tool(
+                name="kg_delete_edge",
+                description="Delete a specific edge by its from, to, and rel key. Automatically finds which graph the edge is in.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": "Session ID from kg_read"
                         },
                         "from": {
                             "type": "string",
@@ -152,191 +214,51 @@ def create_mcp_server() -> Server:
                         },
                         "rel": {
                             "type": "string",
-                            "description": "Relationship (kebab-case)"
-                        },
-                        "notes": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Additional context"
-                        },
-                        "session_id": {
-                            "type": "string",
-                            "description": "Session ID"
+                            "description": "Relationship type"
                         }
                     },
-                    "required": ["level", "from", "to", "rel"]
-                }
-            ),
-            Tool(
-                name="kg_delete_node",
-                description="Delete a node and its connected edges",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "level": {
-                            "type": "string",
-                            "enum": ["user", "project"]
-                        },
-                        "id": {
-                            "type": "string",
-                            "description": "Node ID to delete"
-                        },
-                        "session_id": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["level", "id"]
-                }
-            ),
-            Tool(
-                name="kg_delete_edge",
-                description="Delete an edge from the knowledge graph",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "level": {
-                            "type": "string",
-                            "enum": ["user", "project"]
-                        },
-                        "from": {
-                            "type": "string"
-                        },
-                        "to": {
-                            "type": "string"
-                        },
-                        "rel": {
-                            "type": "string"
-                        },
-                        "session_id": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["level", "from", "to", "rel"]
-                }
-            ),
-            Tool(
-                name="kg_recall",
-                description="Retrieve an archived node back into active context",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "level": {
-                            "type": "string",
-                            "enum": ["user", "project"]
-                        },
-                        "id": {
-                            "type": "string",
-                            "description": "Node ID to recall"
-                        },
-                        "session_id": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["level", "id"]
-                }
-            ),
-            Tool(
-                name="kg_search",
-                description="Full-text search across node ids, gists, and notes in both active and archived nodes. Use when you don't know the exact node ID.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": "Search term — matched against node id, gist, and notes (case-insensitive)"
-                        },
-                        "level": {
-                            "type": "string",
-                            "enum": ["user", "project", "both"],
-                            "description": "Graph level to search (default: both)"
-                        },
-                        "session_id": {
-                            "type": "string"
-                        }
-                    },
-                    "required": ["query"]
+                    "required": ["session_id", "from", "to", "rel"]
                 }
             ),
             Tool(
                 name="kg_sync",
-                description="Get changes since session start from other sessions",
+                description="Pull changes made by other sessions since your last sync. Returns new/updated nodes and edges. Call after subagents finish, periodically in long sessions, or before decisions depending on shared knowledge.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "session_id": {
                             "type": "string",
-                            "description": "Your session ID"
+                            "description": "Session ID from kg_read"
                         }
                     },
                     "required": ["session_id"]
                 }
             ),
             Tool(
-                name="kg_progress_get",
-                description="Read persistent progress for a long-running task (e.g. scout, extract)",
+                name="kg_progress",
+                description="Track multi-step task progress across context compaction and session boundaries. Call with task_id only to read current state. Add state to write. Progress persists to disk.",
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "task_id": {
+                        "session_id": {
                             "type": "string",
-                            "description": "Task identifier (e.g. 'scout', 'extract')"
+                            "description": "Session ID from kg_read"
                         },
-                        "level": {
-                            "type": "string",
-                            "enum": ["user", "project"],
-                            "description": "Graph level (default: user)"
-                        }
-                    },
-                    "required": ["task_id"]
-                }
-            ),
-            Tool(
-                name="kg_progress_set",
-                description="Write persistent progress for a long-running task",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
                         "task_id": {
                             "type": "string",
                             "description": "Task identifier (e.g. 'scout', 'extract')"
                         },
                         "state": {
                             "type": "object",
-                            "description": "Progress state to persist"
+                            "description": "Progress state to persist. Omit to read current state."
                         },
                         "level": {
                             "type": "string",
                             "enum": ["user", "project"],
-                            "description": "Graph level (default: user)"
-                        },
-                        "session_id": {
-                            "type": "string",
-                            "description": "Session ID (required for project level)"
+                            "description": "Storage level (default: user)"
                         }
                     },
-                    "required": ["task_id", "state"]
-                }
-            ),
-            Tool(
-                name="kg_session_stats",
-                description="Get session statistics: duration, operation count, graph sizes",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "session_id": {
-                            "type": "string",
-                            "description": "Session ID to get stats for"
-                        }
-                    },
-                    "required": ["session_id"]
-                }
-            ),
-            Tool(
-                name="kg_ping",
-                description="Health check for MCP connectivity",
-                inputSchema={
-                    "type": "object",
-                    "properties": {}
+                    "required": ["session_id", "task_id"]
                 }
             ),
         ]
@@ -351,25 +273,34 @@ def create_mcp_server() -> Server:
         global store, session_manager
 
         try:
-            if name == "kg_ping":
-                return [TextContent(
-                    type="text",
-                    text=f"OK - Server version {__version__}, {session_manager.count() if session_manager else 0} active sessions"
-                )]
+            if name == "kg_read":
+                cwd = arguments.get("cwd")
+                node_id = arguments.get("id")
+                level = arguments.get("level")
 
-            elif name == "kg_register_session":
-                # Store project root path directly; store layer resolves to centralized graph path
-                project_root = arguments.get("cwd") or arguments.get("project_path")
-                if project_root:
-                    project_root = str(Path(project_root).resolve())
-                result = session_manager.register(project_root)
-                return [TextContent(
-                    type="text",
-                    text=f"Session registered: {result['session_id']}\nStart time: {result['start_ts']}"
-                )]
+                # First call with cwd: register session
+                session_id = None
+                if cwd:
+                    project_root = str(Path(cwd).resolve())
+                    result = session_manager.register(project_root)
+                    session_id = result["session_id"]
 
-            elif name == "kg_read":
-                session_id = arguments.get("session_id")
+                # Single node read
+                if node_id:
+                    import json
+                    if not session_id:
+                        # Find session from recent registrations (cwd should have been passed)
+                        return [TextContent(type="text", text="Error: cwd required on first kg_read call to initialize session")]
+                    result = store.read_node(node_id, level=level, session_id=session_id)
+                    node = result["node"]
+                    node_level = result["level"]
+                    was_archived = "promoted from archive" if result.get("was_archived") else "active"
+                    return [TextContent(
+                        type="text",
+                        text=f"Node '{node_id}' ({node_level}, {was_archived}):\n\n{json.dumps(node, indent=2)}\n\nSession: {session_id}"
+                    )]
+
+                # Full graph read
                 graphs = store.read_graphs(session_id)
 
                 def format_graph_compact(level_label: str, nodes: list, edges: list) -> str:
@@ -385,7 +316,7 @@ def create_mcp_server() -> Server:
                             lines.append(f"  {n['id']}: {n.get('gist', '')}")
 
                     if archived:
-                        lines.append("ARCHIVED (use kg_recall <id> for full content):")
+                        lines.append("ARCHIVED (use kg_read with id to view full content):")
                         for n in archived:
                             lines.append(f"  {n['id']}")
 
@@ -425,116 +356,22 @@ def create_mcp_server() -> Server:
                 full_proj = proj_text + "\n" + proj_health
                 total_chars = len(full_user) + len(full_proj)
 
-                # Claude Code persists tool output >50K chars to disk and shows
-                # only a 2000-char preview. Warn when approaching this limit.
                 size_warning = ""
                 if total_chars > 40000:
                     size_warning = (
                         f"\n\n⚠️ WARNING: Graph output is {total_chars} chars — approaching "
-                        f"Claude Code's ~50K tool result limit. Beyond this, output gets "
-                        f"truncated to a preview and you lose graph context. "
-                        f"Run /skill memory → MAINTAIN to review and clean up the graph."
+                        f"Claude Code's ~50K tool result limit. Consider graph maintenance."
                     )
 
+                session_line = f"\n\nSession: {session_id}" if session_id else ""
+
                 return [
-                    TextContent(type="text", text=full_user + "\n" + full_proj + size_warning),
+                    TextContent(type="text", text=full_user + "\n" + full_proj + size_warning + session_line),
                 ]
-
-            elif name == "kg_put_node":
-                sid = arguments.get("session_id")
-                if sid:
-                    session_manager.increment_ops(sid)
-                result = store.put_node(
-                    level=arguments["level"],
-                    node_id=arguments["id"],
-                    gist=arguments["gist"],
-                    notes=arguments.get("notes"),
-                    touches=arguments.get("touches"),
-                    session_id=arguments.get("session_id")
-                )
-                msg = f"Node '{arguments['id']}' saved to {arguments['level']} graph"
-
-                # Gentle nudge: check if node has any edges
-                graph_key = store._get_graph_key(arguments["level"], sid)
-                edges = store.graphs.get(graph_key, {}).get("edges", {})
-                node_id = arguments["id"]
-                has_edges = any(
-                    e["from"] == node_id or e["to"] == node_id
-                    for e in edges.values()
-                )
-                if not has_edges:
-                    msg += "\nTip: connect this node with kg_put_edge to strengthen the graph"
-
-                return [TextContent(type="text", text=msg)]
-
-            elif name == "kg_put_edge":
-                sid = arguments.get("session_id")
-                if sid:
-                    session_manager.increment_ops(sid)
-                result = store.put_edge(
-                    level=arguments["level"],
-                    from_ref=arguments["from"],
-                    to_ref=arguments["to"],
-                    rel=arguments["rel"],
-                    notes=arguments.get("notes"),
-                    session_id=arguments.get("session_id")
-                )
-                return [TextContent(
-                    type="text",
-                    text=f"Edge {arguments['from']}->{arguments['to']}:{arguments['rel']} saved to {arguments['level']} graph"
-                )]
-
-            elif name == "kg_delete_node":
-                sid = arguments.get("session_id")
-                if sid:
-                    session_manager.increment_ops(sid)
-                result = store.delete_node(
-                    level=arguments["level"],
-                    node_id=arguments["id"],
-                    session_id=arguments.get("session_id")
-                )
-                return [TextContent(
-                    type="text",
-                    text=f"Deleted node '{arguments['id']}' and {result['edges_deleted']} connected edges from {arguments['level']} graph"
-                )]
-
-            elif name == "kg_delete_edge":
-                sid = arguments.get("session_id")
-                if sid:
-                    session_manager.increment_ops(sid)
-                result = store.delete_edge(
-                    level=arguments["level"],
-                    from_ref=arguments["from"],
-                    to_ref=arguments["to"],
-                    rel=arguments["rel"],
-                    session_id=arguments.get("session_id")
-                )
-                status = "deleted" if result["deleted"] else "not found"
-                return [TextContent(
-                    type="text",
-                    text=f"Edge {status}: {arguments['from']}->{arguments['to']}:{arguments['rel']}"
-                )]
-
-            elif name == "kg_recall":
-                sid = arguments.get("session_id")
-                if sid:
-                    session_manager.increment_ops(sid)
-                result = store.recall_node(
-                    level=arguments["level"],
-                    node_id=arguments["id"],
-                    session_id=arguments.get("session_id")
-                )
-                import json
-                node = result["node"]
-                return [TextContent(
-                    type="text",
-                    text=f"Recalled node '{arguments['id']}' from {arguments['level']} graph archive:\n\n{json.dumps(node, indent=2)}"
-                )]
 
             elif name == "kg_search":
                 import json
                 query = arguments["query"].lower()
-                level_filter = arguments.get("level", "both")
                 sid = arguments.get("session_id")
                 if sid:
                     session_manager.increment_ops(sid)
@@ -562,10 +399,10 @@ def create_mcp_server() -> Server:
                     return matches
 
                 results = []
-                if level_filter in ("user", "both"):
-                    results += search_graph("user", "user")
-                if level_filter in ("project", "both"):
-                    project_path = session_manager.get_project_path(sid) if sid else None
+                results += search_graph("user", "user")
+                # Search project graph if session provided
+                if sid:
+                    project_path = session_manager.get_project_path(sid)
                     if project_path:
                         graph_key = f"project:{project_path}"
                         results += search_graph(graph_key, "project")
@@ -578,13 +415,69 @@ def create_mcp_server() -> Server:
                     text=f"Found {len(results)} node(s) matching '{arguments['query']}':\n\n{json.dumps(results, indent=2)}"
                 )]
 
+            elif name == "kg_put_node":
+                sid = arguments["session_id"]
+                session_manager.increment_ops(sid)
+                result = store.put_node(
+                    level=arguments["level"],
+                    node_id=arguments["id"],
+                    gist=arguments["gist"],
+                    notes=arguments.get("notes"),
+                    touches=arguments.get("touches"),
+                    session_id=sid
+                )
+                return [TextContent(type="text", text=f"Node '{arguments['id']}' saved to {arguments['level']} graph")]
+
+            elif name == "kg_put_edge":
+                sid = arguments["session_id"]
+                session_manager.increment_ops(sid)
+                result = store.put_edge(
+                    level=arguments["level"],
+                    from_ref=arguments["from"],
+                    to_ref=arguments["to"],
+                    rel=arguments["rel"],
+                    notes=arguments.get("notes"),
+                    session_id=sid
+                )
+                return [TextContent(
+                    type="text",
+                    text=f"Edge {arguments['from']}->{arguments['to']}:{arguments['rel']} saved to {arguments['level']} graph"
+                )]
+
+            elif name == "kg_delete_node":
+                sid = arguments["session_id"]
+                session_manager.increment_ops(sid)
+                result = store.delete_node(
+                    node_id=arguments["id"],
+                    session_id=sid
+                )
+                return [TextContent(
+                    type="text",
+                    text=f"Deleted node '{arguments['id']}' and {result['edges_deleted']} connected edges from {result['level']} graph"
+                )]
+
+            elif name == "kg_delete_edge":
+                sid = arguments["session_id"]
+                session_manager.increment_ops(sid)
+                result = store.delete_edge(
+                    from_ref=arguments["from"],
+                    to_ref=arguments["to"],
+                    rel=arguments["rel"],
+                    session_id=sid
+                )
+                status = "deleted" if result["deleted"] else "not found"
+                return [TextContent(
+                    type="text",
+                    text=f"Edge {status}: {arguments['from']}->{arguments['to']}:{arguments['rel']}"
+                )]
+
             elif name == "kg_sync":
                 session_id = arguments["session_id"]
                 session_manager.increment_ops(session_id)
                 sync_ts = session_manager.get_sync_ts(session_id)
                 updates = store.get_sync_diff(session_id, sync_ts)
 
-                # Advance sync timestamp so next kg_sync won't return same changes
+                # Advance sync timestamp
                 session_manager.mark_synced(session_id)
 
                 user_updates = len(updates["user"]["nodes"]) + len(updates["user"]["edges"])
@@ -609,63 +502,27 @@ def create_mcp_server() -> Server:
                         + format_sync_compact("Project", updates["project"])
                 )]
 
-            elif name == "kg_progress_get":
+            elif name == "kg_progress":
+                sid = arguments["session_id"]
+                session_manager.increment_ops(sid)
                 task_id = arguments["task_id"]
+                state = arguments.get("state")
                 level = arguments.get("level", "user")
-                session_id = arguments.get("session_id")
-                if session_id:
-                    session_manager.increment_ops(session_id)
-                result = store.get_progress(task_id, level, session_id)
-                import json
-                if not result:
-                    return [TextContent(type="text", text=f"No progress found for task '{task_id}'")]
-                return [TextContent(
-                    type="text",
-                    text=f"Progress for '{task_id}':\n{json.dumps(result, indent=2)}"
-                )]
 
-            elif name == "kg_progress_set":
-                task_id = arguments["task_id"]
-                state = arguments["state"]
-                level = arguments.get("level", "user")
-                session_id = arguments.get("session_id")
-                if session_id:
-                    session_manager.increment_ops(session_id)
-                result = store.set_progress(task_id, state, level, session_id)
-                return [TextContent(
-                    type="text",
-                    text=f"Progress saved for task '{task_id}'"
-                )]
-
-            elif name == "kg_session_stats":
-                session_id = arguments["session_id"]
-                stats = session_manager.get_stats(session_id)
-                # Add graph sizes
-                user_graph = store.graphs.get("user", {"nodes": {}, "edges": {}})
-                stats["graphs"] = {
-                    "user": {
-                        "nodes": len(user_graph["nodes"]),
-                        "edges": len(user_graph["edges"])
-                    }
-                }
-                # Add project graph if session has one
-                try:
-                    project_path = session_manager.get_project_path(session_id)
-                    if project_path:
-                        proj_key = f"project:{project_path}"
-                        if proj_key in store.graphs:
-                            proj_graph = store.graphs[proj_key]
-                            stats["graphs"]["project"] = {
-                                "nodes": len(proj_graph["nodes"]),
-                                "edges": len(proj_graph["edges"])
-                            }
-                except Exception:
-                    pass
-                import json
-                return [TextContent(
-                    type="text",
-                    text=f"Session stats:\n{json.dumps(stats, indent=2)}"
-                )]
+                if state is not None:
+                    # Write mode
+                    store.set_progress(task_id, state, level, sid)
+                    return [TextContent(type="text", text=f"Progress saved for task '{task_id}'")]
+                else:
+                    # Read mode
+                    import json
+                    result = store.get_progress(task_id, level, sid)
+                    if not result:
+                        return [TextContent(type="text", text=f"No progress found for task '{task_id}'")]
+                    return [TextContent(
+                        type="text",
+                        text=f"Progress for '{task_id}':\n{json.dumps(result, indent=2)}"
+                    )]
 
             else:
                 raise ValueError(f"Unknown tool: {name}")
@@ -673,8 +530,6 @@ def create_mcp_server() -> Server:
         except NodeNotFoundError as e:
             return [TextContent(type="text", text=f"Error: {str(e)}")]
         except SessionNotFoundError as e:
-            return [TextContent(type="text", text=f"Error: {str(e)}")]
-        except NodeNotArchivedError as e:
             return [TextContent(type="text", text=f"Error: {str(e)}")]
         except KGError as e:
             return [TextContent(type="text", text=f"Error: {str(e)}")]
@@ -692,7 +547,7 @@ async def main():
     # Load configuration
     from core.constants import get_storage_root, user_graph_path
     config = GraphConfig(
-        max_tokens=int(os.getenv("KG_MAX_TOKENS", "3000")),
+        max_tokens=int(os.getenv("KG_MAX_TOKENS", "4000")),
         orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", "30")),
         grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", "3")),
         save_interval=int(os.getenv("KG_SAVE_INTERVAL", "30")),
@@ -750,7 +605,7 @@ async def main():
 
     @rest_api.post("/api/sessions/register")
     async def rest_register_session(project_path: str | None = None):
-        """Register a new session."""
+        """Register a new session. Used by visual editor."""
         result = session_manager.register(project_path)
         return result
 
@@ -880,18 +735,16 @@ async def main():
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 
-    @rest_api.post("/api/nodes/{level}/{node_id}/recall")
-    async def rest_recall_node(level: str, node_id: str, session_id: str | None = None):
-        """Recall an archived node."""
+    @rest_api.get("/api/nodes/{level}/{node_id}")
+    async def rest_read_node(level: str, node_id: str, session_id: str | None = None):
+        """Read a single node's full content. Promotes archived nodes to active."""
         try:
-            result = store.recall_node(level, node_id, session_id)
+            result = store.read_node(node_id, level=level, session_id=session_id)
             return result
         except NodeNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
-        except NodeNotArchivedError as e:
-            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
-            logger.exception("Error recalling node")
+            logger.exception("Error reading node")
             raise HTTPException(status_code=500, detail=str(e))
 
     # ========================================================================

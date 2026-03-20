@@ -14,9 +14,8 @@ The goal: a navigable map of how the codebase fits together — not documentatio
 ## Prerequisites
 
 ```
-kg_read()                                # Load existing graph
-kg_register_session()                    # Enable sync
-kg_progress_get(task_id="extract")       # Check prior progress
+kg_read(cwd="<project root>")             # Load graph + get session_id
+kg_progress(session_id, task_id="extract") # Check prior progress
 ```
 
 ## Node Types
@@ -54,7 +53,7 @@ kg_progress_get(task_id="extract")       # Check prior progress
 
 ### Step 1: Check Progress
 ```
-kg_progress_get(task_id="extract")
+kg_progress(session_id, task_id="extract")
 ```
 Resume from where you left off, or start fresh.
 
@@ -102,7 +101,7 @@ kg_put_edge(level="project", from="src/config.yaml", to="auth-module",
 
 ### Step 5: Update Progress
 ```
-kg_progress_set(task_id="extract", state={
+kg_progress(session_id, task_id="extract", state={
   "modules_mapped": ["auth", "api", "data-layer"],
   "directories_surveyed": ["src/", "config/"],
   "last_updated": "2025-01-15"
