@@ -545,11 +545,14 @@ async def main():
     global store, session_manager, connection_manager, mcp_server
 
     # Load configuration
-    from core.constants import get_storage_root, user_graph_path
+    from core.constants import (
+        get_storage_root, user_graph_path,
+        GRACE_PERIOD_DAYS, ORPHAN_GRACE_DAYS,
+    )
     config = GraphConfig(
         max_tokens=int(os.getenv("KG_MAX_TOKENS", "4000")),
-        orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", "30")),
-        grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", "3")),
+        orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", str(ORPHAN_GRACE_DAYS))),
+        grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", str(GRACE_PERIOD_DAYS))),
         save_interval=int(os.getenv("KG_SAVE_INTERVAL", "30")),
         storage_root=get_storage_root(),
         user_path=user_graph_path(),

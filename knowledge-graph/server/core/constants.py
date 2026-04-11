@@ -13,15 +13,15 @@ CHARS_PER_TOKEN = 4
 TOKENS_PER_EDGE = 15
 
 # Compaction
-COMPACTION_TARGET_RATIO = 0.9
+COMPACTION_TARGET_RATIO = 0.8
 
 # Session
 SESSION_ID_LENGTH = 8
 SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 
 # Grace periods
-GRACE_PERIOD_DAYS = 3
-ORPHAN_GRACE_DAYS = 30
+GRACE_PERIOD_DAYS = 5
+ORPHAN_GRACE_DAYS = 365
 
 # Graph levels
 LEVELS = ("user", "project")
@@ -70,9 +70,12 @@ def _load_aliases() -> dict:
 
 
 def _save_aliases(aliases: dict):
-    """Save slug alias map."""
+    """Save slug alias map atomically."""
+    import os
     aliases_path = get_storage_root() / "aliases.json"
-    aliases_path.write_text(json.dumps(aliases, indent=2))
+    temp_path = aliases_path.with_suffix(".tmp")
+    temp_path.write_text(json.dumps(aliases, indent=2))
+    os.replace(temp_path, aliases_path)
 
 
 def project_graph_path(project_root: str) -> Path:

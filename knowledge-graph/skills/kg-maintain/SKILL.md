@@ -2,7 +2,7 @@
 name: kg-maintain
 user-invocable: false
 description: |
-  Knowledge graph maintenance and self-reflection rules. ALWAYS ACTIVE:
+  Knowledge graph maintenance and self-reflection rules. Active every session:
 
   SELF-REFLECTION TRIGGERS — when these patterns occur, STOP and engage memory:
 
@@ -39,7 +39,12 @@ description: |
   MEMORY UPDATE DISCIPLINE: When a memorized approach fails or is corrected:
   1. Update the existing node with correct information (don't leave stale data)
   2. Scope appropriately — don't narrow to just the current instance if the pattern is general
-  3. Delete or merge duplicate/outdated nodes
+  3. Merge duplicate nodes (keep the richer one, delete the other)
+
+  ARCHIVAL POLICY: Never delete archived nodes. Archival is automatic and reversible —
+  reading an archived node promotes it back to active. Archived does not mean stale,
+  wrong, or disposable. Only delete a node when its content is factually incorrect and
+  cannot be corrected by updating. Do not "clean up" archived nodes unprompted.
 ---
 
 # Maintenance Reference (Detailed)
@@ -55,10 +60,11 @@ in at least one edge. Health stats show this at a glance:
 ## Maintenance Operations
 
 When auditing the graph with kg_read:
-- **Disconnected nodes** — appear in no edges. Connect or delete if stale.
-- **Duplicates** — overlapping gists or IDs. Merge: keep richer one, delete other.
-- **Stale knowledge** — about removed code or old decisions. kg_delete_node.
-- **Broken edges** — pointing to outdated concepts. kg_delete_edge.
+- **Disconnected nodes** — appear in no edges. Connect them with edges first. Only delete if truly orphaned AND factually incorrect.
+- **Duplicates** — overlapping gists or IDs. Merge: keep richer one, delete the other.
+- **Outdated knowledge** — about removed code or old decisions. Update the node with current state rather than deleting. History has value.
+- **Broken edges** — pointing to renamed or removed concepts. Update the edge target, or kg_delete_edge if the relationship no longer exists.
+- **Archived nodes** — leave them alone. They are automatically managed. Do not delete or "clean up" archived nodes.
 
 ## Operational Safety
 

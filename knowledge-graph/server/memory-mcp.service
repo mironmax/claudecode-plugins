@@ -14,10 +14,6 @@ StandardOutput=append:%h/.claude/plugins/cache/maxim-plugins/memory/latest/serve
 StandardError=append:%h/.claude/plugins/cache/maxim-plugins/memory/latest/server/.mcp_server.log
 
 # Environment
-Environment="KG_USER_PATH=%h/.claude/knowledge/user.json"
-Environment="KG_SAVE_INTERVAL=30"
-Environment="KG_MAX_TOKENS=5000"
-Environment="KG_ORPHAN_GRACE_DAYS=7"
 Environment="KG_LOG_LEVEL=INFO"
 Environment="KG_HTTP_HOST=127.0.0.1"
 Environment="KG_HTTP_PORT=8765"

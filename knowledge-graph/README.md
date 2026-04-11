@@ -1,6 +1,6 @@
 # Knowledge Graph for Claude Code
 
-Extract and remember patterns, insights, and relationships worth preserving across sessions.
+Extract and remember patterns, insights, and relationships worth preserving across sessions. Unlike flat-file memory systems, knowledge here is a graph — nodes gain meaning through edges. Unlike verbatim-storage systems, only distilled insights are kept, not raw transcripts.
 
 ## Features
 
@@ -176,9 +176,9 @@ Edit `~/.claude/plugins/knowledge-graph/.mcp.json` to customize:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
-| `KG_MAX_TOKENS` | `4000` | Token limit before compaction, per graph level. Two graphs ≈ 32K chars, safe under Claude Code's 50K tool output limit. Not recommended to raise — nodes in grace period (3 days) can temporarily exceed the limit. |
-| `KG_ORPHAN_GRACE_DAYS` | `30` | Days before orphaned nodes deleted |
-| `KG_GRACE_PERIOD_DAYS` | `3` | Days a node is protected after update |
+| `KG_MAX_TOKENS` | `4000` | Token limit before compaction, per graph level. Two graphs ≈ 32K chars, safe under Claude Code's 50K tool output limit. Not recommended to raise — nodes in the grace period can temporarily exceed the limit. |
+| `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
+| `KG_GRACE_PERIOD_DAYS` | see `constants.py` | Days a node is protected from archival after last update |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
 
 **Note:** Storage is centralized at `~/.knowledge-graph/` by default. Override with `KG_STORAGE_ROOT`.
@@ -250,9 +250,17 @@ MIT License — see [LICENSE](LICENSE)
 
 ## Version
 
-0.9.0
+0.9.1
 
 ### Changelog
+
+**0.9.1**
+- Compaction tuning: `COMPACTION_TARGET_RATIO` 0.9→0.8 (wider buffer, less re-compaction churn), `GRACE_PERIOD_DAYS` 3→5 (longer protection window), `ORPHAN_GRACE_DAYS` 30→365 (archived orphans kept 1 year)
+- `constants.py` is now single source of truth — `mcp_streamable_server.py` env var fallbacks import from constants; service file no longer hardcodes overriding values
+- Removed `server/tools/migrate_storage.py` and `server/tools/replay_sessions.py` (superseded by current storage layout and skills)
+- Storage safety: atomic writes + `.prev` rolling backup on every save
+- Docs: day/ratio values in skills and docs now reference env vars and `constants.py` instead of hardcoded numbers
+- Added comparison with MemPalace and Claude Code Auto-Memory in `Design-Decisions.md` and wiki `Home.md`
 
 **0.9.0**
 - Consolidated MCP tools from 13 to 8: removed `kg_ping`, `kg_session_stats`, `kg_register_session`, `kg_recall`, `kg_progress_get`, `kg_progress_set`

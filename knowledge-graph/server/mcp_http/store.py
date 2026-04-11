@@ -83,12 +83,35 @@ class MultiProjectGraphStore:
 
         logger.info("Multi-project graph store initialized")
 
+    def _load_with_fallback(self, persistence: GraphPersistence) -> tuple:
+        """Load graph, falling back to .prev backup if primary file is corrupt."""
+        try:
+            return persistence.load()
+        except Exception as e:
+            prev_path = persistence.path.with_suffix(".prev")
+            if prev_path.exists():
+                logger.error(
+                    f"Graph file corrupt ({persistence.path}): {e}. "
+                    f"Attempting recovery from {prev_path}"
+                )
+                backup_persistence = GraphPersistence(prev_path)
+                try:
+                    result = backup_persistence.load()
+                    logger.warning(f"Recovered graph from {prev_path} — primary file needs inspection")
+                    return result
+                except Exception as e2:
+                    logger.error(f"Backup recovery also failed: {e2}")
+            raise RuntimeError(
+                f"Cannot load graph from {persistence.path}: {e}. "
+                f"Inspect the file manually or restore from backup."
+            ) from e
+
     def _load_user_graph(self):
         """Load the shared user graph."""
         with self.lock:
             user_key = "user"
             persistence = GraphPersistence(self.config.user_path)
-            graph, versions, progress = persistence.load()
+            graph, versions, progress = self._load_with_fallback(persistence)
 
             # Clean up orphaned edges (edges pointing to non-existent nodes)
             self._clean_orphaned_edges(graph)
@@ -118,7 +141,7 @@ class MultiProjectGraphStore:
 
         # Load from disk
         persistence = GraphPersistence(graph_path)
-        graph, versions, progress = persistence.load()
+        graph, versions, progress = self._load_with_fallback(persistence)
 
         # Clean up orphaned edges (edges pointing to non-existent nodes)
         self._clean_orphaned_edges(graph)

@@ -110,7 +110,7 @@ KnowledgeGraphManager (in-memory + file-backed)
 4. **Sophisticated Scoring** ✅
    - TF (sublinear: 1 + log frequency)
    - Importance (content + graph degree)
-   - Recency (exponential decay over 30 days)
+   - Recency (exponential decay)
 
 **Problems identified:**
 

@@ -4,8 +4,7 @@
     "name": "mironmax"
   },
   "metadata": {
-    "description": "Maxim's collection of Claude Code plugins",
-    "version": "1.0.0"
+    "description": "Maxim's collection of Claude Code plugins"
   },
   "plugins": [
     {

@@ -2,7 +2,7 @@
 name: kg-recall
 user-invocable: false
 description: |
-  Knowledge recall rules. ALWAYS ACTIVE during every session:
+  Knowledge recall rules. Active every session, integrated with all task work.
 
   PROACTIVE RECALL AT TASK START: After kg_read, scan all node IDs and gists.
   If ANY node feels related to the current task — read it in full with kg_read(cwd, id).

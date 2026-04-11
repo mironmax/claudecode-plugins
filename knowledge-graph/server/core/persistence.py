@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import shutil
 from pathlib import Path
 from .utils import edge_storage_key
 
@@ -49,7 +50,7 @@ class GraphPersistence:
 
         except Exception as e:
             logger.error(f"Failed to load graph from {self.path}: {e}")
-            return {"nodes": {}, "edges": {}}, {}, {}
+            raise
 
     def save(self, graph: dict, versions: dict, progress: dict | None = None) -> bool:
         """
@@ -84,6 +85,10 @@ class GraphPersistence:
                 json.dump(data, f, indent=2)
                 f.flush()
                 os.fsync(f.fileno())  # Ensure written to disk
+
+            # Keep a rolling backup of the previous good state
+            if self.path.exists():
+                shutil.copy2(self.path, self.path.with_suffix(".prev"))
 
             # Atomic rename (POSIX guarantees atomicity)
             temp_path.replace(self.path)
