@@ -4,39 +4,40 @@ user-invocable: false
 description: |
   Knowledge recall rules. Active every session, integrated with all task work.
 
-  PROACTIVE RECALL AT TASK START: After kg_read, scan all node IDs and gists.
-  If ANY node feels related to the current task — read it in full with kg_read(cwd, id).
+  PROACTIVE RECALL: After kg_read, scan all node IDs and gists.
+  If ANY node feels related to the current task — read it in full: kg_read(cwd, id).
   Bias toward false positives. Wrong recall = 1 tool call wasted. Missing context = failed task.
 
-  MEMORY TRACES: Edges pointing to archived nodes are hints. When you see
-  "active-node --rel--> archived-node-id", the archived node likely has relevant context.
-  Follow these traces — read the archived node to promote it and see its full content.
+  GIST vs FULL: kg_read() returns gists only (compressed headline — WHAT, not WHY).
+  kg_read(cwd, id) returns gist + notes + touches — the rationale that matters for decisions.
 
-  WHEN TO READ A NODE IN FULL:
-  - Starting a task near a known topic → read related archived nodes
-  - Active node gist signals action/context you should act on → read for full notes
-  - Making architectural decisions → read decision history nodes
-  - Debugging something familiar-feeling → kg_search first, then read matches
-  - User asks "why did we do X?" → read nodes with notes explaining rationale
-  - Encountering a problem class you've seen before → STOP, search before guessing
+  THREE TIERS — nodes move through states as the graph fills:
+    active   → gist visible in kg_read
+    archived → ID only visible; edges shown as crumb trails
+    orphaned → invisible in kg_read/kg_sync; reachable via kg_search only
 
-  GIST vs FULL READ: kg_read() returns gists only (compressed headlines — WHAT, not WHY).
-  kg_read(cwd, id) returns the full node: gist + notes + touches. Notes contain rationale,
-  constraints, and "why" — the context that matters for decisions. When a node looks relevant,
-  read it in full. This is especially important for action-item nodes (test plans, pending work,
-  checklists) where the gist summarizes intent but notes contain the steps.
+  FOLLOWING CRUMBS:
+    1. Edge list shows archived IDs: "active --rel--> archived-id" → follow it.
+    2. kg_read(cwd, id) promotes the archived node to active AND rescues its orphaned
+       neighbors back to archived — they reappear in the edge list. Follow the chain.
+    3. No edges left? Scan archived ID list by name alone. Recognize it, read it.
+    4. kg_search reaches all tiers including orphaned. Last lifeline for buried nodes.
 
-  BATCH RECALL: When exploring a topic, read several related nodes at once rather than
-  one at a time. This is more efficient and gives you complete context.
+  BATCH RECALL: Read several related nodes at once rather than one at a time.
 
-  WHEN TO SYNC: Call kg_sync(session_id) when:
-  - Before decisions depending on shared knowledge
-  - When you suspect another session has been active
-  - Every 30+ min in long sessions
-  - After spawning subagents that write to the graph
+  WHEN TO SYNC: Call kg_sync(session_id) before decisions depending on shared knowledge,
+  when another session may have been active, or after subagents finish.
 ---
 
 # Recall Reference (Detailed)
+
+## Node States
+
+| State | Visible in kg_read | Visible in kg_search | How to surface |
+|-------|--------------------|----------------------|----------------|
+| active | ✓ id + gist | ✓ | Already visible |
+| archived | ✓ id only + edges | ✓ | kg_read(cwd, id) → promotes to active |
+| orphaned | ✗ invisible | ✓ flagged | kg_search → then kg_read(cwd, id) |
 
 ## Automatic Loading
 
@@ -48,8 +49,8 @@ Returns: full graph (gists only) + session_id for subsequent calls.
 
 Output format:
 - **Active nodes**: `id: gist` — compressed headline, no notes
-- **Archived nodes**: `id` only — read with kg_read(cwd, id) to see full content and promote
-- **Edges**: `from --rel--> to`
+- **Archived nodes**: `id` only — read with kg_read(cwd, id) to promote
+- **Edges**: `from --rel--> to` — shown for active+archived nodes (crumb trails)
 - **Health stats**: node count, edge count, orphan %, avg edges/node
 - **Session ID**: use for writes, deletes, and sync
 
@@ -58,7 +59,16 @@ Output format:
 ```
 kg_read(cwd="<project root>", id="node-id")
 ```
-Returns: gist + notes + touches. If the node is archived, promotes it to active automatically.
+Returns: gist + notes + touches. If archived or orphaned, promotes to active.
+**Promotion chain**: if the promoted node has edges to orphaned nodes, those are
+automatically rescued back to archived — they reappear in the edge list.
+
+## Following Crumb Chains
+
+1. **Edge trail**: `active --rel--> archived-id` → read the archived node → it promotes
+2. **Chain rescue**: promoted node's orphaned neighbors surface back to archived → follow them
+3. **ID scan**: no edges? Scan archived ID list by name. Recognize it, read it.
+4. **Deep search**: `kg_search("keyword")` reaches all tiers including orphaned nodes
 
 ## Reading Strategies
 
@@ -66,8 +76,7 @@ Returns: gist + notes + touches. If the node is archived, promotes it to active 
 After kg_read, scan node IDs and gists for anything relevant to current task.
 
 ### Follow edges
-Start from a known-relevant node and traverse its edges. What depends on it?
-What does it depend on? This is where graph structure pays off.
+Start from a known-relevant node and traverse its edges.
 
 ### Level-appropriate search
 - User level: preferences, meta-learnings, cross-project patterns
@@ -79,15 +88,3 @@ When spawning subagents that need domain context:
 1. Include instruction: "First call kg_read(cwd=...) to load knowledge graph"
 2. After completion, call kg_sync(session_id) to see their discoveries
 3. Skip graph loading for straightforward tasks that don't need domain context
-
-## How to recall
-
-By ID (returns full node content, promotes if archived):
-```
-kg_read(cwd="<project root>", id="node-id")
-```
-
-By content (when you don't know the ID):
-```
-kg_search(query="chown permissions docker", session_id="...")
-```

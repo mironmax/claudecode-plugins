@@ -561,8 +561,8 @@ class MultiProjectGraphStore:
 
             node = nodes[node_id]
 
-            # If archived, promote to active
-            was_archived = is_archived(node)
+            # If archived or orphaned, promote to active
+            was_archived = is_archived(node) or "_orphaned_ts" in node
             if was_archived:
                 del node["_archived"]
                 if "_orphaned_ts" in node:
@@ -573,15 +573,34 @@ class MultiProjectGraphStore:
                 self._bump_version(graph_key, ver_key, session_id)
 
                 self.dirty[graph_key] = True
+
+                # Promotion chain: pull adjacent orphaned nodes back to archived
+                # so their IDs+edges become visible again as crumbs.
+                rescued = []
+                for edge in edges.values():
+                    neighbor_id = None
+                    if edge["from"] == node_id:
+                        neighbor_id = edge["to"]
+                    elif edge["to"] == node_id:
+                        neighbor_id = edge["from"]
+                    if neighbor_id and neighbor_id in nodes:
+                        neighbor = nodes[neighbor_id]
+                        if "_orphaned_ts" in neighbor:
+                            del neighbor["_orphaned_ts"]
+                            rescued.append(neighbor_id)
+                            logger.debug(f"Rescued orphaned node '{neighbor_id}' via chain from '{node_id}'")
+
                 self._write_through(graph_key)
 
                 self._broadcast(
-                    {"type": "node_recalled", "level": resolved_level, "node": node, "source_session": session_id},
+                    {"type": "node_recalled", "level": resolved_level, "node": node,
+                     "rescued_from_orphan": rescued, "source_session": session_id},
                     resolved_level,
                     session_id
                 )
 
-                logger.info(f"Recalled archived node '{node_id}' in {resolved_level} graph")
+                logger.info(f"Recalled archived node '{node_id}' in {resolved_level} graph"
+                            + (f"; rescued {len(rescued)} orphaned neighbor(s)" if rescued else ""))
 
             return {"node": node, "level": resolved_level, "was_archived": was_archived}
 
@@ -662,16 +681,21 @@ class MultiProjectGraphStore:
     # ========================================================================
 
     def _maybe_compact(self, graph_key: str):
-        """Compact graph if over token limit. Caller must hold lock."""
-        archived = self.compactor.compact_if_needed(
-            self.graphs[graph_key]["nodes"],
-            self.graphs[graph_key]["edges"],
-            self._versions[graph_key]
-        )
+        """Compact graph if over token limit. Caller must hold lock.
 
-        if archived:
+        Two-pass compaction:
+          Pass 1: archive lowest-scored active nodes until active tokens ≤ max_tokens.
+          Pass 2: orphan lowest-connectivity archived nodes until archived tokens ≤ 30% of max.
+        """
+        nodes = self.graphs[graph_key]["nodes"]
+        edges = self.graphs[graph_key]["edges"]
+        versions = self._versions[graph_key]
+
+        archived = self.compactor.compact_if_needed(nodes, edges, versions)
+        orphaned = self.compactor.orphan_archived_if_needed(nodes, edges)
+
+        if archived or orphaned:
             self.dirty[graph_key] = True
-            # Write-through after compaction
             self._write_through(graph_key)
 
     def _clean_orphaned_edges(self, graph: dict):
@@ -702,61 +726,35 @@ class MultiProjectGraphStore:
             logger.info(f"Cleaned {len(orphaned_keys)} orphaned edge(s)")
 
     def _prune_orphans(self, graph_key: str):
-        """Prune orphaned archived nodes after grace period. Caller must hold lock."""
+        """Delete orphaned nodes whose grace period has expired. Caller must hold lock.
+
+        Orphaned nodes have _orphaned_ts set (by compactor's orphan_archived_if_needed).
+        After orphan_grace_days without recall, they are permanently removed.
+        """
         nodes = self.graphs[graph_key]["nodes"]
         edges = self.graphs[graph_key]["edges"]
 
-        # Build set of active node IDs
-        active_ids = {node_id for node_id, node in nodes.items() if not is_archived(node)}
-
-        # Build set of reachable archived nodes (connected to active)
-        reachable = set()
-        for edge in edges.values():
-            if edge["from"] in active_ids:
-                reachable.add(edge["to"])
-            if edge["to"] in active_ids:
-                reachable.add(edge["from"])
-
-        # Process archived nodes
         current_time = time.time()
         grace_seconds = self.config.orphan_grace_days * 24 * 60 * 60
         to_delete = []
 
         for node_id, node in nodes.items():
-            if not is_archived(node):
+            if "_orphaned_ts" not in node:
                 continue
+            orphaned_duration = current_time - node["_orphaned_ts"]
+            if orphaned_duration > grace_seconds:
+                to_delete.append(node_id)
 
-            if node_id in reachable:
-                # Reconnected - clear orphaned timestamp
-                if "_orphaned_ts" in node:
-                    del node["_orphaned_ts"]
-                    self.dirty[graph_key] = True
-            else:
-                # Orphaned
-                if "_orphaned_ts" not in node:
-                    # Newly orphaned
-                    node["_orphaned_ts"] = current_time
-                    self.dirty[graph_key] = True
-                    logger.debug(f"Node '{node_id}' orphaned in {graph_key}")
-                else:
-                    # Check if grace expired
-                    orphaned_duration = current_time - node["_orphaned_ts"]
-                    if orphaned_duration > grace_seconds:
-                        to_delete.append(node_id)
-
-        # Delete expired orphans
         for node_id in to_delete:
-            # Delete connected edges
             edges_to_delete = [
                 key for key, edge in edges.items()
                 if edge["from"] == node_id or edge["to"] == node_id
             ]
             for key in edges_to_delete:
                 del edges[key]
-
             del nodes[node_id]
             self.dirty[graph_key] = True
-            logger.info(f"Pruned orphaned node '{node_id}' from {graph_key}")
+            logger.info(f"Permanently deleted orphaned node '{node_id}' from {graph_key}")
 
     def _save_to_disk(self, graph_key: str) -> bool:
         """Save a graph to disk. Caller must hold lock."""

@@ -14,6 +14,9 @@ TOKENS_PER_EDGE = 15
 
 # Compaction
 COMPACTION_TARGET_RATIO = 0.8
+# Archived nodes budget: max fraction of max_tokens that archived IDs+edges may occupy.
+# When exceeded, lowest-scored archived nodes are demoted to orphaned (invisible in kg_read).
+ARCHIVED_BUDGET_RATIO = 0.30
 
 # Session
 SESSION_ID_LENGTH = 8

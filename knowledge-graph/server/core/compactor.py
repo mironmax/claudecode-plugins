@@ -1,7 +1,8 @@
 """Graph compaction (archiving low-value nodes)."""
 
 import logging
-from .constants import COMPACTION_TARGET_RATIO
+import time
+from .constants import COMPACTION_TARGET_RATIO, ARCHIVED_BUDGET_RATIO
 from .estimator import TokenEstimator
 from .scorer import NodeScorer
 
@@ -9,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class Compactor:
-    """Handles graph compaction (archiving low-value nodes)."""
+    """Handles graph compaction: active→archived and archived→orphaned."""
 
     def __init__(self, scorer: NodeScorer, estimator: TokenEstimator, max_tokens: int):
         self.scorer = scorer
@@ -62,3 +63,65 @@ class Compactor:
 
         logger.info(f"Compaction complete: archived {len(archived)} nodes, now ~{estimated_tokens} tokens")
         return archived
+
+    def orphan_archived_if_needed(self, nodes: dict, edges: dict) -> list[str]:
+        """
+        Demote archived nodes to orphaned when archived section exceeds budget.
+
+        Archived nodes show as ID-only lines in kg_read output. If too many accumulate,
+        they crowd out active context. This pass keeps archived tokens ≤ 30% of max_tokens.
+
+        A node is "orphaned" by setting _orphaned_ts = now. Orphaned nodes:
+          - Are invisible in kg_read/kg_sync output
+          - Still searchable via kg_search (flagged as orphaned)
+          - Can be rescued by reading a connected archived node (chain promotion)
+          - Are permanently deleted after orphan_grace_days without recall
+
+        Returns list of newly orphaned node IDs.
+        """
+        # Each archived node costs ~1 ID line in kg_read output (~5 tokens)
+        ARCHIVED_ID_TOKENS = 5
+        archived_nodes = {
+            nid: n for nid, n in nodes.items()
+            if n.get("_archived") and "_orphaned_ts" not in n
+        }
+
+        if not archived_nodes:
+            return []
+
+        archived_tokens = len(archived_nodes) * ARCHIVED_ID_TOKENS
+        budget = int(self.max_tokens * ARCHIVED_BUDGET_RATIO)
+
+        if archived_tokens <= budget:
+            return []
+
+        logger.info(f"Archived section too large: {archived_tokens} tokens > {budget} budget")
+
+        # Score archived nodes — lowest scored get orphaned first.
+        # Use edge connectivity as proxy for value: count edges to/from active nodes.
+        active_ids = {nid for nid, n in nodes.items() if not n.get("_archived")}
+        connectivity = {}
+        for edge in edges.values():
+            f, t = edge["from"], edge["to"]
+            if f in archived_nodes and t in active_ids:
+                connectivity[f] = connectivity.get(f, 0) + 1
+            if t in archived_nodes and f in active_ids:
+                connectivity[t] = connectivity.get(t, 0) + 1
+
+        # Sort by connectivity ascending (least connected orphaned first)
+        sorted_archived = sorted(archived_nodes.keys(), key=lambda nid: connectivity.get(nid, 0))
+
+        orphaned = []
+        current_time = time.time()
+
+        for node_id in sorted_archived:
+            if archived_tokens <= budget:
+                break
+            node = nodes[node_id]
+            node["_orphaned_ts"] = current_time
+            archived_tokens -= ARCHIVED_ID_TOKENS
+            orphaned.append(node_id)
+            logger.debug(f"Orphaned archived node '{node_id}' (connectivity: {connectivity.get(node_id, 0)})")
+
+        logger.info(f"Orphaned {len(orphaned)} archived nodes, archived section now ~{archived_tokens} tokens")
+        return orphaned

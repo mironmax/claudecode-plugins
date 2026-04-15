@@ -1,70 +1,37 @@
-# Maxim's Claude Code Plugins Marketplace
+# Maxim's Claude Code Plugins
 
-A collection of Claude Code plugins for enhanced development workflows.
+A marketplace of Claude Code plugins for persistent memory and enhanced workflows.
 
 ## Available Plugins
 
-### Memory (Knowledge Graph)
-Extract and remember patterns, insights, and relationships worth preserving across sessions.
+### Knowledge Graph
 
-**Features:**
-- 🧠 Capture knowledge as you work
-- ⚡ Fast in-memory operations (persistent MCP server)
-- 🔄 Session tracking with diff-based sync
-- 🤝 Real-time multi-session collaboration
-- 🎯 User & Project level knowledge separation
-- 📝 Immediate capture with conflict resolution
-- 🗜️ Auto-compaction to manage context window size
-- ♻️ Smart archiving with recoverable nodes
+Gives Claude a persistent memory that survives across sessions — not just flat notes, but a graph of nodes and relationships. Claude distills insights as you work and recalls them automatically next session.
 
-**Location:** `knowledge-graph/` in this marketplace repository
+**Location:** `knowledge-graph/` · **[Full documentation →](knowledge-graph/README.md)**
 
-## Installation
+---
 
-### 1. Add This Marketplace
+## Quick Install
 
 ```
 /plugin marketplace add mironmax/claudecode-plugins
-```
-
-### 2. Install Plugins
-
-```
 /plugin install knowledge-graph@maxim-plugins
+bash ~/.claude/plugins/knowledge-graph/install_command.sh
 ```
 
-### 3. Set Up CLAUDE.md
+Restart Claude Code. Done.
 
-Add the knowledge graph instructions to your global Claude configuration:
+**Also recommended:** disable built-in auto-memory — ⚙ Settings → Memory → toggle Auto-memory **off**. Otherwise two memory systems run in parallel and write conflicting entries.
 
-```bash
-# If you don't have ~/.claude/CLAUDE.md yet:
-cp ~/.claude/plugins/knowledge-graph/templates/CLAUDE.md ~/.claude/CLAUDE.md
+See the [knowledge-graph README](knowledge-graph/README.md) and the [wiki](https://github.com/mironmax/claudecode-plugins/wiki) for full setup, configuration, and usage details.
 
-# If you already have ~/.claude/CLAUDE.md:
-# Append the template content to your existing file
-```
-
-**Why this matters:** The template tells Claude to auto-load the knowledge graph at session start. Without it, you'll need to manually call tools each session.
-
-**Important:** Use only this one global `~/.claude/CLAUDE.md`. Avoid project-level CLAUDE.md files in individual repos — they create contradicting instructions and bloat context. The knowledge graph is designed to replace that need.
-
-### 4. Disable Built-in Auto-Memory
-
-Claude Code has a built-in auto-memory system that runs in parallel with the knowledge graph, causing duplicate memory and wasted context. Disable it in **⚙ Settings → Memory → Auto-memory** (toggle off).
-
-### 5. Restart Claude Code
-
-The plugin will be available after restart.
-
-## Manual Installation
-
-If you prefer manual installation, see each plugin's repository for instructions.
+---
 
 ## Contributing
 
-Have a plugin to add? Open a PR with updates to `.claude-plugin/marketplace.json`
+Have a plugin to add? Open a PR with updates to `.claude-plugin/marketplace.json`.
 
 ## License
 
-Each plugin has its own license. See individual plugin repositories for details.
+Each plugin has its own license. See individual plugin directories for details.

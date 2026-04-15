@@ -9,13 +9,8 @@
   "plugins": [
     {
       "name": "knowledge-graph",
-      "description": "Extract and remember patterns, insights, and relationships across sessions. Fast in-memory MCP server with git-style sync.",
+      "description": "Persistent knowledge graph for Claude Code — nodes, edges, and distilled insights that survive across sessions. Local Python MCP server, auto-compaction, multi-session sync.",
       "source": "./knowledge-graph"
-    },
-    {
-      "name": "scheduler",
-      "description": "Schedule automatic Claude Code session resumption using systemd timers. Survives sleep/hibernate. Linux-only.",
-      "source": "./scheduler-plugin"
     }
   ]
 }

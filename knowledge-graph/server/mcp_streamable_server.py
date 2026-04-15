@@ -304,9 +304,14 @@ def create_mcp_server() -> Server:
                 graphs = store.read_graphs(session_id)
 
                 def format_graph_compact(level_label: str, nodes: list, edges: list) -> str:
-                    """Compact text format: active nodes as id:gist, archived as id only, edges as triples."""
+                    """Compact text format: active nodes as id:gist, archived as id only, edges as triples.
+                    Orphaned nodes (_orphaned_ts set) are invisible — they don't appear in any section.
+                    Their edges are also suppressed to keep the edge list clean.
+                    """
+                    orphaned_ids = {n["id"] for n in nodes if "_orphaned_ts" in n}
                     active = [n for n in nodes if not n.get("_archived")]
-                    archived = [n for n in nodes if n.get("_archived")]
+                    # Archived = archived but NOT orphaned
+                    archived = [n for n in nodes if n.get("_archived") and "_orphaned_ts" not in n]
 
                     lines = [f"=== {level_label.upper()} — {len(active)} active, {len(archived)} archived ==="]
 
@@ -323,6 +328,10 @@ def create_mcp_server() -> Server:
                     if edges:
                         lines.append("EDGES:")
                         for e in edges:
+                            # Suppress edges where either endpoint is orphaned —
+                            # a reference to an invisible node is a dangling pointer.
+                            if e["from"] in orphaned_ids or e["to"] in orphaned_ids:
+                                continue
                             note = f" [{e['notes'][0]}]" if e.get("notes") else ""
                             lines.append(f"  {e['from']} --{e['rel']}--> {e['to']}{note}")
 
@@ -389,11 +398,13 @@ def create_mcp_server() -> Server:
                             " ".join(node.get("touches", [])),
                         ]).lower()
                         if query in searchable:
+                            is_orphaned = "_orphaned_ts" in node
                             matches.append({
                                 "level": label,
                                 "id": node_id,
                                 "gist": node.get("gist", ""),
                                 "archived": node.get("_archived", False),
+                                "orphaned": is_orphaned,
                                 "notes": node.get("notes", []),
                             })
                     return matches

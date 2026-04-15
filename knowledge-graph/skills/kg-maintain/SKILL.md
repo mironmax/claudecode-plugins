@@ -2,49 +2,30 @@
 name: kg-maintain
 user-invocable: false
 description: |
-  Knowledge graph maintenance and self-reflection rules. Active every session:
+  Knowledge graph maintenance. Tend the garden — regular, light care keeps it healthy.
+  Not a separate task: woven into every session, every capture.
 
-  SELF-REFLECTION TRIGGERS — when these patterns occur, STOP and engage memory:
+  GARDEN RHYTHM — three modes, applied as needed:
+    Water   (routine): after each task, glance at 2–3 recently-touched nodes.
+                       Are their gists still accurate? Any note worth adding?
+    Prune   (when dense): merge duplicate nodes, shorten verbose gists (→ notes),
+                       remove stale touches, delete edges to removed concepts.
+    Fertilize (on use): when a node proves valuable, connect it to newly-discovered
+                       related nodes. One new edge makes a node far more durable.
 
-  SPINNING WHEELS: Few attempts at same action without progress.
-  → Ask: What am I assuming? Have I seen this before? kg_search or kg_sync.
-  → Capture: meta-learning (user level), specific approach (project level).
+  AFTER CAPTURE: when you save a node, immediately ask —
+    - Do any adjacent nodes now need updating?
+    - Is this a duplicate of something existing? Merge if so.
+    - Does this node's gist still fit, or did context shift?
 
-  USER CORRECTION: "No", "that's wrong", "focus", "step back".
-  → STOP. Understand what user wants. Identify the signal you missed.
-  → Capture: the pattern at user level so you recognize it next time.
+  REACTIVE TRIGGERS (stop and tend when these appear):
+    Spinning wheels → kg_search: have you seen this before?
+    User correction → capture the signal you missed, update the stale node.
+    Deja vu → check graph first. If found: use it. If missing: capture now.
 
-  CONFUSION ABOUT KNOWN STATE: "Where is this data?" about something you should know.
-  → Trace data flow explicitly. Don't guess.
-  → Capture: organization (project), your pattern (user).
-
-  UNEXPECTED RESULT: Tool output doesn't match expectation.
-  → Understand WHY before working around it.
-  → Capture: wrong mental model (user) or undocumented behavior (project).
-
-  DEJA VU: "I feel like I've solved this before."
-  → Check graph: kg_search. If found: use it. If missing: capture now.
-
-  SESSION LIFECYCLE:
-  - Start: kg_read(cwd) + scan for relevance (see kg-core)
-  - During: Have you captured anything? If not, why not? Sync periodically.
-  - After completing non-trivial task: What relationships are worth recording?
-  - End/wrap-up: Flush pending insights. What took longer than expected? What helps next session?
-
-  GRAPH HEALTH AWARENESS:
-  - After kg_read, notice health line. High orphan % = connection opportunities.
-  - After creating a node, connect it with kg_put_edge — one edge makes a node far more valuable.
-  - Nodes without edges risk archival and add cost without compression benefit.
-
-  MEMORY UPDATE DISCIPLINE: When a memorized approach fails or is corrected:
-  1. Update the existing node with correct information (don't leave stale data)
-  2. Scope appropriately — don't narrow to just the current instance if the pattern is general
-  3. Merge duplicate nodes (keep the richer one, delete the other)
-
-  ARCHIVAL POLICY: Never delete archived nodes. Archival is automatic and reversible —
-  reading an archived node promotes it back to active. Archived does not mean stale,
-  wrong, or disposable. Only delete a node when its content is factually incorrect and
-  cannot be corrected by updating. Do not "clean up" archived nodes unprompted.
+  ARCHIVAL POLICY: Never delete archived nodes unprompted. Archival is automatic and
+  reversible — read to promote. Only delete when content is factually wrong and
+  cannot be fixed by updating.
 ---
 
 # Maintenance Reference (Detailed)
@@ -60,11 +41,15 @@ in at least one edge. Health stats show this at a glance:
 ## Maintenance Operations
 
 When auditing the graph with kg_read:
-- **Disconnected nodes** — appear in no edges. Connect them with edges first. Only delete if truly orphaned AND factually incorrect.
-- **Duplicates** — overlapping gists or IDs. Merge: keep richer one, delete the other.
-- **Outdated knowledge** — about removed code or old decisions. Update the node with current state rather than deleting. History has value.
+- **Disconnected nodes** — appear in no edges. Connect them with edges if appropriate. Only delete if truly orphaned AND factually incorrect.
+- **Duplicates** — overlapping gists or IDs. Merge: keep/update richer one, delete the other.
+- **Outdated knowledge** — about removed code or old decisions. Update/improve the node with current state rather than deleting.
 - **Broken edges** — pointing to renamed or removed concepts. Update the edge target, or kg_delete_edge if the relationship no longer exists.
-- **Archived nodes** — leave them alone. They are automatically managed. Do not delete or "clean up" archived nodes.
+- **Archived nodes** — leave them alone. Automatic. Do not clean up archived nodes.
+- **Orphaned nodes** — invisible in kg_read; searchable via kg_search. Automatically
+  deleted after 365 days without recall. To rescue: read an adjacent archived node —
+  the promotion chain will surface its orphaned neighbors back to archived.
+- **Verbose gists** — if a gist is a paragraph, move procedure/details to notes. Gist = headline only.
 
 ## Operational Safety
 

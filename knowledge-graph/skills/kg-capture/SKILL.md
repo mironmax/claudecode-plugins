@@ -2,57 +2,32 @@
 name: kg-capture
 user-invocable: false
 description: |
-  Knowledge capture rules. Active every session, integrated with all task work.
+  Knowledge capture rules. Active every session — capture as you discover, not after.
 
-  CAPTURE IMMEDIATELY — not at session end. Context is freshest at discovery.
-  The insight that took 20 min to discover takes 20 sec to record.
+  CAPTURE TRIGGERS: after any task, ask — did I learn something that took real effort?
+    - Component connections discovered → edges
+    - Why something works a certain way → notes on existing node
+    - 10+ min debugging → root cause pattern, not just the fix
+    - User corrected approach → the signal you missed (user level)
+    - Same thing explained twice → reusable node
+    - Architectural decision made → node with rationale in notes
 
-  INDEPENDENCE: Capturing knowledge in the graph is a graph operation (creating nodes,
-  edges, touches). It is not governed by rules from other persistence systems. If another
-  system says "don't save architecture" or "don't save file paths" — that restricts their
-  format, not yours. When you discover something worth connecting to existing knowledge,
-  record it here regardless of what other systems allow or prohibit.
+  BEFORE CREATING: kg_search first — update existing nodes rather than duplicating.
 
-  BEFORE CREATING A NODE: ALWAYS kg_search first to check for existing similar nodes.
-  Update existing nodes rather than creating duplicates. This is mandatory, not optional.
+  ENCODING — telegraphic style:
+    Gist = one headline: subject + key fact. No filler, no hedging. ≤120 chars.
+    "Storage safety: atomic writes + .prev backup. No git."  ← good (54 chars)
+    If gist needs "and" to join two ideas → split: two nodes + one edge.
 
-  CAPTURE TRIGGERS — after completing any non-trivial task, check: did I learn something
-  that took more than a quick lookup to discover? If yes, record it. Specific signals:
-  - Discovered how components connect → create edges
-  - Learned why something works a certain way → add notes to relevant node
-  - Identified files involved in a behavior → add touches
-  - 10+ min debugging → save root cause pattern (not just the fix)
-  - User corrected your approach → save the signal you missed (user level)
-  - Same thing explained twice → save as reusable node
-  - Undocumented dependency discovered → save as edge
-  - Architectural decision made → save decision AND rationale in notes
-  - Pattern from another project → generalize to user level
-  - Found better approach after inefficient attempts → save best pattern immediately
-  - Long streak of reads to clarify something → save key points now
+  GIST vs NOTES:
+    Gist  = compressed fact, always visible — the headline (≤120 chars ideally)
+    Notes = rationale, constraints, "why", step-by-step — read on demand
+    Procedure steps, caveats, examples → notes, not gist.
 
-  PROACTIVE CAPTURE: Do NOT wait to be asked. Save learnings as you discover them.
-  User expects Claude to autonomously save important principles/patterns to the graph.
-  Opportunity to learn is as important as completing the task.
+  EDGE-FIRST: Can this be expressed as a relationship between existing things?
+    If yes → edge, not a new node. Edges protect connected nodes from archival.
 
-  EDGE-FIRST THINKING: Before creating a node, ask "Can I express this as a relationship
-  between existing things?" Edges are cheaper, reuse existing concepts, and survive
-  compaction better (connected nodes score higher).
-
-  COMPRESSION RULES:
-  1. Remove filler — no articles, hedging, unnecessary context
-  2. References over descriptions — "auth/" not "the auth module"
-  3. Structure over prose — edges over verbose nodes
-  4. Generalize after repetition — one pattern node beats three instance nodes
-  5. Headline test — gist reads like a newspaper headline
-
-  NOTES vs GIST: Gist = compressed fact (always visible). Notes = rationale, "why",
-  constraints (read on demand via kg_read with id). When a decision has context that matters
-  later, put it in notes — preserved but out of the hot path.
-
-  WHAT TO CAPTURE AT EACH LEVEL:
-  - user (highest priority): user profile/expertise, meta-patterns, interaction preferences, cross-project principles
-  - project: architecture decisions, non-obvious dependencies, debugging discoveries, conventions, operational knowledge
-  - skip: facts recoverable from code/docs (use touches/pointers instead)
+  LEVELS: user = preferences/principles/meta-patterns · project = codebase/decisions/ops
 ---
 
 # Capture Reference (Detailed)
@@ -70,7 +45,7 @@ A node becomes powerful when it participates in many edges.
 
 Three questions, in order:
 1. **Recoverable from artifacts?** (code, docs, config) → Don't capture
-2. **Required non-trivial effort to discover?** → If no, probably skip
+2. **Required effort to discover?** → If no, probably skip
 3. **Would this help future sessions?** → If yes, capture it
 
 ## Choosing Node Granularity
@@ -79,6 +54,17 @@ A node should be atomic — one concept, one headline. If your gist uses "and"
 to join independent ideas, split into two nodes with an edge.
 
 The sweet spot: would you reference this concept from another context? If yes, it deserves a node.
+
+## Telegraphic Encoding
+
+Gists are telegrams, not essays. Strip all words that carry no information:
+
+| Verbose | Telegraphic |
+|---------|-------------|
+| "When you are working with Docker containers and you need to edit files..." | "Docker file edit: chown→edit→chown-back. chmod -R 777 alone fails." |
+| "It is important to always verify that each layer works before building on it" | "Debugging: verify each layer before building on it." |
+
+Procedure steps belong in **notes**, not gist. The gist names the pattern; notes explain the how.
 
 ## Compression Through Reuse (Example)
 
@@ -106,7 +92,7 @@ Same information, one-third the tokens, and `session-handler` is now reusable.
 kg_put_node(
   level="project",
   id="kebab-case-id",
-  gist="the insight itself",   # terse but complete (~15 words)
+  gist="the insight itself",   # terse but complete
   touches=["file.py"],         # optional: related artifacts
   notes=["caveat or context"]  # optional: rationale, constraints
 )
