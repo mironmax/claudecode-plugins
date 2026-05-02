@@ -2,17 +2,37 @@
 
 Gives Claude a persistent memory that survives across sessions — not flat notes, but a graph of distilled insights connected by typed relationships. Claude captures patterns and decisions as you work; next session it recalls them automatically.
 
+## Prerequisites
+
+- **Claude Code** — CLI or desktop app
+- **Python 3** — required to run the MCP server
+
+  ```bash
+  # Check if you have it:
+  python3 --version
+
+  # Install if missing:
+  # macOS:   brew install python3
+  # Ubuntu:  sudo apt install python3
+  # Arch:    sudo pacman -S python
+  # Windows: https://python.org/downloads (check "Add to PATH")
+  ```
+
+- **pip** — usually bundled with Python 3; if missing: `python3 -m ensurepip`
+
+---
+
 ## Quick Install
 
 ```bash
 # 1. Add the marketplace
-/plugin marketplace add mironmax/claudecode-plugins
+/plugin marketplace add https://github.com/mironmax/claudecode-plugins
 
 # 2. Install the plugin
 /plugin install knowledge-graph@maxim-plugins
 
 # 3. Run the setup script (installs kg-memory command + memory hook)
-bash ~/.claude/plugins/knowledge-graph/install_command.sh
+bash "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name install_command.sh | sort -V | tail -1)"
 
 # 4. Restart Claude Code
 ```
@@ -66,8 +86,7 @@ kg-memory logs      # View logs (tail -f)
 
 If you skipped `install_command.sh`, use the script directly:
 ```bash
-cd ~/.claude/plugins/knowledge-graph/server
-./manage_server.sh status
+find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name manage_server.sh | sort -V | tail -1 | xargs bash -c '"$0" status'
 ```
 
 **Server details:**
@@ -173,11 +192,24 @@ MIT — see [LICENSE](LICENSE)
 
 ## Version
 
-**0.9.1**
+**0.9.4**
 
 ---
 
 ## Changelog
+
+**0.9.4**
+- Prerequisites section: Python 3 + pip install instructions for macOS/Linux/Windows
+- Quick Install: marketplace URL changed to `https://github.com/mironmax/claudecode-plugins`
+- Quick Install: setup script path now uses `find` to auto-locate version-stamped cache dir
+- Skill guidance rewritten for sharper, more actionable capture/recall/maintain/extract rules
+- Hook rotates through 18 targeted prompts (was a single generic reminder)
+- Removed scheduler plugin (superseded by native `/schedule` skill)
+
+**0.9.3**
+- Four hidden skills (kg-core, kg-capture, kg-recall, kg-maintain) with descriptions rewritten to fit 1,536 char limit
+- UserPromptSubmit hook for scripted memory init
+- Three-tier compaction: active → archived → orphaned
 
 **0.9.1**
 - Compaction tuning: `COMPACTION_TARGET_RATIO` 0.9→0.8 (wider buffer), `GRACE_PERIOD_DAYS` 3→5, `ORPHAN_GRACE_DAYS` 30→365
