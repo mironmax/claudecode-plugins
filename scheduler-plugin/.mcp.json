@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "scheduler": {
-      "type": "stdio",
-      "command": ["./server/venv/bin/python", "./server/mcp_stdio_server.py"]
-    }
-  }
-}

@@ -2,31 +2,28 @@
 name: kg-capture
 user-invocable: false
 description: |
-  Knowledge capture rules. Active every session — capture as you discover, not after.
+  Knowledge capture rules. Capture mid-conversation, not after — context is cached,
+  so a write costs almost nothing now but saves full re-derivation next session.
 
-  CAPTURE TRIGGERS: after any task, ask — did I learn something that took real effort?
-    - Component connections discovered → edges
-    - Why something works a certain way → notes on existing node
-    - 10+ min debugging → root cause pattern, not just the fix
-    - User corrected approach → the signal you missed (user level)
-    - Same thing explained twice → reusable node
+  CAPTURE CONTINUOUSLY — the moment something is confirmed, not at task end:
+    - Opened files with no component node → create one immediately
+    - Discovered how two things connect → edge, right now
+    - Understood why something works a certain way → note on existing node
+    - 10+ min debugging resolved → root cause node before moving on
+    - User expressed preference, style, or constraint (even proactively) → user-level node
+    - User corrected your approach → also capture the signal you missed, not just the fix
+    - Explained something non-obvious (first time or repeated) → node before it scrolls away
+    - Approach agreed with user → capture the methodology, not just the decision
     - Architectural decision made → node with rationale in notes
+    - Context window feels deep → capture anything unrecorded before it's lost
+
+  COMPONENT NODES: Read files with no KG node → create one.
+    Gist = what it handles + what it does NOT (exclusion is the skip signal).
 
   BEFORE CREATING: kg_search first — update existing nodes rather than duplicating.
 
-  ENCODING — telegraphic style:
-    Gist = one headline: subject + key fact. No filler, no hedging. ≤120 chars.
-    "Storage safety: atomic writes + .prev backup. No git."  ← good (54 chars)
-    If gist needs "and" to join two ideas → split: two nodes + one edge.
-
-  GIST vs NOTES:
-    Gist  = compressed fact, always visible — the headline (≤120 chars ideally)
-    Notes = rationale, constraints, "why", step-by-step — read on demand
-    Procedure steps, caveats, examples → notes, not gist.
-
-  EDGE-FIRST: Can this be expressed as a relationship between existing things?
-    If yes → edge, not a new node. Edges protect connected nodes from archival.
-
+  ENCODING: Gist = subject + key fact, ≤120 chars. Notes = rationale/steps.
+  EDGE-FIRST: relationship between existing things → edge, not a new node.
   LEVELS: user = preferences/principles/meta-patterns · project = codebase/decisions/ops
 ---
 
@@ -43,10 +40,16 @@ A node becomes powerful when it participates in many edges.
 
 ## Should I capture this?
 
-Three questions, in order:
-1. **Recoverable from artifacts?** (code, docs, config) → Don't capture
-2. **Required effort to discover?** → If no, probably skip
-3. **Would this help future sessions?** → If yes, capture it
+Two capture motivations — both valid:
+
+**Navigation value** — file cluster has no component node yet, and a future session
+would benefit from a read/skip signal. Capture even if the information is technically
+recoverable from the files: the point is to avoid the re-read cost.
+
+**Knowledge value** — something non-obvious, hard-won, or easily forgotten:
+1. Recoverable from artifacts in <10s? AND no navigation gap? → Skip
+2. Required real effort to discover? → Capture
+3. Would this help future sessions avoid repeating work? → Capture
 
 ## Choosing Node Granularity
 

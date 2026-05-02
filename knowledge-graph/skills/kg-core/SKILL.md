@@ -13,8 +13,12 @@ description: |
   MEMORY FIRST: Before searching files, docs, or web — check what you already know.
   Self-reflect when context feels thin. The graph likely has the answer.
 
+  WRITE DURING CONVERSATION: Context is cached mid-session — memory writes cost ~tokens,
+  not round-trips. Capture discoveries as they happen. Don't batch to end of task.
+
   LEVELS: user = cross-project wisdom (prefs, principles, profile)
-           project = codebase (architecture, decisions, ops knowledge)
+           project = codebase (architecture, decisions, ops knowledge,
+                               navigation index: component nodes answer "should I read this file?")
 
   ENTRIES: node (id, gist, notes?, touches?) · edge (from→to, rel, notes?)
   Prefer edges — they reuse existing concepts rather than multiplying nodes.
@@ -42,8 +46,9 @@ If that fails (unknown session), run the full startup sequence.
 ### Post-Load Checklist
 1. Scan user nodes for interaction style, preferences, guidelines
 2. Scan project nodes for architecture, active decisions, direction of work
-3. Scan archived IDs — read any that might relate to current task: kg_read(cwd, id="node-id")
-4. Note health stats — high orphan rate may mean connection opportunities exist
+3. Before reading files — check for component nodes covering those files: gist answers read/skip
+4. Scan archived IDs — read any that might relate to current task: kg_read(cwd, id="node-id")
+5. Note health stats — high orphan rate may mean connection opportunities exist
 
 ## Coexistence with Other Memory Systems
 
@@ -68,6 +73,8 @@ Rules of coexistence:
 - Principles that apply everywhere (architectural, operational, interpersonal)
 
 ### Project Level (codebase-specific)
+- **Navigation index**: component nodes (file clusters + what they handle/don't handle)
+  → use before opening files to make read/skip decisions
 - Architecture decisions + rationale
 - Non-obvious dependencies
 - Debugging discoveries: "X fails when Y because Z"

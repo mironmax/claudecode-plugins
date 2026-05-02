@@ -17,11 +17,11 @@ description: |
     orphaned → invisible in kg_read/kg_sync; reachable via kg_search only
 
   FOLLOWING CRUMBS:
-    1. Edge list shows archived IDs: "active --rel--> archived-id" → follow it.
-    2. kg_read(cwd, id) promotes the archived node to active AND rescues its orphaned
-       neighbors back to archived — they reappear in the edge list. Follow the chain.
-    3. No edges left? Scan archived ID list by name alone. Recognize it, read it.
-    4. kg_search reaches all tiers including orphaned. Last lifeline for buried nodes.
+    Edge to archived ID → kg_read(cwd, id) promotes it + rescues orphaned neighbors.
+    No edges? Scan archived ID list by name. kg_search reaches all tiers — last resort.
+
+  ASSUMPTION CHECK: Before stating "I'll assume X" — kg_search first.
+  If found: use the stored fact. If missing: state the assumption AND capture it.
 
   BATCH RECALL: Read several related nodes at once rather than one at a time.
 

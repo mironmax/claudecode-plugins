@@ -18,14 +18,15 @@ description: |
     - Is this a duplicate of something existing? Merge if so.
     - Does this node's gist still fit, or did context shift?
 
-  REACTIVE TRIGGERS (stop and tend when these appear):
-    Spinning wheels → kg_search: have you seen this before?
-    User correction → capture the signal you missed, update the stale node.
-    Deja vu → check graph first. If found: use it. If missing: capture now.
+  REACTIVE TRIGGERS (act immediately, mid-conversation):
+    Uncertainty (spinning wheels, deja vu, about to search) → kg_search first.
+    About to assume something → check KG; if missing, capture the assumption.
+    User correction → update the stale node before continuing.
+    Node just proved useful → add one edge to current context.
+    Gist feels vague after using it → sharpen while context is live.
 
-  ARCHIVAL POLICY: Never delete archived nodes unprompted. Archival is automatic and
-  reversible — read to promote. Only delete when content is factually wrong and
-  cannot be fixed by updating.
+  ARCHIVAL POLICY: Never delete archived nodes unprompted — archival is reversible.
+  Only delete when content is factually wrong and cannot be fixed by updating.
 ---
 
 # Maintenance Reference (Detailed)
