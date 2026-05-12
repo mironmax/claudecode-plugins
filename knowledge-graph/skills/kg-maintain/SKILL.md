@@ -1,6 +1,6 @@
 ---
 name: kg-maintain
-user-invocable: false
+user-invocable: true
 description: |
   Knowledge graph maintenance. Tend the garden — regular, light care keeps it healthy.
   Not a separate task: woven into every session, every capture.
@@ -25,11 +25,22 @@ description: |
     Node just proved useful → add one edge to current context.
     Gist feels vague after using it → sharpen while context is live.
 
-  ARCHIVAL POLICY: Never delete archived nodes unprompted — archival is reversible.
-  Only delete when content is factually wrong and cannot be fixed by updating.
+  Archival is reversible — leave archived nodes alone unless content is factually wrong
+  and can't be fixed by updating. Deletion is a last resort, not routine cleanup.
 ---
 
 # Maintenance Reference (Detailed)
+
+## When Invoked Directly (/kg-maintain)
+
+Run a focused maintenance pass in this order:
+1. `kg_read(cwd)` — check health stats: orphan %, avg edges/node, size warning
+2. If graph is large or has size warning → **Prune first**: merge duplicates, tighten verbose gists
+3. After pruning → **Fertilize**: connect nodes clarified during pruning, add missing edges
+4. **Water** throughout: update any gist that feels stale given what you just read
+
+Announce findings: "Graph health: N nodes, E edges, O% orphans. Running [prune|fertilize|water] pass."
+Report what changed: nodes merged, gists tightened, edges added.
 
 ## What a Healthy Graph Looks Like
 
@@ -46,7 +57,7 @@ When auditing the graph with kg_read:
 - **Duplicates** — overlapping gists or IDs. Merge: keep/update richer one, delete the other.
 - **Outdated knowledge** — about removed code or old decisions. Update/improve the node with current state rather than deleting.
 - **Broken edges** — pointing to renamed or removed concepts. Update the edge target, or kg_delete_edge if the relationship no longer exists.
-- **Archived nodes** — leave them alone. Automatic. Do not clean up archived nodes.
+- **Archived nodes** — automatic process, leave them be. They're memory traces, not clutter.
 - **Orphaned nodes** — invisible in kg_read; searchable via kg_search. Automatically
   deleted after 365 days without recall. To rescue: read an adjacent archived node —
   the promotion chain will surface its orphaned neighbors back to archived.

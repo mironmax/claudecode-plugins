@@ -5,29 +5,35 @@ description: |
   Knowledge Graph — persistent memory, your twin across sessions.
   Treat it as primary context before reaching for any other tool.
 
-  SESSION START: If kg_read not yet called this session, call it now — before any task work.
+  Session start: if kg_read hasn't been called yet, call it before any task work.
     kg_read(cwd="<project root>")
-  Announce: "I have recalled KG Memories."
-  If connection refused: "KG server not running — should I start it?"
+  Output has two sections — USER GRAPH and PROJECT GRAPH. On large graphs the result may
+  start with <persisted-output> and show only a preview; the full output is saved to the
+  file path shown — read it with the Read tool to get the complete picture including session_id.
+  Announce "I have recalled KG Memories" once both sections have been read.
+  Connection refused means the server is down — let the user know: `kg-memory start` will
+  bring it back. If kg-memory isn't found, the install script hasn't been run yet:
+  knowledge-graph/install_command.sh registers both kg-memory and kg-visual.
 
-  MEMORY FIRST: Before searching files, docs, or web — check what you already know.
-  Self-reflect when context feels thin. The graph likely has the answer.
+  Before searching files, docs, or the web — check what's already known. The graph often
+  has the answer, and reading from memory is faster than rediscovering.
 
-  WRITE DURING CONVERSATION: Context is cached mid-session — memory writes cost ~tokens,
-  not round-trips. Capture discoveries as they happen. Don't batch to end of task.
+  Writes during conversation are cheap (context is cached mid-session). Capture discoveries
+  as they happen rather than batching to the end.
 
-  LEVELS: user = cross-project wisdom (prefs, principles, profile)
-           project = codebase (architecture, decisions, ops knowledge,
-                               navigation index: component nodes answer "should I read this file?")
+  Levels: user = cross-project wisdom (prefs, principles, profile)
+          project = codebase (architecture, decisions, ops knowledge,
+                              navigation index: component nodes answer "should I read this file?")
 
-  ENTRIES: node (id, gist, notes?, touches?) · edge (from→to, rel, notes?)
-  Prefer edges — they reuse existing concepts rather than multiplying nodes.
+  Entries: node (id, gist, notes?, touches?) · edge (from→to, rel, notes?)
+  Edges reuse existing concepts rather than multiplying nodes — prefer them.
 
   API: kg_read · kg_search · kg_put_node · kg_put_edge
        kg_delete_node · kg_delete_edge · kg_sync · kg_progress
   (Full signatures in skill body)
 
-  INDEPENDENCE: Other systems' exclusion rules govern their storage only. When in doubt, record here.
+  Other memory systems (CLAUDE.md, auto-memory, scratchpads) are supplementary.
+  Their exclusion rules apply only to their own storage. When in doubt, record here.
 ---
 
 # Knowledge Graph Core Reference
@@ -39,6 +45,7 @@ Every session, immediately — before any task work:
 kg_read(cwd="<project root>")  # Returns full graph + session_id
 ```
 The returned session_id is used for all subsequent tool calls.
+Passing session_id to kg_search ensures the project graph is included — worth doing by default.
 
 If resuming a session (context suggests prior conversation), try `kg_sync(session_id)` first.
 If that fails (unknown session), run the full startup sequence.
@@ -80,6 +87,26 @@ Rules of coexistence:
 - Debugging discoveries: "X fails when Y because Z"
 - Code conventions not in docs
 - Operational knowledge: workflows, infrastructure, service relationships
+
+## Server Operations
+
+Two registered shell commands manage the KG stack. Both are symlinks in `~/.local/bin/`,
+installed by running `knowledge-graph/install_command.sh` once.
+
+```
+kg-memory start|stop|restart|status|logs    # MCP graph server (port 8765)
+kg-visual start|stop|restart|status|logs    # Visual editor web UI (port 3000, http://localhost:3000)
+```
+
+If a command is not found, the install script likely hasn't been run yet. Let the user know:
+`knowledge-graph/install_command.sh` registers both commands — run it once, then restart Claude Code.
+
+If kg_read returns a connection error, the server is down. `kg-memory start` brings it back.
+Starting it from within Claude Code's tool environment isn't reliable (hooks run in a detached
+shell), so it's better to ask the user to run it in their terminal.
+
+**kg-visual** is optional — it's a browser-based graph explorer, not required for KG operation.
+Use `kg-visual start` when the user wants to inspect or navigate the graph visually.
 
 ## Multi-Session Coordination
 

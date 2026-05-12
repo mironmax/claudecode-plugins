@@ -419,7 +419,7 @@ WebSocket          ← Visual editor (we control the client)
 - **Visual Editor** — D3.js force-directed graph with real-time WebSocket updates, full CRUD, multi-panel UI, project selector. Managed via `manage_visual.sh` / `kg-visual` command.
 - **Scout Skill** (`/skill kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
 - **Extract Skill** (`/skill kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
-- **Full-Text Search** — `kg_search` tool for content search across active and archived nodes.
+- **Ranked Search** — `kg_search` with Reciprocal Rank Fusion (RRF): query tokenized, each term ranked by occurrence count across all nodes, results merged into a single unified ranking. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent.
 
 ### Planned Features
 - Collaborative editing (multi-user visual editor)
@@ -464,6 +464,6 @@ WebSocket          ← Visual editor (we control the client)
 
 ---
 
-**Last Updated:** 2026-03-20
-**Version:** 0.9.0
+**Last Updated:** 2026-05-12
+**Version:** 0.9.5
 **Architecture Status:** Stable (MCP, visual editor, skills, centralized storage all complete)

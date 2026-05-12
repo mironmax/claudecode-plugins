@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install kg-memory command + hook for Claude Code
+# Install kg-memory + kg-visual commands + hook for Claude Code
 # Run after installing the plugin via /plugin install
 
 set -e
@@ -10,12 +10,16 @@ HOOKS_DIR="$HOME/.claude/hooks"
 SETTINGS="$HOME/.claude/settings.json"
 HOOK_SCRIPT="$HOOKS_DIR/kg-remind.sh"
 
-# ── 1. CLI command ────────────────────────────────────────────────────────────
+# ── 1. CLI commands ───────────────────────────────────────────────────────────
 
 mkdir -p "$BIN_DIR"
 ln -sf "$PLUGIN_DIR/server/manage_server.sh" "$BIN_DIR/kg-memory"
 chmod +x "$PLUGIN_DIR/server/manage_server.sh"
 echo "✓ kg-memory command installed"
+
+ln -sf "$PLUGIN_DIR/visual-editor/manage_visual.sh" "$BIN_DIR/kg-visual"
+chmod +x "$PLUGIN_DIR/visual-editor/manage_visual.sh"
+echo "✓ kg-visual command installed"
 
 # ── 2. Hook script ────────────────────────────────────────────────────────────
 

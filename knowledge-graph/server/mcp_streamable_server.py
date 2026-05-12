@@ -307,6 +307,7 @@ def create_mcp_server() -> Server:
                     """Compact text format: active nodes as id:gist, archived as id only, edges as triples.
                     Orphaned nodes (_orphaned_ts set) are invisible — they don't appear in any section.
                     Their edges are also suppressed to keep the edge list clean.
+                    Edge notes are omitted here — they appear only in kg_read(cwd, id) single-node output.
                     """
                     orphaned_ids = {n["id"] for n in nodes if "_orphaned_ts" in n}
                     active = [n for n in nodes if not n.get("_archived")]
@@ -332,8 +333,8 @@ def create_mcp_server() -> Server:
                             # a reference to an invisible node is a dangling pointer.
                             if e["from"] in orphaned_ids or e["to"] in orphaned_ids:
                                 continue
-                            note = f" [{e['notes'][0]}]" if e.get("notes") else ""
-                            lines.append(f"  {e['from']} --{e['rel']}--> {e['to']}{note}")
+                            # Notes omitted in full-graph view (see single-node read for details)
+                            lines.append(f"  {e['from']} --{e['rel']}--> {e['to']}")
 
                     return "\n".join(lines)
 
@@ -366,10 +367,10 @@ def create_mcp_server() -> Server:
                 total_chars = len(full_user) + len(full_proj)
 
                 size_warning = ""
-                if total_chars > 40000:
+                if total_chars > 45000:
                     size_warning = (
-                        f"\n\n⚠️ WARNING: Graph output is {total_chars} chars — approaching "
-                        f"Claude Code's ~50K tool result limit. Consider graph maintenance."
+                        f"\n\nNote: graph output is {total_chars} chars — getting large. "
+                        f"A maintenance pass (/kg-maintain) would help keep it readable."
                     )
 
                 session_line = f"\n\nSession: {session_id}" if session_id else ""
@@ -380,50 +381,113 @@ def create_mcp_server() -> Server:
 
             elif name == "kg_search":
                 import json
-                query = arguments["query"].lower()
+                query_raw = arguments["query"]
                 sid = arguments.get("session_id")
                 if sid:
                     session_manager.increment_ops(sid)
 
-                def search_graph(graph_key: str, label: str) -> list[dict]:
+                def build_node_record(node_id: str, node: dict, label: str) -> dict:
+                    return {
+                        "level": label,
+                        "id": node_id,
+                        "gist": node.get("gist", ""),
+                        "archived": node.get("_archived", False),
+                        "orphaned": "_orphaned_ts" in node,
+                        "notes": node.get("notes", []),
+                    }
+
+                def search_graph_rrf(graph_key: str, label: str, terms: list[str]) -> dict[str, float]:
+                    """
+                    Reciprocal Rank Fusion across per-term ranked lists.
+                    For each term, rank nodes by number of occurrences in their searchable text.
+                    Merge ranks using RRF: score += 1 / (60 + rank) per term.
+                    Returns {node_id: rrf_score} for nodes that match at least one term.
+                    """
                     if graph_key not in store.graphs:
-                        return []
+                        return {}
                     nodes = store.graphs[graph_key]["nodes"]
-                    matches = []
+                    RRF_K = 60
+
+                    # Pre-build searchable text per node
+                    searchable = {}
                     for node_id, node in nodes.items():
-                        searchable = " ".join([
+                        searchable[node_id] = " ".join([
                             node_id,
                             node.get("gist", ""),
                             " ".join(node.get("notes", [])),
                             " ".join(node.get("touches", [])),
                         ]).lower()
-                        if query in searchable:
-                            is_orphaned = "_orphaned_ts" in node
-                            matches.append({
-                                "level": label,
-                                "id": node_id,
-                                "gist": node.get("gist", ""),
-                                "archived": node.get("_archived", False),
-                                "orphaned": is_orphaned,
-                                "notes": node.get("notes", []),
-                            })
-                    return matches
 
-                results = []
-                results += search_graph("user", "user")
-                # Search project graph if session provided
+                    rrf_scores: dict[str, float] = {}
+                    for term in terms:
+                        t = term.lower()
+                        # Score each node by occurrence count for this term
+                        term_scores = []
+                        for node_id, text in searchable.items():
+                            count = text.count(t)
+                            if count > 0:
+                                term_scores.append((node_id, count))
+                        if not term_scores:
+                            continue
+                        # Sort descending by count → rank 0 = best
+                        term_scores.sort(key=lambda x: x[1], reverse=True)
+                        for rank, (node_id, _) in enumerate(term_scores):
+                            rrf_scores[node_id] = rrf_scores.get(node_id, 0.0) + 1.0 / (RRF_K + rank)
+
+                    return rrf_scores
+
+                # Tokenize query: split on whitespace, deduplicate, drop empty
+                terms = list(dict.fromkeys(t for t in query_raw.lower().split() if t))
+
+                # Always search user graph
+                user_scores = search_graph_rrf("user", "user", terms)
+
+                # Search project graph — use session if provided, otherwise scan all loaded project graphs
+                proj_scores: dict[str, float] = {}
+                proj_label_map: dict[str, str] = {}  # node_id -> graph_key
                 if sid:
                     project_path = session_manager.get_project_path(sid)
                     if project_path:
                         graph_key = f"project:{project_path}"
-                        results += search_graph(graph_key, "project")
+                        for node_id, score in search_graph_rrf(graph_key, "project", terms).items():
+                            proj_scores[node_id] = score
+                            proj_label_map[node_id] = graph_key
+                else:
+                    # No session: search all currently-loaded project graphs as best-effort
+                    for graph_key in store.graphs:
+                        if not graph_key.startswith("project:"):
+                            continue
+                        for node_id, score in search_graph_rrf(graph_key, "project", terms).items():
+                            if node_id not in proj_scores or score > proj_scores[node_id]:
+                                proj_scores[node_id] = score
+                                proj_label_map[node_id] = graph_key
+
+                # Merge user + project scores into a single unified ranking by RRF score
+                all_scored = []
+                user_nodes = store.graphs.get("user", {}).get("nodes", {})
+                for node_id, score in user_scores.items():
+                    node = user_nodes.get(node_id, {})
+                    rec = build_node_record(node_id, node, "user")
+                    rec["score"] = round(score, 4)
+                    all_scored.append(rec)
+
+                for node_id, score in proj_scores.items():
+                    graph_key = proj_label_map[node_id]
+                    node = store.graphs.get(graph_key, {}).get("nodes", {}).get(node_id, {})
+                    rec = build_node_record(node_id, node, "project")
+                    rec["score"] = round(score, 4)
+                    all_scored.append(rec)
+
+                results = sorted(all_scored, key=lambda x: x["score"], reverse=True)
 
                 if not results:
-                    return [TextContent(type="text", text=f"No nodes found matching '{arguments['query']}'")]
+                    suffix = "" if sid else " (no session_id — project graph searched best-effort; pass session_id from kg_read for accurate project search)"
+                    return [TextContent(type="text", text=f"No nodes found matching '{query_raw}'{suffix}")]
 
+                session_note = "" if sid else "\nNote: no session_id provided — project results are best-effort across all loaded graphs."
                 return [TextContent(
                     type="text",
-                    text=f"Found {len(results)} node(s) matching '{arguments['query']}':\n\n{json.dumps(results, indent=2)}"
+                    text=f"Found {len(results)} node(s) matching '{query_raw}' (ranked by RRF):{session_note}\n\n{json.dumps(results, indent=2)}"
                 )]
 
             elif name == "kg_put_node":

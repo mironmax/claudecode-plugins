@@ -5,26 +5,26 @@ description: |
   Knowledge capture rules. Capture mid-conversation, not after — context is cached,
   so a write costs almost nothing now but saves full re-derivation next session.
 
-  CAPTURE CONTINUOUSLY — the moment something is confirmed, not at task end:
-    - Opened files with no component node → create one immediately
-    - Discovered how two things connect → edge, right now
-    - Understood why something works a certain way → note on existing node
+  Good moments to capture (as things happen, not at task end):
+    - Opened files with no component node → a brief node now saves a re-read later
+    - Discovered how two things connect → an edge, while the insight is fresh
+    - Understood why something works a certain way → a note on the existing node
     - 10+ min debugging resolved → root cause node before moving on
-    - User expressed preference, style, or constraint (even proactively) → user-level node
-    - User corrected your approach → also capture the signal you missed, not just the fix
-    - Explained something non-obvious (first time or repeated) → node before it scrolls away
+    - User expressed a preference, style, or constraint → user-level node
+    - User corrected your approach → capture what was missed, not just the fix
+    - Explained something non-obvious → node before it scrolls away
     - Approach agreed with user → capture the methodology, not just the decision
     - Architectural decision made → node with rationale in notes
-    - Context window feels deep → capture anything unrecorded before it's lost
+    - Context window feels deep → a good moment to check for anything unrecorded
 
-  COMPONENT NODES: Read files with no KG node → create one.
-    Gist = what it handles + what it does NOT (exclusion is the skip signal).
+  When reading a file with no component node, consider creating one.
+    Gist = what it handles + what it does NOT (the exclusion is the skip signal).
 
-  BEFORE CREATING: kg_search first — update existing nodes rather than duplicating.
+  Before creating a node, a quick kg_search helps avoid duplicates — update if it exists.
 
-  ENCODING: Gist = subject + key fact, ≤120 chars. Notes = rationale/steps.
-  EDGE-FIRST: relationship between existing things → edge, not a new node.
-  LEVELS: user = preferences/principles/meta-patterns · project = codebase/decisions/ops
+  Gist = subject + key fact, ≤120 chars. Notes = rationale and steps.
+  When something is a relationship between two existing things, an edge is better than a new node.
+  Levels: user = preferences/principles/meta-patterns · project = codebase/decisions/ops
 ---
 
 # Capture Reference (Detailed)

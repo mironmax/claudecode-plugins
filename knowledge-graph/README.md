@@ -74,14 +74,21 @@ If you already have a `settings.json`, merge these into your existing `permissio
 
 ## Server Management
 
-The plugin runs a shared background server. It starts automatically on first use. You can manage it with the `kg-memory` command (after running `install_command.sh`):
+The plugin runs a shared background server. It starts automatically on first use. Two commands are available after running `install_command.sh`:
 
 ```bash
+# MCP graph server (required)
 kg-memory status    # Check if server is running
 kg-memory start     # Start server
 kg-memory stop      # Stop server
 kg-memory restart   # Restart server
 kg-memory logs      # View logs (tail -f)
+
+# Visual editor — browser-based graph explorer (optional)
+kg-visual start     # Start at http://localhost:3000
+kg-visual stop
+kg-visual status
+kg-visual logs
 ```
 
 If you skipped `install_command.sh`, use the script directly:
@@ -122,7 +129,7 @@ Once the server is running, Claude captures insights automatically. A few habits
 | `kg-core` | Hidden (auto-loaded) | Session protocol, self-awareness, API reference |
 | `kg-capture` | Hidden (auto-loaded) | Capture rules, compression, search-before-put |
 | `kg-recall` | Hidden (auto-loaded) | Proactive recall, memory traces, sync timing |
-| `kg-maintain` | Hidden (auto-loaded) | Self-reflection triggers, graph health, lifecycle |
+| `/skill kg-maintain` | User-invocable | Focused maintenance pass: prune, fertilize, health check |
 | `/skill kg-scout` | User-invocable | Mine conversation history for patterns and insights |
 | `/skill kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
 
@@ -192,11 +199,21 @@ MIT — see [LICENSE](LICENSE)
 
 ## Version
 
-**0.9.4**
+**0.9.5**
 
 ---
 
 ## Changelog
+
+**0.9.5**
+- Search upgraded to Reciprocal Rank Fusion (RRF): multi-term queries now tokenize, rank per term by occurrence, and merge into a single unified ranking — project and user results sorted together by score
+- Without session_id, kg_search now falls back to searching all loaded project graphs (best-effort) rather than user graph only; response includes a note explaining the limitation
+- Edge notes removed from full-graph kg_read output — edges show as `from --rel--> to` only; notes appear in single-node reads (same pattern as node notes). Reduces output size meaningfully on large graphs
+- Size notification threshold raised from 40K to 45K chars; tone changed from warning to a calm informational note suggesting `/kg-maintain`
+- kg-maintain made user-invocable (`/kg-maintain`): runs a focused pass — health check, prune if large, fertilize, water — and reports what changed
+- kg-visual command added to install_command.sh (was previously a manual symlink)
+- All skill language rewritten for calm, professional tone — imperative/enforcement framing replaced with collaborative guidance throughout kg-core, kg-recall, kg-capture, kg-maintain
+- kg-core skill body: new Server Operations section documenting both kg-memory and kg-visual with subcommands, ports, install path, and troubleshooting guidance
 
 **0.9.4**
 - Prerequisites section: Python 3 + pip install instructions for macOS/Linux/Windows
