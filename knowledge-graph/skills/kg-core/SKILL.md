@@ -105,6 +105,10 @@ If kg_read returns a connection error, the server is down. `kg-memory start` bri
 Starting it from within Claude Code's tool environment isn't reliable (hooks run in a detached
 shell), so it's better to ask the user to run it in their terminal.
 
+After `kg-memory restart`, the MCP tools go offline in the current session — the connection
+reference goes stale. To restore them: in Claude Code, run `/mcp`, find `plugin:knowledge-graph:kg`
+in the list, and hit Reconnect. Tools become available again immediately after.
+
 **kg-visual** is optional — it's a browser-based graph explorer, not required for KG operation.
 Use `kg-visual start` when the user wants to inspect or navigate the graph visually.
 
