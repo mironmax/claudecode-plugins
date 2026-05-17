@@ -464,6 +464,6 @@ WebSocket          ← Visual editor (we control the client)
 
 ---
 
-**Last Updated:** 2026-05-12
-**Version:** 0.9.5
+**Last Updated:** 2026-05-17
+**Version:** 0.9.6
 **Architecture Status:** Stable (MCP, visual editor, skills, centralized storage all complete)

@@ -151,35 +151,50 @@ Edit `~/.claude/plugins/knowledge-graph/.mcp.json` to customize:
 
 ## Data Locations
 
-All data lives under `~/.knowledge-graph/` (git-trackable for backup and portability):
+All data lives under `~/.knowledge-graph/`. The files are plain JSON, so any file backup tool works.
 
 - **User level:** `~/.knowledge-graph/user.json` — cross-project knowledge
 - **Project level:** `~/.knowledge-graph/projects/<slug>/graph.json` — codebase-specific
 - **Sessions:** `~/.knowledge-graph/sessions.json` — session registry
 
-Backup files (`.bak.*`) are excluded via `.gitignore`.
+### Built-in crash protection
 
-### Automatic Backups
+Every save is atomic (write-to-temp → fsync → rename) and keeps one rolling copy of the previous good state as `<file>.prev`. This protects against corruption from interrupted writes, not against accidental deletion or longer-term history.
 
-The plugin creates tiered backups automatically:
-
-| Tier | Count | Frequency |
-|------|-------|-----------|
-| Recent | 3 copies | Hourly |
-| Daily | 7 copies | One per day |
-| Weekly | 4 copies | One per week |
-
-To restore from a backup:
+To restore the previous state:
 ```bash
-# User-level graph:
-cp ~/.knowledge-graph/user.json.bak.1 ~/.knowledge-graph/user.json
-
-# Project-level graph:
-cp ~/.knowledge-graph/projects/<slug>/graph.json.bak.daily.3 \
+cp ~/.knowledge-graph/user.json.prev ~/.knowledge-graph/user.json
+cp ~/.knowledge-graph/projects/<slug>/graph.json.prev \
    ~/.knowledge-graph/projects/<slug>/graph.json
 ```
 
-All saves use atomic writes (write-to-temp → fsync → rename) to prevent corruption from interrupted writes.
+### External backups (optional, user-managed)
+
+The plugin does not include a backup scheduler. For versioned history or off-machine copies, set one up externally. Two options:
+
+**Git** — simple, no extra tools:
+```bash
+cd ~/.knowledge-graph
+git init
+echo "*.prev" >> .gitignore
+echo "*.tmp" >> .gitignore
+git add -A && git commit -m "initial"
+```
+Then commit periodically (e.g. via cron or a post-save hook). Good for occasional snapshots; not ideal for high-frequency writes since every tool call mutates the files, producing noisy diffs and many tiny commits.
+
+**Borg** — better fit for frequently-changing data:
+```bash
+borg init --encryption=none ~/.knowledge-graph-borg
+```
+Add to crontab (`crontab -e`):
+```
+0 * * * * borg create --stats ~/.knowledge-graph-borg::'{now}' ~/.knowledge-graph
+0 2 * * * borg prune ~/.knowledge-graph-borg --keep-hourly=24 --keep-daily=7 --keep-weekly=4
+```
+Borg deduplicates across archives, so hourly snapshots of mostly-unchanged JSON files cost almost nothing. Point-in-time restore:
+```bash
+borg extract ~/.knowledge-graph-borg::2026-05-17T03:00 --strip-components 3
+```
 
 ---
 
@@ -199,11 +214,17 @@ MIT — see [LICENSE](LICENSE)
 
 ## Version
 
-**0.9.5**
+**0.9.6**
 
 ---
 
 ## Changelog
+
+**0.9.6**
+- Backup documentation corrected: removed tiered backup table (hourly/daily/weekly) and git auto-commit section that were never implemented
+- Actual built-in protection documented accurately: atomic writes + single `.prev` rolling copy per save
+- Added user-managed external backup guide: git (simple snapshots) and Borg (deduplicating, better for high-frequency data) with setup instructions
+- Same corrections applied to wiki (Data-and-Backup.md, Configuration.md, Home.md)
 
 **0.9.5**
 - Search upgraded to Reciprocal Rank Fusion (RRF): multi-term queries now tokenize, rank per term by occurrence, and merge into a single unified ranking — project and user results sorted together by score
