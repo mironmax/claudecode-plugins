@@ -214,13 +214,20 @@ MIT — see [LICENSE](LICENSE)
 
 ## Version
 
-**0.9.6**
+**0.9.8**
 
 ---
 
 ## Changelog
 
-**0.9.6**
+**0.9.8**
+- kg-maintain: gist and notes hygiene now run on every pass, independent of graph size
+- kg-maintain: gist standard deferred to kg-capture skill — old nodes no longer exempt from current length target
+- kg-maintain: new "Notes Hygiene" section — periodic rewrite pass collapses changelog-style notes to current truth; touch count as trigger signal
+- kg-maintain: new "Gist Hygiene" section — signals and actions for tightening any gist that exceeds the active standard
+- kg-maintain: "Oversized Node Detection" focused on structural splits and CLAUDE.md promotion, separate from hygiene passes
+
+**0.9.7**
 - Backup documentation corrected: removed tiered backup table (hourly/daily/weekly) and git auto-commit section that were never implemented
 - Actual built-in protection documented accurately: atomic writes + single `.prev` rolling copy per save
 - Added user-managed external backup guide: git (simple snapshots) and Borg (deduplicating, better for high-frequency data) with setup instructions
