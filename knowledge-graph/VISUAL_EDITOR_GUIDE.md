@@ -9,221 +9,197 @@
    kg-memory start
    ```
 
-2. **Start Visual Editor** (recommended):
+2. **Start Visual Editor**:
    ```bash
    kg-visual start
    ```
 
-   Or manually:
-   ```bash
-   cd knowledge-graph/visual-editor/backend
-   ../venv/bin/python server.py
-   ```
+3. **Open in Browser**: `http://localhost:3000`
 
-   The `manage_visual.sh` script (symlinked as `kg-visual`) handles starting, stopping, and checking status of the visual editor.
+### Management Commands
 
-3. **Open in Browser**:
-   Navigate to: `http://localhost:3000`
-
-## Features
-
-### Viewing Graphs
-
-- **User Graph**: Shows your personal knowledge across all projects
-- **Project Graph**: Shows knowledge for a specific project
-- Switch between levels using the radio buttons in the header
-
-### Interacting with Nodes
-
-#### Viewing Node Details
-- **Click** any node to view its details in the bottom panel
-- Details include:
-  - Node ID
-  - Level (user/project)
-  - Description (gist)
-  - Notes
-  - Files/artifacts (touches)
-  - Status badges (archived/orphaned)
-
-#### Context Menu (Right-Click)
-Right-click any node to open the context menu:
-
-- **✏️ Edit Node** - Modify node properties
-- **🗑️ Delete Node** - Remove node and connected edges
-- **↩️ Recall** - Unarchive an archived node
-- **🔗 Create Edge** - Create relationship to another node
-
-### Creating Nodes
-
-1. Click the **"➕ New Node"** button in the header
-2. Fill in the form:
-   - **Node ID**: Unique identifier (use kebab-case like `my-node-id`)
-   - **Description**: One-line summary of the concept
-   - **Notes** (optional): Detailed notes, one per line
-   - **Touches** (optional): Related files/artifacts, one per line
-3. Click **"Create"**
-4. Node appears in the graph immediately
-
-### Editing Nodes
-
-1. **Right-click** the node
-2. Select **"✏️ Edit Node"**
-3. Modify any fields (ID cannot be changed)
-4. Click **"Update"**
-5. Changes apply immediately
-
-### Deleting Nodes
-
-1. **Right-click** the node
-2. Select **"🗑️ Delete Node"**
-3. Confirm the deletion
-4. Node and all connected edges are removed
-
-⚠️ **Warning**: Deletion is permanent and cannot be undone!
-
-### Creating Edges
-
-Edges represent relationships between nodes (e.g., "depends-on", "implements", "extends").
-
-1. **Right-click** the **source node**
-2. Select **"🔗 Create Edge"**
-3. Fill in the form:
-   - **From Node**: Pre-filled (the node you right-clicked)
-   - **To Node ID**: Enter the target node's ID
-   - **Relationship**: Describe the relationship (kebab-case like `depends-on`)
-   - **Notes** (optional): Additional context
-4. Click **"Create"**
-5. Edge appears connecting the nodes
-
-### Recalling Archived Nodes
-
-When nodes are automatically archived (due to inactivity), they appear grayed out:
-
-1. **Right-click** an archived node
-2. Select **"↩️ Recall"**
-3. Node is restored to active status
-
-## Real-Time Updates
-
-The editor uses WebSocket for live updates:
-
-- **Connection Status**: Green dot = connected, Red dot = disconnected
-- **Toast Notifications**: Small pop-ups show operation results
-- **Auto-Sync**: Changes from other sessions appear automatically
-- **Auto-Reconnect**: Reconnects if connection is lost
-
-## Navigation
-
-### Zoom Controls
-- **➕ Button**: Zoom in
-- **➖ Button**: Zoom out
-- **⟲ Button**: Reset zoom and position
-- **Mouse Wheel**: Scroll to zoom
-- **Click + Drag**: Pan the graph
-
-### Node Interaction
-- **Click**: Select and view details
-- **Drag**: Move node position (temporary)
-- **Right-Click**: Open context menu
-
-## Tips & Tricks
-
-### Naming Conventions
-- Use **kebab-case** for IDs and relationships
-- Good: `user-authentication`, `api-endpoint`
-- Bad: `User_Authentication`, `ApiEndpoint`
-
-### Node Organization
-- Keep descriptions concise (1-2 sentences)
-- Use notes for detailed explanations
-- List all relevant files in touches
-
-### Edge Relationships
-Common relationship types:
-- `depends-on` - Dependency
-- `implements` - Implementation relationship
-- `extends` - Inheritance
-- `uses` - Usage relationship
-- `related-to` - General association
-
-### Performance
-- The graph auto-compacts when it grows large
-- Archived nodes are hidden by default
-- Only active nodes count toward token limits
-
-## Keyboard Shortcuts
-
-Currently, the editor uses mouse/touch interaction. Keyboard shortcuts coming in future updates.
-
-## Troubleshooting
-
-### Cannot Connect
-- Ensure MCP server is running: `kg-memory status`
-- Check visual editor is running on port 3000
-- Verify no firewall blocking localhost connections
-
-### WebSocket Disconnected
-- Red connection indicator means WebSocket is down
-- Editor will auto-reconnect every 5 seconds
-- Manual refresh: Click the "🔄 Refresh" button
-
-### Changes Not Appearing
-- Check connection status (green dot)
-- Try manual refresh
-- Verify you're viewing the correct graph level (user/project)
-
-### Modal Won't Close
-- Click the "✕" button in modal header
-- Click "Cancel" button
-- Click outside the modal (on the dark overlay)
-
-## Known Limitations
-
-1. **Edge Creation**: Must type target node ID (no visual selection yet)
-2. **No Undo**: All operations are immediate and permanent
-3. **Single Selection**: Cannot select multiple nodes at once
-4. **Context Menu**: May clip at screen edges
-
-## Best Practices
-
-### For User-Level Graphs
-Store cross-project patterns and learnings:
-- Programming paradigms
-- Architectural patterns
-- Common workflows
-- Tool preferences
-
-### For Project-Level Graphs
-Store project-specific knowledge:
-- Component relationships
-- API endpoints
-- Data flows
-- Implementation decisions
-
-### Node Hygiene
-- Review and update nodes periodically
-- Delete obsolete nodes
-- Archive rarely-used nodes (system does this automatically)
-- Keep relationships current
-
-## Getting Help
-
-- Check server logs: `/tmp/mcp_server.log`
-- Check editor logs: `/tmp/visual_editor.log`
-- See `README.md` for server management and configuration
-
-## Minimum Requirements
-
-- **Screen Width**: 1366px minimum (desktop/laptop)
-- **Browser**: Modern browser with WebSocket support
-- **Network**: Localhost access (no internet required)
-
-## Version Information
-
-- **Editor Version**: 0.1.0
-- **MCP Server**: 0.7.0+
-- **Transport**: Streamable HTTP + WebSocket
+```bash
+kg-visual start     # Start (detached)
+kg-visual stop      # Stop
+kg-visual restart   # Stop + start
+kg-visual status    # Check if running + URL
+kg-visual logs      # Tail live logs
+```
 
 ---
 
-Happy graph editing! 🎉
+## Layout
+
+The editor has three resizable panels:
+
+```
+┌──────────────┬─────────────────────────────┬──────────────────┐
+│  GRAPHS      │         GRAPH               │   DETAILS        │
+│  (left ~10%) │      (center, flex)         │  (right ~30%)    │
+│              │                             │                  │
+│  User Graph  │   D3 force-directed         │  Identity        │
+│  ─────────── │   canvas                    │  Description     │
+│  project-a   │                             │  Notes           │
+│  project-b   │                             │  Files           │
+│  project-c   │                             │  Connections     │
+└──────────────┴─────────────────────────────┴──────────────────┘
+```
+
+Drag the thin divider bars between panels to resize them.
+
+---
+
+## Selecting a Graph
+
+Click any entry in the **left panel**:
+
+- **User Graph** — cross-project knowledge (preferences, patterns, principles)
+- **Project entries** — project-specific knowledge; shows node/edge counts
+
+The selected entry is highlighted with a blue left border. The header shows which graph is active.
+
+---
+
+## Node Interaction
+
+### Viewing Details
+
+**Click** any node to open its details in the right panel. The panel shows:
+
+| Section | Contents |
+|---|---|
+| Identity | ID (read-only), status badges (level, archived, orphaned) |
+| Description | Gist — the one-line summary |
+| Notes | Detailed notes, one per entry |
+| Files & Artifacts | Touches — related file paths |
+| Connections | All edges: outgoing (→) and incoming (←) |
+
+Click any peer name in **Connections** to jump selection to that node.
+
+### Inline Editing
+
+Hover over the **Description**, **Notes**, or **Files** section header — a pen icon (✎) appears. Click it to edit inline:
+
+- **Gist**: Single-line textarea. Hard limit: **120 characters** (counter turns red if over; Save is blocked until under limit).
+- **Notes**: Multi-line textarea, one note per line.
+- **Touches**: Multi-line textarea, one file path per line.
+
+Click **Save** to write the change immediately, or **Cancel** to discard.
+
+> **Why ID and status are read-only**: Renaming a node ID would orphan all its edges (edges reference IDs directly). Status (archived/orphaned) is managed by the compaction scorer, not manual input.
+
+### Context Menu (Right-Click)
+
+Right-click any node:
+
+- **Edit Node** — Full modal editor (all fields in one form)
+- **Delete Node** — Removes node and all connected edges (permanent, no undo)
+- **Recall** — Unarchive an archived node
+- **Create Edge** — Start an edge from this node to another
+
+---
+
+## Creating Nodes
+
+Click **+ New Node** in the graph toolbar:
+
+- **Node ID**: kebab-case, e.g. `my-concept` (lowercase letters, digits, hyphens)
+- **Gist**: One-line summary, ≤120 characters
+- **Notes**: Optional, one per line
+- **Touches**: Optional file paths, one per line
+
+---
+
+## Creating Edges
+
+1. Right-click a node → **Create Edge**
+2. Enter the **target node ID** and a **relationship label** (kebab-case, e.g. `depends-on`)
+3. Optionally add notes
+4. Click **Create**
+
+Common relationship types: `depends-on`, `implements`, `extends`, `uses`, `instance-of`, `related-to`, `documents`, `fixes`.
+
+---
+
+## Navigation
+
+| Action | How |
+|---|---|
+| Select node | Left-click |
+| Pan | Click + drag on background |
+| Zoom | Scroll wheel, or +/− buttons |
+| Reset zoom | ⟲ button |
+| Context menu | Right-click node |
+| Move node (temp) | Drag node |
+
+---
+
+## Connection Status Indicator
+
+The dot in the top-right corner shows the WebSocket state:
+
+- **● Live** (green) — WebSocket connected; graph updates automatically when Claude writes memory in any terminal session. No need to press Refresh.
+- **● Offline** (red) — WebSocket dropped; auto-reconnects every 5 seconds. Changes still save correctly — you just won't see them until reconnect or Refresh.
+- **● Server down** (red) — MCP server unreachable; reads and writes will fail.
+
+If you see persistent Offline/Server down: run `kg-memory status` and `kg-memory start` if needed.
+
+---
+
+## Node States
+
+| Appearance | Meaning |
+|---|---|
+| Green filled | Active |
+| Dark grey, dashed border, 50% opacity | Archived (infrequently used) |
+| Hollow, dotted border, 60% opacity | Orphaned (no edges) |
+| Gold ring | Selected |
+
+Node size scales with connection count — hub nodes appear larger.
+
+---
+
+## Troubleshooting
+
+**"Cannot connect to MCP server"**
+```bash
+kg-memory status
+kg-memory start   # if not running
+```
+
+**Persistent Offline indicator**
+```bash
+kg-memory restart
+```
+Then reload the browser tab.
+
+**Graph not loading / empty**
+- Check you selected a graph in the left panel
+- For project graphs: the project must have at least one node (use Claude to capture some first)
+- Check logs: `kg-visual logs`
+
+**Changes not appearing**
+- Check the connection status indicator
+- Press **Refresh** in the header
+- If WebSocket is Live, changes from Claude sessions arrive automatically
+
+**Modal won't close**
+- Click the ✕ button, or **Cancel**, or click the dark overlay behind the modal
+
+---
+
+## Known Limitations
+
+- **Edge creation**: Must type target node ID — no click-to-connect yet
+- **No undo**: All operations are immediate and permanent
+- **Single selection**: Cannot multi-select nodes
+- **No search**: Browse the graph visually
+- **Desktop only**: Minimum 1366px screen width required
+
+---
+
+## Minimum Requirements
+
+- Screen width: 1366px+
+- Modern browser with WebSocket support (Chrome, Firefox, Safari)
+- MCP server running on localhost:8765
