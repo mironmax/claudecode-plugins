@@ -10,10 +10,14 @@
 
 const ICONS = {
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
     recall: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>',
     link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
     close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+    folder: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
 };
 
 function icon(name, size = '') {
@@ -29,6 +33,7 @@ const CONFIG = {
     apiBaseUrl: window.location.origin,
     mcpServerUrl: 'http://127.0.0.1:8765',
     refreshInterval: 30000,
+    gistMaxLen: 120,
     simulation: {
         linkDistance: 120,
         linkStrength: 0.4,
@@ -49,7 +54,7 @@ const CONFIG = {
 const state = {
     graphData: null,
     selectedNode: null,
-    graphLevel: null,       // null = nothing selected, 'user' or 'project'
+    graphLevel: null,
     selectedProject: null,
     projects: [],
     simulation: null,
@@ -58,6 +63,8 @@ const state = {
     ws: null,
     contextNode: null,
     edgeCreationSource: null,
+    // Track which field is currently being edited inline
+    editingField: null,
 };
 
 // ============================================================================
@@ -116,7 +123,6 @@ function connectWebSocket() {
     state.ws = new WebSocket(wsUrl);
 
     state.ws.onopen = () => {
-        console.log('WebSocket connected');
         setConnectionStatus('connected', 'Live');
     };
 
@@ -125,21 +131,17 @@ function connectWebSocket() {
         handleWebSocketMessage(message);
     };
 
-    state.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+    state.ws.onerror = () => {
         setConnectionStatus('error', 'Error');
     };
 
     state.ws.onclose = () => {
-        console.log('WebSocket disconnected');
         setConnectionStatus('error', 'Offline');
         setTimeout(() => connectWebSocket(), 5000);
     };
 }
 
 function handleWebSocketMessage(message) {
-    console.log('WebSocket message:', message);
-
     switch (message.type) {
         case 'connected':
             state.sessionId = message.session_id;
@@ -161,8 +163,8 @@ function formatUpdateMessage(message) {
     const actions = {
         'node_updated': `Node updated: ${message.node?.id}`,
         'node_deleted': `Node deleted: ${message.node_id}`,
-        'edge_updated': `Edge updated: ${message.edge?.from} \u2192 ${message.edge?.to}`,
-        'edge_deleted': `Edge deleted: ${message.from} \u2192 ${message.to}`,
+        'edge_updated': `Edge updated: ${message.edge?.from} → ${message.edge?.to}`,
+        'edge_deleted': `Edge deleted: ${message.from} → ${message.to}`,
         'node_recalled': `Node recalled: ${message.node?.id}`
     };
     return actions[message.type] || 'Graph updated';
@@ -230,37 +232,118 @@ async function checkHealth() {
 }
 
 // ============================================================================
-// Project Management
+// Project Selector Panel
 // ============================================================================
 
 async function loadProjects() {
+    const entriesEl = document.getElementById('project-entries');
+    const loadingEl = document.getElementById('project-loading');
+
     try {
         const projects = await fetchProjects();
         state.projects = projects;
 
-        const selector = document.getElementById('project-selector');
-        selector.innerHTML = '<option value="">Select a project...</option>';
+        loadingEl.classList.add('hidden');
+        entriesEl.innerHTML = '';
 
         projects.forEach(project => {
-            const option = document.createElement('option');
-            option.value = project.project_path;
+            const item = document.createElement('div');
+            item.className = 'project-item';
+            item.dataset.path = project.project_path;
 
-            let label = project.display_name;
+            let meta = '';
             if (project.has_graph && project.node_count !== null) {
-                label += ` (${project.node_count}N \u00b7 ${project.edge_count}E)`;
+                meta = `${project.node_count}N · ${project.edge_count}E`;
             } else {
-                label += ' (no graph)';
+                meta = 'no graph';
             }
 
-            option.textContent = label;
-            option.title = project.project_path;
-            selector.appendChild(option);
+            item.innerHTML = `
+                <span class="project-item-icon">${ICONS.folder}</span>
+                <div class="project-item-info">
+                    <div class="project-item-name" title="${escapeHtml(project.project_path)}">${escapeHtml(project.display_name)}</div>
+                    <div class="project-item-meta">${escapeHtml(meta)}</div>
+                </div>
+            `;
+
+            item.addEventListener('click', () => selectProject(project.project_path));
+            entriesEl.appendChild(item);
         });
 
-        console.log(`Loaded ${projects.length} projects`);
+        if (projects.length === 0) {
+            entriesEl.innerHTML = '<div class="project-section-label" style="padding-top:0.5rem;opacity:0.4;">No projects found</div>';
+        }
     } catch (error) {
         console.error('Failed to load projects:', error);
+        loadingEl.classList.add('hidden');
     }
+}
+
+function selectUserGraph() {
+    // Deactivate all project items
+    document.querySelectorAll('.project-item').forEach(el => el.classList.remove('active'));
+    document.getElementById('project-item-user').classList.add('active');
+
+    state.graphLevel = 'user';
+    state.selectedProject = null;
+    loadGraph();
+}
+
+function selectProject(projectPath) {
+    document.querySelectorAll('.project-item').forEach(el => el.classList.remove('active'));
+    const item = document.querySelector(`.project-item[data-path="${CSS.escape(projectPath)}"]`);
+    if (item) item.classList.add('active');
+
+    state.graphLevel = 'project';
+    state.selectedProject = projectPath;
+    loadGraph();
+}
+
+// ============================================================================
+// Resize Handles
+// ============================================================================
+
+function initResizeHandles() {
+    setupResizeHandle('resize-project', 'project-panel', 'left', '--project-panel-width', 140, 320);
+    setupResizeHandle('resize-detail', 'detail-panel', 'right', '--detail-panel-width', 240, 600);
+}
+
+function setupResizeHandle(handleId, panelId, side, cssVar, minPx, maxPx) {
+    const handle = document.getElementById(handleId);
+    const panel = document.getElementById(panelId);
+    if (!handle || !panel) return;
+
+    let startX = 0;
+    let startWidth = 0;
+
+    handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        startX = e.clientX;
+        startWidth = panel.getBoundingClientRect().width;
+        handle.classList.add('dragging');
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+
+        function onMove(e) {
+            let delta = e.clientX - startX;
+            if (side === 'right') delta = -delta;
+            const newWidth = Math.min(maxPx, Math.max(minPx, startWidth + delta));
+            document.documentElement.style.setProperty(cssVar, `${newWidth}px`);
+        }
+
+        function onUp() {
+            handle.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            // Restart simulation so graph fills new space
+            if (state.simulation) state.simulation.alpha(0.3).restart();
+        }
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
 }
 
 // ============================================================================
@@ -394,6 +477,16 @@ async function submitNodeForm(isEdit) {
         return;
     }
 
+    if (gist.length > CONFIG.gistMaxLen) {
+        showToast(`Gist must be ≤${CONFIG.gistMaxLen} characters`, 'error');
+        return;
+    }
+
+    if (!validateNodeId(id)) {
+        showToast('Node ID must be lowercase kebab-case (letters, digits, hyphens)', 'error');
+        return;
+    }
+
     try {
         const response = await fetch(`${CONFIG.apiBaseUrl}/api/nodes`, {
             method: 'POST',
@@ -416,6 +509,10 @@ async function submitNodeForm(isEdit) {
     } catch (error) {
         showToast(`Failed: ${error.message}`, 'error');
     }
+}
+
+function validateNodeId(id) {
+    return /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(id);
 }
 
 function startEdgeCreation(fromNode) {
@@ -498,6 +595,8 @@ async function deleteNode(nodeId) {
         );
         showToast('Node deleted', 'success');
         closeModal();
+        state.selectedNode = null;
+        showDetailEmpty();
         await loadGraph();
     } catch (error) {
         showToast(`Failed: ${error.message}`, 'error');
@@ -512,6 +611,85 @@ async function recallNode(node) {
         );
         showToast('Node recalled', 'success');
         await loadGraph();
+    } catch (error) {
+        showToast(`Failed: ${error.message}`, 'error');
+    }
+}
+
+// ============================================================================
+// Inline Field Editing
+// ============================================================================
+
+// field: 'gist' | 'notes' | 'touches'
+function startInlineEdit(field) {
+    if (state.editingField === field) return;
+    state.editingField = field;
+
+    const node = state.selectedNode;
+    if (!node) return;
+
+    // Re-render so the target field becomes an editor
+    renderNodeDetails(node);
+}
+
+function cancelInlineEdit() {
+    state.editingField = null;
+    if (state.selectedNode) renderNodeDetails(state.selectedNode);
+}
+
+async function saveInlineEdit(field) {
+    const node = state.selectedNode;
+    if (!node) return;
+
+    let gist = node.gist;
+    let notes = node.notes ? [...node.notes] : null;
+    let touches = node.touches ? [...node.touches] : null;
+
+    if (field === 'gist') {
+        const val = document.getElementById('inline-gist')?.value.trim();
+        if (!val) { showToast('Gist cannot be empty', 'error'); return; }
+        if (val.length > CONFIG.gistMaxLen) {
+            showToast(`Gist must be ≤${CONFIG.gistMaxLen} characters`, 'error');
+            return;
+        }
+        gist = val;
+    } else if (field === 'notes') {
+        const raw = document.getElementById('inline-notes')?.value ?? '';
+        notes = raw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        if (notes.length === 0) notes = null;
+    } else if (field === 'touches') {
+        const raw = document.getElementById('inline-touches')?.value ?? '';
+        touches = raw.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+        if (touches.length === 0) touches = null;
+    }
+
+    try {
+        const response = await fetch(`${CONFIG.apiBaseUrl}/api/nodes`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                level: state.graphLevel,
+                id: node.id,
+                gist,
+                notes,
+                touches,
+                session_id: state.sessionId
+            })
+        });
+
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        // Optimistically update the in-memory node so re-render looks right immediately
+        node.gist = gist;
+        node.notes = notes;
+        node.touches = touches;
+
+        showToast('Saved', 'success');
+        state.editingField = null;
+        renderNodeDetails(node);
+
+        // Reload graph in background to sync labels etc.
+        loadGraph();
     } catch (error) {
         showToast(`Failed: ${error.message}`, 'error');
     }
@@ -624,8 +802,6 @@ function renderGraph(graphData) {
         return;
     }
 
-    // --- Compute per-node metrics ---
-    // Degree: count of connections
     const degreeMap = {};
     filteredData.nodes.forEach(n => degreeMap[n.id] = 0);
     filteredData.links.forEach(l => {
@@ -636,19 +812,15 @@ function renderGraph(graphData) {
     });
     const maxDegree = Math.max(1, ...Object.values(degreeMap));
 
-    // Content weight: rough char count of gist + notes
     filteredData.nodes.forEach(n => {
         const degree = degreeMap[n.id] || 0;
-        // Radius: base 8, scales up to 12 (1.5x) via sqrt of normalized degree
         n._radius = CONFIG.node.radius * (1 + 0.5 * Math.sqrt(degree / maxDegree));
-        // Content weight: gist length + notes length (capped)
         const gistLen = (n.gist || '').length;
         const notesLen = (n.notes || []).reduce((sum, note) => sum + note.length, 0);
-        n._contentWeight = Math.min(gistLen + notesLen, 1000); // cap at 1000 chars
+        n._contentWeight = Math.min(gistLen + notesLen, 1000);
     });
     const maxContent = Math.max(1, ...filteredData.nodes.map(n => n._contentWeight));
 
-    // Links
     const link = container.append('g')
         .selectAll('line')
         .data(filteredData.links)
@@ -657,7 +829,6 @@ function renderGraph(graphData) {
         .attr('class', 'link')
         .attr('stroke-width', 1.5);
 
-    // Link labels
     const linkLabel = container.append('g')
         .selectAll('text')
         .data(filteredData.links)
@@ -666,7 +837,6 @@ function renderGraph(graphData) {
         .attr('class', 'link-label')
         .text(d => d.rel);
 
-    // Nodes — radius varies by connection count
     const node = container.append('g')
         .selectAll('circle')
         .data(filteredData.nodes)
@@ -689,7 +859,6 @@ function renderGraph(graphData) {
             .on('drag', dragged)
             .on('end', dragEnded));
 
-    // Node labels — offset scales with radius
     const nodeLabel = container.append('g')
         .selectAll('text')
         .data(filteredData.nodes)
@@ -704,13 +873,10 @@ function renderGraph(graphData) {
         .attr('dy', d => -(d._radius + 6))
         .text(d => truncateText(d.id, 20));
 
-    // --- Simulation with per-node forces ---
-    // Charge: content-heavy nodes pull 1.5–2.5x harder
     state.simulation.force('charge', d3.forceManyBody().strength(d => {
-        const contentRatio = d._contentWeight / maxContent; // 0..1
+        const contentRatio = d._contentWeight / maxContent;
         return CONFIG.simulation.chargeStrength * (1 + contentRatio);
     }));
-    // Collision: match visual radius + padding
     state.simulation.force('collision', d3.forceCollide().radius(d => d._radius + 4));
 
     state.simulation
@@ -758,6 +924,60 @@ function showEmptyState(message) {
 }
 
 // ============================================================================
+// Connections Section Builder
+// ============================================================================
+
+function buildConnectionsSection(node) {
+    if (!state.graphData) return '';
+
+    const links = state.graphData.links.filter(l => {
+        const src = l.source.id || l.source;
+        const tgt = l.target.id || l.target;
+        return (src === node.id || tgt === node.id) && l.level === node.level;
+    });
+
+    if (links.length === 0) return '';
+
+    const outgoing = links.filter(l => (l.source.id || l.source) === node.id);
+    const incoming = links.filter(l => (l.target.id || l.target) === node.id);
+
+    function linkRow(l, direction) {
+        const other = direction === 'out'
+            ? (l.target.id || l.target)
+            : (l.source.id || l.source);
+        const arrow = direction === 'out' ? '→' : '←';
+        return `<li class="conn-row">
+            <span class="conn-arrow">${arrow}</span>
+            <span class="conn-rel">${escapeHtml(l.rel)}</span>
+            <span class="conn-peer" onclick="selectNodeById('${escapeHtml(other)}')" title="Click to select">${escapeHtml(other)}</span>
+        </li>`;
+    }
+
+    const rows = [
+        ...outgoing.map(l => linkRow(l, 'out')),
+        ...incoming.map(l => linkRow(l, 'in')),
+    ].join('');
+
+    return `
+        <div class="detail-section">
+            <h3>Connections <span class="conn-count">${links.length}</span></h3>
+            <ul class="detail-list conn-list">${rows}</ul>
+        </div>
+    `;
+}
+
+function selectNodeById(nodeId) {
+    if (!state.graphData) return;
+    const node = state.graphData.nodes.find(n => n.id === nodeId && n.level === state.graphLevel);
+    if (!node) return;
+    state.selectedNode = node;
+    state.editingField = null;
+    d3.selectAll('.node').classed('selected', false);
+    d3.selectAll('.node').filter(d => d.id === nodeId).classed('selected', true);
+    renderNodeDetails(node);
+}
+
+// ============================================================================
 // Event Handlers
 // ============================================================================
 
@@ -766,55 +986,167 @@ function handleNodeClick(event, node) {
     d3.select(event.target).classed('selected', true);
 
     state.selectedNode = node;
+    state.editingField = null;
     renderNodeDetails(node);
+}
+
+function showDetailEmpty() {
+    document.getElementById('detail-content').innerHTML = `
+        <div class="empty-state">
+            <span class="icon icon-xl">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"/></svg>
+            </span>
+            <p>Click a node to view details</p>
+        </div>
+    `;
 }
 
 function renderNodeDetails(node) {
     const container = document.getElementById('detail-content');
+    const ef = state.editingField;
 
-    const html = `
+    // ---- Gist field ----
+    const gistHtml = ef === 'gist'
+        ? `<div class="inline-edit-wrap">
+               <textarea id="inline-gist" rows="3" maxlength="${CONFIG.gistMaxLen}">${escapeHtml(node.gist)}</textarea>
+               <div class="inline-edit-meta">
+                   <span class="char-counter" id="gist-counter">${node.gist.length}/${CONFIG.gistMaxLen}</span>
+                   <div class="inline-edit-actions">
+                       <button class="btn btn-xs" onclick="cancelInlineEdit()">Cancel</button>
+                       <button class="btn btn-xs btn-primary" onclick="saveInlineEdit('gist')">${icon('check','sm')} Save</button>
+                   </div>
+               </div>
+           </div>`
+        : `<div class="detail-value">${escapeHtml(node.gist)}</div>`;
+
+    const gistEditBtn = ef === 'gist' ? '' :
+        `<button class="edit-btn" onclick="startInlineEdit('gist')" title="Edit gist">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+         </button>`;
+
+    // ---- Notes field ----
+    const notesRaw = node.notes ? node.notes.join('\n') : '';
+    const notesHtml = ef === 'notes'
+        ? `<div class="inline-edit-wrap">
+               <textarea id="inline-notes" rows="6" placeholder="One note per line">${escapeHtml(notesRaw)}</textarea>
+               <div class="inline-edit-meta">
+                   <span></span>
+                   <div class="inline-edit-actions">
+                       <button class="btn btn-xs" onclick="cancelInlineEdit()">Cancel</button>
+                       <button class="btn btn-xs btn-primary" onclick="saveInlineEdit('notes')">${icon('check','sm')} Save</button>
+                   </div>
+               </div>
+           </div>`
+        : (node.notes && node.notes.length > 0
+            ? `<ul class="detail-list">${node.notes.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>`
+            : `<div class="detail-value readonly" style="font-style:italic;opacity:0.5">No notes</div>`);
+
+    const notesEditBtn = ef === 'notes' ? '' :
+        `<button class="edit-btn" onclick="startInlineEdit('notes')" title="Edit notes">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+         </button>`;
+
+    // ---- Touches field ----
+    const touchesRaw = node.touches ? node.touches.join('\n') : '';
+    const touchesHtml = ef === 'touches'
+        ? `<div class="inline-edit-wrap">
+               <textarea id="inline-touches" rows="4" placeholder="One file path per line">${escapeHtml(touchesRaw)}</textarea>
+               <div class="inline-edit-meta">
+                   <span></span>
+                   <div class="inline-edit-actions">
+                       <button class="btn btn-xs" onclick="cancelInlineEdit()">Cancel</button>
+                       <button class="btn btn-xs btn-primary" onclick="saveInlineEdit('touches')">${icon('check','sm')} Save</button>
+                   </div>
+               </div>
+           </div>`
+        : (node.touches && node.touches.length > 0
+            ? `<ul class="detail-list">${node.touches.map(f => `<li><code>${escapeHtml(f)}</code></li>`).join('')}</ul>`
+            : `<div class="detail-value readonly" style="font-style:italic;opacity:0.5">No files</div>`);
+
+    const touchesEditBtn = ef === 'touches' ? '' :
+        `<button class="edit-btn" onclick="startInlineEdit('touches')" title="Edit files">
+             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+         </button>`;
+
+    container.innerHTML = `
         <div class="node-detail">
             <div class="detail-section">
-                <h3>Node Information</h3>
+                <h3>Identity</h3>
                 <div class="detail-field">
-                    <div class="detail-label">ID</div>
+                    <div class="detail-field-header">
+                        <span class="detail-label">ID</span>
+                    </div>
                     <div class="detail-value"><code>${escapeHtml(node.id)}</code></div>
                 </div>
                 <div class="detail-field">
-                    <div class="detail-label">Level</div>
+                    <div class="detail-field-header">
+                        <span class="detail-label">Status</span>
+                    </div>
                     <div class="detail-value">
                         <span class="badge badge-${node.level}">${node.level}</span>
-                        ${node.archived ? '<span class="badge badge-archived">Archived</span>' : ''}
-                        ${node.orphaned ? '<span class="badge badge-orphaned">Orphaned</span>' : ''}
+                        ${node.archived ? '<span class="badge badge-archived" style="margin-left:0.25rem">Archived</span>' : ''}
+                        ${node.orphaned ? '<span class="badge badge-orphaned" style="margin-left:0.25rem">Orphaned</span>' : ''}
                     </div>
-                </div>
-                <div class="detail-field">
-                    <div class="detail-label">Description</div>
-                    <div class="detail-value">${escapeHtml(node.gist)}</div>
                 </div>
             </div>
 
-            ${node.notes && node.notes.length > 0 ? `
-                <div class="detail-section">
-                    <h3>Notes</h3>
-                    <ul class="detail-list">
-                        ${node.notes.map(note => `<li>${escapeHtml(note)}</li>`).join('')}
-                    </ul>
+            <div class="detail-section">
+                <h3>Description</h3>
+                <div class="detail-field">
+                    <div class="detail-field-header">
+                        <span class="detail-label">Gist</span>
+                        ${gistEditBtn}
+                    </div>
+                    ${gistHtml}
                 </div>
-            ` : ''}
+            </div>
 
-            ${node.touches && node.touches.length > 0 ? `
-                <div class="detail-section">
-                    <h3>Files & Artifacts</h3>
-                    <ul class="detail-list">
-                        ${node.touches.map(file => `<li><code>${escapeHtml(file)}</code></li>`).join('')}
-                    </ul>
+            <div class="detail-section">
+                <h3>Notes</h3>
+                <div class="detail-field">
+                    <div class="detail-field-header">
+                        <span class="detail-label">Entries</span>
+                        ${notesEditBtn}
+                    </div>
+                    ${notesHtml}
                 </div>
-            ` : ''}
+            </div>
+
+            <div class="detail-section">
+                <h3>Files &amp; Artifacts</h3>
+                <div class="detail-field">
+                    <div class="detail-field-header">
+                        <span class="detail-label">Touches</span>
+                        ${touchesEditBtn}
+                    </div>
+                    ${touchesHtml}
+                </div>
+            </div>
+
+            ${buildConnectionsSection(node)}
         </div>
     `;
 
-    container.innerHTML = html;
+    // Wire up live char counter for gist
+    if (ef === 'gist') {
+        const ta = document.getElementById('inline-gist');
+        const counter = document.getElementById('gist-counter');
+        if (ta && counter) {
+            const updateCounter = () => {
+                const len = ta.value.length;
+                counter.textContent = `${len}/${CONFIG.gistMaxLen}`;
+                counter.classList.toggle('over-limit', len > CONFIG.gistMaxLen);
+            };
+            ta.addEventListener('input', updateCounter);
+            updateCounter(); // apply immediately so existing over-limit values show red
+            ta.focus();
+            ta.setSelectionRange(ta.value.length, ta.value.length);
+        }
+    } else if (ef === 'notes') {
+        document.getElementById('inline-notes')?.focus();
+    } else if (ef === 'touches') {
+        document.getElementById('inline-touches')?.focus();
+    }
 }
 
 function dragStarted(event, d) {
@@ -840,8 +1172,6 @@ function dragEnded(event, d) {
 
 async function loadGraph() {
     if (!state.graphLevel) return;
-
-    // For project level, need a selected project
     if (state.graphLevel === 'project' && !state.selectedProject) return;
 
     try {
@@ -856,6 +1186,15 @@ async function loadGraph() {
 
         hideElement('graph-loading');
         updateCurrentGraphLabel();
+
+        // If a node was selected before reload, try to keep it selected
+        if (state.selectedNode) {
+            const refreshed = state.graphData.nodes.find(n => n.id === state.selectedNode.id && n.level === state.selectedNode.level);
+            if (refreshed) {
+                state.selectedNode = refreshed;
+                if (!state.editingField) renderNodeDetails(refreshed);
+            }
+        }
     } catch (error) {
         console.error('Failed to load graph:', error);
         showError(`Failed to load graph: ${error.message}`);
@@ -863,7 +1202,6 @@ async function loadGraph() {
 }
 
 function showWelcome() {
-    // Clear any existing graph
     if (state.svgElements?.container) {
         state.svgElements.container.selectAll('*').remove();
     }
@@ -877,31 +1215,30 @@ function showWelcome() {
 async function initialize() {
     console.log('Initializing Knowledge Graph Visual Editor...');
 
-    // Check server health
     const healthy = await checkHealth();
     if (!healthy) {
         showError('Cannot connect to MCP server. Please ensure the server is running.');
         return;
     }
 
-    // Connect WebSocket
     connectWebSocket();
 
-    // Load projects
     await loadProjects();
 
-    // Show welcome state (no graph loaded by default)
+    // Wire up project panel user-graph click
+    document.getElementById('project-item-user').addEventListener('click', selectUserGraph);
+
     hideElement('graph-loading');
     showWelcome();
 
-    // Event listeners
+    // Header controls
     document.getElementById('refresh-btn').addEventListener('click', () => {
         if (state.graphLevel) loadGraph();
     });
     document.getElementById('retry-btn').addEventListener('click', loadGraph);
     document.getElementById('create-node-btn').addEventListener('click', () => {
         if (!state.graphLevel) {
-            showToast('Select a graph level first', 'warning');
+            showToast('Select a graph first', 'warning');
             return;
         }
         openEditNodeModal();
@@ -910,44 +1247,15 @@ async function initialize() {
     document.getElementById('zoom-in-btn').addEventListener('click', () => {
         state.svgElements?.svg.transition().call(state.zoom.scaleBy, 1.3);
     });
-
     document.getElementById('zoom-out-btn').addEventListener('click', () => {
         state.svgElements?.svg.transition().call(state.zoom.scaleBy, 0.7);
     });
-
     document.getElementById('zoom-reset-btn').addEventListener('click', () => {
         state.svgElements?.svg.transition().call(state.zoom.transform, d3.zoomIdentity);
     });
 
-    // Level selector
-    document.getElementById('level-user').addEventListener('change', (e) => {
-        if (e.target.checked) {
-            state.graphLevel = 'user';
-            document.getElementById('project-selector').disabled = true;
-            loadGraph();
-        }
-    });
-
-    document.getElementById('level-project').addEventListener('change', (e) => {
-        if (e.target.checked) {
-            state.graphLevel = 'project';
-            const selector = document.getElementById('project-selector');
-            selector.disabled = false;
-            if (selector.value) {
-                state.selectedProject = selector.value;
-                loadGraph();
-            } else {
-                updateCurrentGraphLabel();
-            }
-        }
-    });
-
-    document.getElementById('project-selector').addEventListener('change', (e) => {
-        state.selectedProject = e.target.value;
-        if (state.graphLevel === 'project' && state.selectedProject) {
-            loadGraph();
-        }
-    });
+    // Resize handles
+    initResizeHandles();
 
     // Mobile detection
     updateScreenSize();
@@ -981,6 +1289,10 @@ window.submitNodeForm = submitNodeForm;
 window.submitEdgeForm = submitEdgeForm;
 window.deleteNode = deleteNode;
 window.openEditNodeModal = openEditNodeModal;
+window.startInlineEdit = startInlineEdit;
+window.cancelInlineEdit = cancelInlineEdit;
+window.saveInlineEdit = saveInlineEdit;
+window.selectNodeById = selectNodeById;
 
 // ============================================================================
 // Entry Point

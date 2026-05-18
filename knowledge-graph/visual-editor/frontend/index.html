@@ -52,9 +52,43 @@
             </div>
         </header>
 
-        <!-- Main Content Area -->
-        <main class="main-content">
-            <!-- Graph Visualization Panel -->
+        <!-- Three-panel workspace -->
+        <div class="workspace">
+
+            <!-- Left: Project Selector Panel -->
+            <aside class="project-panel" id="project-panel">
+                <div class="panel-header">
+                    <h2>Graphs</h2>
+                </div>
+                <div class="project-list" id="project-list">
+                    <!-- User graph entry -->
+                    <div class="project-item" id="project-item-user" data-type="user">
+                        <span class="project-item-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        </span>
+                        <div class="project-item-info">
+                            <div class="project-item-name">User Graph</div>
+                            <div class="project-item-meta" id="user-graph-meta">Global</div>
+                        </div>
+                    </div>
+
+                    <div class="project-divider"></div>
+                    <div class="project-section-label">Projects</div>
+
+                    <!-- Project entries injected here by JS -->
+                    <div id="project-entries"></div>
+
+                    <div id="project-loading" class="project-loading">
+                        <div class="mini-spinner"></div>
+                        Loading…
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Resize handle: project panel -->
+            <div class="resize-handle" id="resize-project" data-target="project-panel" data-side="left"></div>
+
+            <!-- Center: Graph Visualization Panel -->
             <section class="graph-panel">
                 <div class="panel-header">
                     <h2>Graph</h2>
@@ -83,23 +117,6 @@
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><polyline points="3 3 3 8 8 8"/></svg>
                             </span>
                         </button>
-
-                        <span class="controls-divider"></span>
-
-                        <!-- Level Selector: User OR Project -->
-                        <div class="level-selector">
-                            <label class="radio-label">
-                                <input type="radio" name="graph-level" value="user" id="level-user">
-                                <span>User</span>
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" name="graph-level" value="project" id="level-project">
-                                <span>Project:</span>
-                            </label>
-                            <select id="project-selector" class="filter-select" disabled>
-                                <option value="">Loading projects...</option>
-                            </select>
-                        </div>
                     </div>
                 </div>
                 <div id="graph-container" class="graph-viewport">
@@ -115,7 +132,7 @@
                             <circle cx="24" cy="10" r="3.5" fill="#D3A4EA" opacity="0.4"/>
                             <circle cx="16" cy="24" r="3.5" fill="#83B366" opacity="0.4"/>
                         </svg>
-                        <p>Select <strong>User</strong> or a <strong>Project</strong> graph to begin</p>
+                        <p>Select a graph from the <strong>left panel</strong> to begin</p>
                     </div>
 
                     <div id="graph-loading" class="loading-overlay hidden">
@@ -157,8 +174,11 @@
                 </div>
             </section>
 
-            <!-- Detail Panel (Bottom) -->
-            <section class="detail-panel">
+            <!-- Resize handle: detail panel -->
+            <div class="resize-handle" id="resize-detail" data-target="detail-panel" data-side="right"></div>
+
+            <!-- Right: Detail Panel -->
+            <aside class="detail-panel" id="detail-panel">
                 <div class="panel-header">
                     <h2>Details</h2>
                 </div>
@@ -170,8 +190,9 @@
                         <p>Click a node to view details</p>
                     </div>
                 </div>
-            </section>
-        </main>
+            </aside>
+
+        </div><!-- /.workspace -->
     </div>
 
     <!-- Modal Overlay -->
