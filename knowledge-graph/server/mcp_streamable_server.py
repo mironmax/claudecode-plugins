@@ -868,8 +868,8 @@ async def main():
                 "loaded_graphs": len(store.graphs)
             })
             await response(scope, receive, send)
-        elif path.startswith("/api/"):
-            # REST API endpoints (for visual editor)
+        elif path.startswith("/api/") or path == "/ws":
+            # REST API endpoints and WebSocket (for visual editor)
             await rest_api(scope, receive, send)
         elif path == "/":
             # MCP Streamable HTTP requests
