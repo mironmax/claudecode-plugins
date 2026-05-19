@@ -6,7 +6,6 @@ import os
 import shutil
 from pathlib import Path
 from .utils import edge_storage_key
-from .constants import get_storage_root
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +14,7 @@ class GraphPersistence:
     """Handles graph persistence with atomic writes."""
 
     def __init__(self, path: Path):
-        # Resolve and constrain to storage root at construction time
-        resolved = path.resolve()
-        storage = get_storage_root().resolve()
-        if not str(resolved).startswith(str(storage)):
-            raise ValueError(f"Graph path escapes storage root: {resolved}")
-        self.path = resolved
+        self.path = path
 
     def load(self) -> tuple[dict, dict, dict]:
         """

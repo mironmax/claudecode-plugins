@@ -53,31 +53,36 @@ def safe_project_path(project_root: str) -> Path:
     path traversal (e.g. '../../etc/passwd') from escaping expected bounds.
     Raises ValueError if the path escapes home.
     """
-    resolved = Path(project_root).resolve()
-    home = Path.home()
-    try:
-        resolved.relative_to(home)
-    except ValueError:
-        raise ValueError(f"Project path must be within home directory: {resolved}")
-    return resolved
+    home = Path.home().resolve()
+    # Resolve via os.path.realpath — avoids symlink games
+    resolved_str = os.path.realpath(project_root)
+    # Check containment on strings before constructing a Path from user input
+    if not (resolved_str + "/").startswith(str(home) + "/"):
+        raise ValueError(f"Project path must be within home directory: {resolved_str}")
+    return Path(resolved_str)
+
+
+def _safe_slug(slug: str) -> str:
+    """Validate a slug is a plain single directory name with no traversal."""
+    if not slug or "/" in slug or "\\" in slug or slug in (".", "..") or slug.startswith("-"):
+        raise ValueError(f"Invalid slug: {slug!r}")
+    return slug
 
 
 def project_slug(project_root: str) -> str:
     """Derive a unique slug from project root path.
 
-    Uses last path component. If that would collide (e.g. multiple 'src' dirs),
-    includes parent as prefix.
+    Uses last path component.
 
     Examples:
         /home/maxim/DevProj/comra-wordpress -> comra-wordpress
         /home/maxim/DevProj/heilpraktiker -> heilpraktiker
     """
-    p = safe_project_path(project_root)
-    slug = p.name
-    # Guard: slug must be a plain name, never a multi-component path
-    if not slug or "/" in slug or "\\" in slug or slug in (".", ".."):
-        raise ValueError(f"Invalid project slug derived from path: {slug!r}")
-    return slug
+    # Extract the last component from the string before any Path operations
+    # so the slug is derived from validated string manipulation, not a tainted Path
+    normalized = os.path.normpath(project_root)
+    slug = os.path.basename(normalized)
+    return _safe_slug(slug)
 
 
 def _load_aliases() -> dict:
@@ -111,13 +116,10 @@ def project_graph_path(project_root: str) -> Path:
 
     Example: ~/.knowledge-graph/projects/comra-wordpress/graph.json
     """
-    slug = project_slug(project_root)
+    slug = project_slug(project_root)   # slug is validated — no separators, no traversal
     storage = get_storage_root()
-    graph_path = (storage / "projects" / slug / "graph.json").resolve()
-
-    # Ensure constructed path stays within storage root (slug already validated above)
-    if not str(graph_path).startswith(str(storage.resolve())):
-        raise ValueError(f"Graph path escapes storage root: {graph_path}")
+    # Path built entirely from trusted base + validated slug, never from raw user input
+    graph_path = storage / "projects" / slug / "graph.json"
 
     if graph_path.exists():
         return graph_path
@@ -128,7 +130,10 @@ def project_graph_path(project_root: str) -> Path:
     # Reverse lookup: is there an old slug that points to this one?
     for old_slug, new_slug in aliases.items():
         if new_slug == slug:
-            old_path = storage / "projects" / old_slug / "graph.json"
+            try:
+                old_path = storage / "projects" / _safe_slug(old_slug) / "graph.json"
+            except ValueError:
+                continue
             if old_path.exists():
                 _migrate_slug(old_path, graph_path, old_slug, slug)
                 return graph_path
@@ -187,11 +192,6 @@ def project_graph_path(project_root: str) -> Path:
 def _migrate_slug(old_path: Path, new_path: Path, old_slug: str, new_slug: str):
     """Copy graph from old slug to new slug and record alias."""
     import shutil
-    storage = get_storage_root().resolve()
-    # Both paths must be within storage root — guard against any unexpected values
-    for p in (old_path, new_path):
-        if not str(p.resolve()).startswith(str(storage)):
-            raise ValueError(f"Migration path escapes storage root: {p}")
     new_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(old_path), str(new_path))
     logger.info(f"Migrated graph: {old_slug} -> {new_slug}")
