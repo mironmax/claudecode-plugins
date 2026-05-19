@@ -13,6 +13,7 @@ Gives Claude a persistent memory that survives across sessions — not flat note
 ---
 
 **[Full documentation →](knowledge-graph/README.md)** — setup, configuration, skill reference
+
 **[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)** — design decisions, how it works, API reference
 
 `knowledge-graph/`
