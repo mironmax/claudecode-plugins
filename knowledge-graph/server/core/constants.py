@@ -17,6 +17,8 @@ COMPACTION_TARGET_RATIO = 0.8
 # Archived nodes budget: max fraction of max_tokens that archived IDs+edges may occupy.
 # When exceeded, lowest-scored archived nodes are demoted to orphaned (invisible in kg_read).
 ARCHIVED_BUDGET_RATIO = 0.30
+# Resurrection: minimum score delta for an archived node to displace a freshly-archived one.
+RESURRECTION_MARGIN = 0.05
 
 # Session
 SESSION_ID_LENGTH = 8
@@ -44,6 +46,22 @@ def get_storage_root() -> Path:
     return Path(os.getenv("KG_STORAGE_ROOT", str(DEFAULT_STORAGE_ROOT)))
 
 
+def safe_project_path(project_root: str) -> Path:
+    """Resolve and validate a user-supplied project root.
+
+    Constrains the resolved path to the user's home directory to prevent
+    path traversal (e.g. '../../etc/passwd') from escaping expected bounds.
+    Raises ValueError if the path escapes home.
+    """
+    resolved = Path(project_root).resolve()
+    home = Path.home()
+    try:
+        resolved.relative_to(home)
+    except ValueError:
+        raise ValueError(f"Project path must be within home directory: {resolved}")
+    return resolved
+
+
 def project_slug(project_root: str) -> str:
     """Derive a unique slug from project root path.
 
@@ -54,7 +72,7 @@ def project_slug(project_root: str) -> str:
         /home/maxim/DevProj/comra-wordpress -> comra-wordpress
         /home/maxim/DevProj/heilpraktiker -> heilpraktiker
     """
-    p = Path(project_root).resolve()
+    p = safe_project_path(project_root)
     return p.name
 
 

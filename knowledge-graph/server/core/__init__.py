@@ -31,6 +31,7 @@ __all__ = [
     "LEGACY_SESSIONS_PATH",
     # Path helpers
     "get_storage_root",
+    "safe_project_path",
     "project_slug",
     "project_graph_path",
     "user_graph_path",

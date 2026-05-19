@@ -23,6 +23,7 @@ from core import (
     get_storage_root,
     project_graph_path,
     user_graph_path,
+    safe_project_path,
 )
 from .session_manager import HTTPSessionManager
 
@@ -265,7 +266,7 @@ class MultiProjectGraphStore:
 
             elif project_path:
                 # Direct project path provided (e.g., from visual editor)
-                project_root = str(Path(project_path).resolve())
+                project_root = str(safe_project_path(project_path))
 
             # Load project graph if we have a path
             if project_root:
@@ -303,12 +304,17 @@ class MultiProjectGraphStore:
             nodes = self.graphs[graph_key]["nodes"]
 
             # Create or update node
+            is_new = node_id not in nodes
             node = nodes.get(node_id, {"id": node_id})
             node["gist"] = gist
             if notes is not None:
                 node["notes"] = notes
             if touches is not None:
                 node["touches"] = touches
+
+            # Stamp creation time once — never reset by subsequent updates
+            if is_new:
+                node["_created_ts"] = time.time()
 
             # If updating archived node, unarchive it
             if "_archived" in node:
@@ -555,11 +561,16 @@ class MultiProjectGraphStore:
                 resolved_level, graph_key = result
 
             nodes = self.graphs[graph_key]["nodes"]
+            edges = self.graphs[graph_key]["edges"]
 
             if node_id not in nodes:
                 raise NodeNotFoundError(resolved_level, node_id)
 
             node = nodes[node_id]
+
+            # Stamp read time on every full node read (feeds recency scoring)
+            node["_last_read_ts"] = time.time()
+            self.dirty[graph_key] = True
 
             # If archived or orphaned, promote to active
             was_archived = is_archived(node) or "_orphaned_ts" in node

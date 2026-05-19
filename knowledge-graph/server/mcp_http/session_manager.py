@@ -6,7 +6,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from core.constants import SESSION_ID_LENGTH, SESSION_TTL_SECONDS, sessions_file_path
+from core.constants import SESSION_ID_LENGTH, SESSION_TTL_SECONDS, sessions_file_path, safe_project_path
 
 logger = logging.getLogger(__name__)
 
@@ -35,8 +35,7 @@ class HTTPSessionManager:
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
         ts = time.time()
 
-        # Resolve project_path to absolute to prevent cwd-dependent behavior
-        resolved_project_path = str(Path(project_path).resolve()) if project_path else None
+        resolved_project_path = str(safe_project_path(project_path)) if project_path else None
 
         self._sessions[session_id] = {
             "start_ts": ts,

@@ -65,7 +65,7 @@ async def health_check():
             mcp_status = response.json() if response.status_code == 200 else {"status": "down"}
     except Exception as e:
         logger.error(f"MCP server health check failed: {e}")
-        mcp_status = {"status": "down", "error": str(e)}
+        mcp_status = {"status": "down"}
 
     return {
         "status": "ok",
@@ -87,7 +87,7 @@ async def list_projects():
         return projects
     except Exception as e:
         logger.exception("Error discovering projects")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to list projects")
 
 
 @app.get("/api/graph")
@@ -138,7 +138,7 @@ async def get_graph(session_id: str | None = None, project_path: str | None = No
         )
     except Exception as e:
         logger.exception("Error fetching graph from MCP server")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to fetch graph")
 
 
 # ============================================================================
@@ -178,7 +178,7 @@ async def create_node(data: NodeCreate):
         raise HTTPException(status_code=503, detail=f"Cannot connect to MCP server")
     except Exception as e:
         logger.exception("Error creating node")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to create node")
 
 @app.delete("/api/nodes/{level}/{node_id}")
 async def delete_node(level: str, node_id: str, session_id: str | None = None):
@@ -194,7 +194,7 @@ async def delete_node(level: str, node_id: str, session_id: str | None = None):
             return response.json()
     except Exception as e:
         logger.exception("Error deleting node")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to delete node")
 
 @app.post("/api/edges")
 async def create_edge(data: EdgeCreate):
@@ -209,7 +209,7 @@ async def create_edge(data: EdgeCreate):
             return response.json()
     except Exception as e:
         logger.exception("Error creating edge")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to create edge")
 
 @app.delete("/api/edges/{level}/{from_id}/{to_id}/{rel}")
 async def delete_edge(level: str, from_id: str, to_id: str, rel: str, session_id: str | None = None):
@@ -225,7 +225,7 @@ async def delete_edge(level: str, from_id: str, to_id: str, rel: str, session_id
             return response.json()
     except Exception as e:
         logger.exception("Error deleting edge")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to delete edge")
 
 @app.post("/api/nodes/{level}/{node_id}/recall")
 async def recall_node(level: str, node_id: str, session_id: str | None = None):
@@ -241,7 +241,7 @@ async def recall_node(level: str, node_id: str, session_id: str | None = None):
             return response.json()
     except Exception as e:
         logger.exception("Error recalling node")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to recall node")
 
 
 # ============================================================================
