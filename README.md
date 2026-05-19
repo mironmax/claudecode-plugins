@@ -10,7 +10,12 @@ Gives Claude a persistent memory that survives across sessions — not flat note
 
 ![Knowledge Graph Visual Editor](docs/knowledge-graph-demo.gif)
 
-**Location:** `knowledge-graph/` · **[Full documentation →](knowledge-graph/README.md)** · **[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)**
+---
+
+**[Full documentation →](knowledge-graph/README.md)** — setup, configuration, skill reference
+**[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)** — design decisions, how it works, API reference
+
+`knowledge-graph/`
 
 ---
 
