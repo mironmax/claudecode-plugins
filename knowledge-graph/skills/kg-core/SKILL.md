@@ -129,8 +129,11 @@ after spawning subagents that write to the graph.
 ## Auto-Compaction
 
 System archives lowest-scored nodes when graph exceeds token limit.
-Score = 0.25*recency + 0.50*connectedness + 0.25*richness (weighted sum of percentiles).
-Nodes protected for some days after update. Archived nodes remain on disk; edges stay visible as memory traces.
+Score = 0.33×recency + 0.66×connectedness (percentile ranks; richness dropped).
+Recency = max(last write, last read). Connectedness = weighted in/out edges to active nodes only (in×0.66 + out×0.33).
+Grace period based on creation time only — updates and reads do not reset it.
+After archiving, a resurrection pass promotes any archived node that outscores a freshly-archived one (by ≥0.05 margin).
+Archived nodes remain on disk; edges stay visible as memory traces.
 
 ## Agents
 

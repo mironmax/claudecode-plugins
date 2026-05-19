@@ -2,7 +2,7 @@
 
 import logging
 import time
-from .constants import COMPACTION_TARGET_RATIO, ARCHIVED_BUDGET_RATIO
+from .constants import COMPACTION_TARGET_RATIO, ARCHIVED_BUDGET_RATIO, RESURRECTION_MARGIN
 from .estimator import TokenEstimator
 from .scorer import NodeScorer
 
@@ -19,8 +19,13 @@ class Compactor:
 
     def compact_if_needed(self, nodes: dict, edges: dict, versions: dict) -> list[str]:
         """
-        Archive nodes if graph exceeds token limit.
-        Returns list of archived node IDs.
+        Archive nodes if graph exceeds token limit, then run resurrection pass.
+
+        Pass 1: score active nodes, archive lowest-scored until under target.
+        Pass 2: score all (active + archived) together; if any archived node
+                outscores a just-archived node by RESURRECTION_MARGIN, swap them.
+
+        Returns list of net-newly-archived node IDs (after swaps).
         """
         estimated_tokens = self.estimator.estimate_graph(nodes, edges, include_archived=False)
 
@@ -29,40 +34,62 @@ class Compactor:
 
         logger.info(f"Compacting graph: {estimated_tokens} tokens > {self.max_tokens} limit")
 
-        # Score eligible nodes
-        scores = self.scorer.score_all(nodes, edges, versions)
+        # Pass 1: archive lowest-scored active nodes
+        active_scores = self.scorer.score_all(nodes, edges, versions, include_archived=False)
 
-        if not scores:
+        if not active_scores:
             logger.debug("No nodes eligible for archiving (all within grace period)")
             return []
 
-        # Sort by score (ascending - lowest scores archived first)
-        sorted_nodes = sorted(scores.items(), key=lambda x: x[1])
-
-        # Archive until we're under target
+        sorted_active = sorted(active_scores.items(), key=lambda x: x[1])
         target = int(self.max_tokens * COMPACTION_TARGET_RATIO)
-        archived = []
+        archived_this_pass = []
 
-        for node_id, score in sorted_nodes:
+        for node_id, score in sorted_active:
             if estimated_tokens <= target:
                 break
-
             node = nodes.get(node_id)
             if node and not node.get("_archived"):
-                # Calculate token cost
                 token_cost = self.estimator.estimate_node(node)
-
-                # Archive the node
                 node["_archived"] = True
-
-                # Update estimate
                 estimated_tokens -= token_cost
-                archived.append(node_id)
-
+                archived_this_pass.append(node_id)
                 logger.debug(f"Archived node '{node_id}' (score: {score:.2f}, tokens: {token_cost})")
 
-        logger.info(f"Compaction complete: archived {len(archived)} nodes, now ~{estimated_tokens} tokens")
-        return archived
+        # Pass 2: resurrection — re-score everything (active + archived) in unified pool.
+        # If an archived node beats a freshly-archived node by RESURRECTION_MARGIN, swap.
+        if archived_this_pass:
+            unified_scores = self.scorer.score_all(nodes, edges, versions, include_archived=True)
+            resurrected = []
+
+            for just_archived_id in list(archived_this_pass):
+                archived_score = unified_scores.get(just_archived_id, 0.0)
+                # Find the best-scoring archived node (excluding just_archived_id itself)
+                best_archived_id = None
+                best_archived_score = -1.0
+                for nid, sc in unified_scores.items():
+                    if nid == just_archived_id:
+                        continue
+                    n = nodes.get(nid)
+                    if n and n.get("_archived") and "_orphaned_ts" not in n:
+                        if sc > best_archived_score:
+                            best_archived_score = sc
+                            best_archived_id = nid
+
+                if best_archived_id and (best_archived_score - archived_score) >= RESURRECTION_MARGIN:
+                    # Swap: resurrect the better-scored archived node, keep just_archived_id archived
+                    nodes[best_archived_id]["_archived"] = False
+                    resurrected.append(best_archived_id)
+                    logger.debug(
+                        f"Resurrected '{best_archived_id}' (score: {best_archived_score:.2f}) "
+                        f"over '{just_archived_id}' (score: {archived_score:.2f})"
+                    )
+
+            if resurrected:
+                logger.info(f"Resurrection pass: promoted {len(resurrected)} archived node(s) back to active")
+
+        logger.info(f"Compaction complete: {len(archived_this_pass)} net archived, now ~{estimated_tokens} tokens")
+        return archived_this_pass
 
     def orphan_archived_if_needed(self, nodes: dict, edges: dict) -> list[str]:
         """

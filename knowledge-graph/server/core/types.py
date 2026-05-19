@@ -11,6 +11,8 @@ class Node(TypedDict):
     notes: NotRequired[list[str]]
     _archived: NotRequired[bool]
     _orphaned_ts: NotRequired[float]
+    _created_ts: NotRequired[float]
+    _last_read_ts: NotRequired[float]
 
 
 class Edge(TypedDict):
