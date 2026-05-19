@@ -1,4 +1,4 @@
-# Maxim's Claude Code Plugins
+# Claude Code Plugins
 
 A marketplace of Claude Code plugins for persistent memory and enhanced workflows.
 
@@ -6,7 +6,9 @@ A marketplace of Claude Code plugins for persistent memory and enhanced workflow
 
 ### Knowledge Graph
 
-Gives Claude a persistent memory that survives across sessions — not just flat notes, but a graph of nodes and relationships. Claude distills insights as you work and recalls them automatically next session.
+Gives Claude a persistent memory that survives across sessions — not flat notes, but a graph of nodes and typed relationships. Claude distills insights as you work, connects them to related knowledge, and recalls the right context automatically next session.
+
+![Knowledge Graph Visual Editor](docs/knowledge-graph-demo.gif)
 
 **Location:** `knowledge-graph/` · **[Full documentation →](knowledge-graph/README.md)**
 
