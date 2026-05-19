@@ -16,8 +16,6 @@ Gives Claude a persistent memory that survives across sessions — not flat note
 
 **[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)** — design decisions, how it works, API reference
 
-`knowledge-graph/`
-
 ---
 
 ## Quick Install
@@ -31,8 +29,6 @@ bash ~/.claude/plugins/knowledge-graph/install_command.sh
 Restart Claude Code. Done.
 
 **Also recommended:** disable built-in auto-memory — ⚙ Settings → Memory → toggle Auto-memory **off**. Otherwise two memory systems run in parallel and write conflicting entries.
-
-See the [knowledge-graph README](knowledge-graph/README.md) and the [wiki](https://github.com/mironmax/claudecode-plugins/wiki) for full setup, configuration, and usage details.
 
 ---
 
