@@ -73,7 +73,11 @@ def project_slug(project_root: str) -> str:
         /home/maxim/DevProj/heilpraktiker -> heilpraktiker
     """
     p = safe_project_path(project_root)
-    return p.name
+    slug = p.name
+    # Guard: slug must be a plain name, never a multi-component path
+    if not slug or "/" in slug or "\\" in slug or slug in (".", ".."):
+        raise ValueError(f"Invalid project slug derived from path: {slug!r}")
+    return slug
 
 
 def _load_aliases() -> dict:
@@ -109,7 +113,11 @@ def project_graph_path(project_root: str) -> Path:
     """
     slug = project_slug(project_root)
     storage = get_storage_root()
-    graph_path = storage / "projects" / slug / "graph.json"
+    graph_path = (storage / "projects" / slug / "graph.json").resolve()
+
+    # Ensure constructed path stays within storage root (slug already validated above)
+    if not str(graph_path).startswith(str(storage.resolve())):
+        raise ValueError(f"Graph path escapes storage root: {graph_path}")
 
     if graph_path.exists():
         return graph_path
@@ -179,6 +187,11 @@ def project_graph_path(project_root: str) -> Path:
 def _migrate_slug(old_path: Path, new_path: Path, old_slug: str, new_slug: str):
     """Copy graph from old slug to new slug and record alias."""
     import shutil
+    storage = get_storage_root().resolve()
+    # Both paths must be within storage root — guard against any unexpected values
+    for p in (old_path, new_path):
+        if not str(p.resolve()).startswith(str(storage)):
+            raise ValueError(f"Migration path escapes storage root: {p}")
     new_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(old_path), str(new_path))
     logger.info(f"Migrated graph: {old_slug} -> {new_slug}")
