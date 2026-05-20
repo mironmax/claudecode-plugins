@@ -1,14 +1,23 @@
 #!/bin/bash
-# Install kg-memory + kg-visual commands + hook for Claude Code
-# Run after installing the plugin via /plugin install
+# Install kg-memory + kg-visual shell commands for Claude Code knowledge-graph plugin.
+#
+# Hooks are now shipped inside the plugin (hooks/hooks.json) and auto-register on
+# /plugin install + /reload-plugins — no settings.json edit needed.
+#
+# This script only:
+#   1. Symlinks kg-memory and kg-visual into ~/.local/bin/
+#   2. Cleans up the old user-settings hook entry from earlier plugin versions
+#      (the hook now lives in the plugin itself; leaving the old entry causes
+#      double-firing).
+#
+# Run once after installing the plugin via /plugin install.
 
 set -e
 
 PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
-HOOKS_DIR="$HOME/.claude/hooks"
 SETTINGS="$HOME/.claude/settings.json"
-HOOK_SCRIPT="$HOOKS_DIR/kg-remind.sh"
+OLD_HOOK_SCRIPT="$HOME/.claude/hooks/kg-remind.sh"
 
 # ── 1. CLI commands ───────────────────────────────────────────────────────────
 
@@ -21,105 +30,66 @@ ln -sf "$PLUGIN_DIR/visual-editor/manage_visual.sh" "$BIN_DIR/kg-visual"
 chmod +x "$PLUGIN_DIR/visual-editor/manage_visual.sh"
 echo "✓ kg-visual command installed"
 
-# ── 2. Hook script ────────────────────────────────────────────────────────────
+# ── 2. Migrate from old user-settings hook (idempotent) ──────────────────────
+#
+# Earlier versions of this script wrote the kg-remind hook into
+# ~/.claude/settings.json and dropped the script at ~/.claude/hooks/kg-remind.sh.
+# Now the hook is bundled in the plugin (hooks/hooks.json), so the old entry
+# would cause every prompt to fire two reminders. Strip it if present.
 
-mkdir -p "$HOOKS_DIR"
-cat > "$HOOK_SCRIPT" << 'EOF'
-#!/usr/bin/env bash
-# KG ambient memory reminder — random selection from a pool of targeted prompts.
-# Each targets a distinct behavior; random hops prevent habituation to sequence.
+if [ -f "$SETTINGS" ]; then
+    python3 - "$SETTINGS" "$OLD_HOOK_SCRIPT" << 'PYEOF'
+import json, os, sys
 
-msgs=(
-  "KG memory active. Not loaded yet this session? Call kg_read(cwd) before any task work."
-  "KG capture pulse: did the last exchange reveal anything worth keeping? Write it before moving on."
-  "About to search files or web? Check KG first — kg_search may already have the answer."
-  "Opening files? Check for component nodes in KG before reading — skip what's already mapped."
-  "Did user express a preference, style, or constraint? Capture it as a user-level node now."
-  "Any node gist gone stale or vague after using it? Sharpen it while context is still live."
-  "Active memory session: write discoveries mid-conversation, not at task end. Cache is warm — cost is minimal."
-  "About to make an assumption? kg_search first. If missing, state it and capture it."
-  "User just agreed on an approach? Capture the methodology as a node — decisions alone aren't enough."
-  "Explained something non-obvious? That explanation is a node. Write it before context scrolls away."
-  "Any edges missing between nodes you've used today? One edge makes both nodes far more durable."
-  "Context window getting deep? Scan for anything unrecorded — this is the highest-value capture moment."
-  "User corrected your approach? Capture the signal you missed, not just the fix."
-  "Just resolved something that took 10+ minutes? Root cause node before moving on."
-  "Any architectural decision made this session? Node with rationale in notes — not just the conclusion."
-  "Check archived node IDs — any feel related to current work? kg_read(cwd, id) to promote and use."
-  "Did you discover how two parts of the codebase connect? That's an edge. Write it now."
-  "KG is your twin across sessions — what would future-you wish was recorded from this conversation?"
-)
-
-idx=$(( RANDOM % ${#msgs[@]} ))
-printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' "${msgs[$idx]}"
-EOF
-chmod +x "$HOOK_SCRIPT"
-echo "✓ Hook script installed: $HOOK_SCRIPT"
-
-# ── 3. Wire hook into settings.json ──────────────────────────────────────────
-
-if [ ! -f "$SETTINGS" ]; then
-    cat > "$SETTINGS" << EOF
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOOK_SCRIPT"
-          }
-        ]
-      }
-    ]
-  }
-}
-EOF
-    echo "✓ Created settings.json with hook"
-else
-    # settings.json exists — inject hook with Python (handles any existing structure)
-    python3 - "$SETTINGS" "$HOOK_SCRIPT" << 'PYEOF'
-import json, sys
-
-settings_path = sys.argv[1]
-hook_script = sys.argv[2]
-
-hook_entry = {
-    "hooks": [
-        {
-            "type": "command",
-            "command": hook_script
-        }
-    ]
-}
+settings_path, old_hook_script = sys.argv[1], sys.argv[2]
 
 with open(settings_path) as f:
     settings = json.load(f)
 
-hooks = settings.setdefault("hooks", {})
-existing = hooks.setdefault("UserPromptSubmit", [])
+hooks = settings.get("hooks", {})
+event_list = hooks.get("UserPromptSubmit")
+if not event_list:
+    print("✓ No legacy hook entry in settings.json (clean)")
+    sys.exit(0)
 
-# Idempotent: skip if this hook command is already registered
-for block in existing:
-    for h in block.get("hooks", []):
-        if h.get("command") == hook_script:
-            print("✓ Hook already in settings.json (no change)")
-            sys.exit(0)
+removed = 0
+new_event_list = []
+for block in event_list:
+    inner = block.get("hooks", [])
+    kept = [h for h in inner if h.get("command") != old_hook_script]
+    removed += len(inner) - len(kept)
+    if kept:
+        new_event_list.append({**block, "hooks": kept})
 
-existing.append(hook_entry)
+if removed == 0:
+    print("✓ No legacy hook entry in settings.json (clean)")
+    sys.exit(0)
 
-# Atomic write
-import os, tempfile
+if new_event_list:
+    hooks["UserPromptSubmit"] = new_event_list
+else:
+    hooks.pop("UserPromptSubmit", None)
+if not hooks:
+    settings.pop("hooks", None)
+
 tmp = settings_path + ".tmp"
 with open(tmp, "w") as f:
     json.dump(settings, f, indent=2)
     f.write("\n")
 os.replace(tmp, settings_path)
-print("✓ Hook added to settings.json")
+print(f"✓ Removed legacy kg-remind hook entry from settings.json ({removed} entr{'y' if removed == 1 else 'ies'})")
+print("  The plugin now ships hooks/hooks.json — reminders will fire from there after /reload-plugins.")
 PYEOF
 fi
 
-# ── 4. PATH reminder ──────────────────────────────────────────────────────────
+# Also remove the old standalone hook script if present — harmless on disk but
+# tidier to clean up.
+if [ -f "$OLD_HOOK_SCRIPT" ]; then
+    rm -f "$OLD_HOOK_SCRIPT"
+    echo "✓ Removed legacy hook script: $OLD_HOOK_SCRIPT"
+fi
+
+# ── 3. PATH reminder ──────────────────────────────────────────────────────────
 
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo ""
@@ -128,4 +98,6 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
 fi
 
 echo ""
-echo "Done. Restart Claude Code for the hook to take effect."
+echo "Done. The bundled hook activates automatically on /plugin install + /reload-plugins"
+echo "(or on Claude Code restart) — this script only handles the shell commands and the"
+echo "legacy-hook cleanup above."

@@ -26,23 +26,24 @@ Gives Claude a persistent memory that survives across sessions — not flat note
 
 ```bash
 # 1. Add the marketplace
-/plugin marketplace add https://github.com/mironmax/claudecode-plugins
+/plugin marketplace add mironmax/claudecode-plugins
 
 # 2. Install the plugin
 /plugin install knowledge-graph@maxim-plugins
 
-# 3. Run the setup script (installs kg-memory command + memory hook)
-bash "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name install_command.sh | sort -V | tail -1)"
-
-# 4. Restart Claude Code
+# 3. Restart Claude Code
 ```
 
-**Done.** The setup script wires a lightweight hook that keeps memory in focus across all sessions.
+**Done.** The plugin ships a UserPromptSubmit hook in `hooks/hooks.json` that auto-loads on session start — no setup script, no settings.json edits.
+
+> Already in a session? Run `/reload-plugins` instead of restarting.
 
 **One more thing:**
 - **Disable built-in auto-memory** — ⚙ Settings → Memory → toggle **Auto-memory off**. Without this, two memory systems run in parallel and write conflicting entries.
+- **Enable plugin auto-updates** — `/plugin` → **Marketplaces** → `maxim-plugins` → **Enable auto-update**. Third-party marketplaces are off by default, so this is the only way to stay current without manual refreshes.
 
 **Optional:**
+- **`kg-memory` / `kg-visual` shell commands** — for managing the server from your terminal. See [Server Management](#server-management) below.
 - **Auto-approval** — skip permission prompts by adding the permissions below to `~/.claude/settings.json`.
 
 ---
@@ -74,12 +75,22 @@ If you already have a `settings.json`, merge these into your existing `permissio
 
 ## Server Management
 
-The plugin runs a shared background server. It starts automatically on first use. Two commands are available after running `install_command.sh`:
+The plugin runs a shared HTTP MCP server on port 8765, used by every Claude Code session simultaneously. The server is started manually (or by your init system) and stays running across sessions.
+
+**Install the helper commands** (one-time, optional but recommended):
 
 ```bash
-# MCP graph server (required)
-kg-memory status    # Check if server is running
+bash "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name install_command.sh | sort -V | tail -1)"
+```
+
+That symlinks `kg-memory` and `kg-visual` into `~/.local/bin/`. Make sure `~/.local/bin` is in your `PATH`.
+
+**Then start the server:**
+
+```bash
+# MCP graph server
 kg-memory start     # Start server
+kg-memory status    # Check if server is running
 kg-memory stop      # Stop server
 kg-memory restart   # Restart server
 kg-memory logs      # View logs (tail -f)
@@ -91,24 +102,23 @@ kg-visual status
 kg-visual logs
 ```
 
-If you skipped `install_command.sh`, use the script directly:
-```bash
-find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name manage_server.sh | sort -V | tail -1 | xargs bash -c '"$0" status'
-```
-
 **Server details:**
 - Endpoint: `http://127.0.0.1:8765/`
 - Health check: `http://127.0.0.1:8765/health`
 - Logs: `/tmp/mcp_server.log`
 - PID file: `/tmp/.mcp_server.pid`
 
-**Auto-start on boot (Linux, optional):**
+**Auto-start on boot (Linux, optional):** copy the bundled systemd unit into your user units directory and enable it.
+
 ```bash
 mkdir -p ~/.config/systemd/user
-ln -s ~/.claude/plugins/knowledge-graph/server/memory-mcp.service ~/.config/systemd/user/memory-mcp.service
+cp "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name memory-mcp.service | sort -V | tail -1)" \
+   ~/.config/systemd/user/memory-mcp.service
 systemctl --user enable memory-mcp.service
 systemctl --user start memory-mcp.service
 ```
+
+> Copying (rather than symlinking) is intentional — the source path inside the plugin cache changes on each plugin update, but the systemd unit only needs to be refreshed manually when the unit definition itself changes.
 
 ---
 
@@ -137,7 +147,7 @@ Once the server is running, Claude captures insights automatically. A few habits
 
 ## Configuration
 
-Edit `~/.claude/plugins/knowledge-graph/.mcp.json` to customize:
+The server reads tunables from environment variables. Set them in your shell rc file (`~/.zshrc`, `~/.bashrc`) or in the systemd unit if you auto-start the server — then `kg-memory restart` to pick up changes.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -146,6 +156,8 @@ Edit `~/.claude/plugins/knowledge-graph/.mcp.json` to customize:
 | `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
+
+> Don't edit the plugin's bundled `.mcp.json` — that file just declares the HTTP endpoint Claude Code connects to (`http://127.0.0.1:8765/`), and it gets overwritten on every plugin update.
 
 ---
 
@@ -212,13 +224,20 @@ Your knowledge data is preserved at `~/.knowledge-graph/`.
 
 MIT — see [LICENSE](LICENSE)
 
-## Version
-
-**0.9.8**
+> Current version: see [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) or `/plugin list` inside Claude Code.
 
 ---
 
 ## Changelog
+
+**0.9.10**
+- Docs: guidance on enabling Claude Code plugin auto-updates for the `maxim-plugins` marketplace (off by default for third-party). Includes `/plugin` UI flow and `/plugin marketplace update maxim-plugins` manual refresh.
+- Install flow simplified: bundled `hooks/hooks.json` auto-registers the UserPromptSubmit memory hook on session start. No more setup-script-with-find-pattern command in install docs.
+- `install_command.sh` demoted to optional — needed only if you want `kg-memory` / `kg-visual` shell symlinks. Also runs idempotent cleanup of the legacy hook entry from `~/.claude/settings.json` (prevents double-firing for upgraders).
+- Server Management section corrected: HTTP server requires manual start (not auto-started by Claude Code as previously implied). Systemd auto-start uses `cp` not `ln -s` to survive plugin cache churn.
+- Configuration section corrected: env vars are read from the shell environment of the `kg-memory start` invocation, not from the plugin's bundled `.mcp.json` (which is overwritten on update).
+- Stale `~/.claude/plugins/knowledge-graph/...` paths removed from all docs — replaced with version-agnostic `${CLAUDE_PLUGIN_ROOT}` (in hooks) or `find ... | sort -V | tail -1` (in the one user-facing shell command that still needs the cache path).
+- README "Version" header replaced with a pointer to `plugin.json` — single source of truth, no more drift between hardcoded version numbers and the actual release.
 
 **0.9.8**
 - kg-maintain: gist and notes hygiene now run on every pass, independent of graph size

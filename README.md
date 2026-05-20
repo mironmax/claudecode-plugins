@@ -23,12 +23,13 @@ Gives Claude a persistent memory that survives across sessions — not flat note
 ```
 /plugin marketplace add mironmax/claudecode-plugins
 /plugin install knowledge-graph@maxim-plugins
-bash ~/.claude/plugins/knowledge-graph/install_command.sh
 ```
 
 Restart Claude Code. Done.
 
-**Also recommended:** disable built-in auto-memory — ⚙ Settings → Memory → toggle Auto-memory **off**. Otherwise two memory systems run in parallel and write conflicting entries.
+**Also recommended:**
+- Disable built-in auto-memory — ⚙ Settings → Memory → toggle Auto-memory **off**. Otherwise two memory systems run in parallel and write conflicting entries.
+- Enable plugin auto-updates — run `/plugin`, pick **Marketplaces** → `maxim-plugins` → **Enable auto-update**. Off by default for third-party marketplaces.
 
 ---
 
