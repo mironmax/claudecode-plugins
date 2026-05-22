@@ -1,17 +1,17 @@
 [Unit]
-Description=Memory Plugin MCP Server
-Documentation=https://github.com/your-repo/memory-plugin
+Description=Knowledge Graph MCP Server
+Documentation=https://github.com/mironmax/claudecode-plugins
 After=network.target
 
 [Service]
-Type=simple
-User=%u
-WorkingDirectory=%h/.claude/plugins/cache/maxim-plugins/memory/latest/server
-ExecStart=%h/.claude/plugins/cache/maxim-plugins/memory/latest/server/venv/bin/python %h/.claude/plugins/cache/maxim-plugins/memory/latest/server/mcp_streamable_server.py
+# kg-memory's start subcommand daemonizes via setsid and exits.
+# RemainAfterExit keeps systemd's view of "active" tied to ExecStop running on shutdown.
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=%h/.local/bin/kg-memory start
+ExecStop=%h/.local/bin/kg-memory stop
 Restart=on-failure
 RestartSec=5s
-StandardOutput=append:%h/.claude/plugins/cache/maxim-plugins/memory/latest/server/.mcp_server.log
-StandardError=append:%h/.claude/plugins/cache/maxim-plugins/memory/latest/server/.mcp_server.log
 
 # Environment
 Environment="KG_LOG_LEVEL=INFO"

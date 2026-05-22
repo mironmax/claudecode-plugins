@@ -119,7 +119,8 @@ function showError(message) {
 // ============================================================================
 
 function connectWebSocket() {
-    const wsUrl = `ws://${window.location.hostname}:3000/ws`;
+    const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProto}//${window.location.host}/ws`;
     state.ws = new WebSocket(wsUrl);
 
     state.ws.onopen = () => {
@@ -605,10 +606,14 @@ async function deleteNode(nodeId) {
 
 async function recallNode(node) {
     try {
-        await fetch(
-            `${CONFIG.apiBaseUrl}/api/nodes/${state.graphLevel}/${encodeURIComponent(node.id)}/recall?session_id=${state.sessionId || ''}`,
-            {method: 'POST'}
+        // Reading a node via the REST API auto-promotes it from archived/orphaned to active
+        // (same path the MCP kg_read(cwd, id) tool uses).
+        const response = await fetch(
+            `${CONFIG.apiBaseUrl}/api/nodes/${state.graphLevel}/${encodeURIComponent(node.id)}?session_id=${state.sessionId || ''}`
         );
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
         showToast('Node recalled', 'success');
         await loadGraph();
     } catch (error) {

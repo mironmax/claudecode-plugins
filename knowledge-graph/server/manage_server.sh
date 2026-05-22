@@ -9,7 +9,6 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
 SERVER_SCRIPT="$SCRIPT_DIR/mcp_streamable_server.py"
-MIGRATE_SCRIPT="$SCRIPT_DIR/tools/migrate_storage.py"
 PID_FILE="$SCRIPT_DIR/.mcp_server.pid"
 STORAGE_ROOT="$HOME/.knowledge-graph"
 PORT="${KG_HTTP_PORT:-8765}"
@@ -68,18 +67,6 @@ commit_storage() {
     git commit -m "Auto-save $(date '+%Y-%m-%d %H:%M')" --quiet 2>/dev/null
 }
 
-# Run migration if centralized storage is empty but legacy exists
-auto_migrate() {
-    if [ -f "$STORAGE_ROOT/user.json" ]; then
-        return  # Already migrated
-    fi
-
-    if [ -f "$HOME/.claude/knowledge/user.json" ]; then
-        echo "Migrating legacy storage to $STORAGE_ROOT..."
-        "$VENV_PYTHON" "$MIGRATE_SCRIPT" --apply
-    fi
-}
-
 start() {
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
@@ -90,9 +77,6 @@ start() {
             rm "$PID_FILE"
         fi
     fi
-
-    # Auto-migrate on first start
-    auto_migrate
 
     echo "Starting MCP Streamable HTTP Server..."
     # Launch in a new session so the server is fully detached from the
@@ -284,14 +268,11 @@ case "$1" in
     commit)
         commit_storage --force
         ;;
-    migrate)
-        "$VENV_PYTHON" "$MIGRATE_SCRIPT" "${@:2}"
-        ;;
     stop-port)
         stop_port
         ;;
     *)
-        echo "Usage: $0 {start|stop|stop-port|restart|status|logs|commit|migrate [--apply]}"
+        echo "Usage: $0 {start|stop|stop-port|restart|status|logs|commit}"
         exit 1
         ;;
 esac

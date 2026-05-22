@@ -157,14 +157,16 @@ KnowledgeGraphManager (in-memory + file-backed)
 #### Why This Works
 
 **Load everything by default:**
-- 5000 token budget for active knowledge
+- ~4000 token budget for active knowledge per level (`KG_MAX_TOKENS`, configurable)
 - LLM scans entire graph in milliseconds
 - No query language or retrieval algorithms
 - Simple `kg_read()` → full context
 
 **When memory grows beyond limit:**
-- Archival scores nodes by: 0.25×recency + 0.50×connectivity + 0.25×richness (weighted sum of percentiles)
-- Archive bottom 20% least-important nodes
+- Archival scores nodes by: 0.33×recency + 0.66×connectedness (weighted sum of percentiles; richness was dropped in 0.9.9 — see scorer.py)
+- Connectedness counts edges to active nodes only: in × 0.66 + out × 0.33
+- Archive nodes until graph is under `COMPACTION_TARGET_RATIO` (0.8) of the token limit
+- Run a resurrection pass: any pre-existing archived node that outscores a just-archived node by ≥0.05 is restored to active
 - Keep edges to archived nodes (memory traces)
 - `kg_read(cwd, id)` retrieves full content and promotes archived nodes
 
@@ -205,8 +207,8 @@ KnowledgeGraphManager (in-memory + file-backed)
              │  MultiProjectGraphStore      │
              │  - User graph (singleton)    │
              │  - Project graphs (N)        │
-             │  - Auto-save (30s interval)  │
-             │  - Auto-compact (3000 tokens)│
+             │  - Write-through persistence │
+             │  - Auto-compact (~4000 tok.) │
              └──────────┬───────────────────┘
                         │
                 ┌───────┴────────┐
@@ -464,6 +466,5 @@ WebSocket          ← Visual editor (we control the client)
 
 ---
 
-**Last Updated:** 2026-05-17
-**Version:** 0.9.6
-**Architecture Status:** Stable (MCP, visual editor, skills, centralized storage all complete)
+**Architecture Status:** Stable (MCP, visual editor, skills, centralized storage all complete).
+For the canonical plugin version, see [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json).

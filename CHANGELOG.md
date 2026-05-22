@@ -2,6 +2,30 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.11] - 2026-05-22
+
+### Fixed
+- Visual editor "Recall" action: switched broken `POST /api/nodes/{level}/{id}/recall` proxy to the existing `GET /api/nodes/{level}/{id}` REST read (which auto-promotes archived/orphaned nodes). Previously the action silently 500'd.
+- Visual editor WebSocket URL: derived from `window.location` instead of hardcoded `:3000`, so the page works on any `EDITOR_PORT`.
+- Systemd unit (`server/memory-mcp.service`) rewritten to invoke `~/.local/bin/kg-memory` (oneshot + RemainAfterExit). Previous unit pointed at `~/.claude/plugins/cache/maxim-plugins/memory/latest/server` — the wrong plugin name and a path that does not exist.
+- `server/version.py` synced to plugin.json (was lagging at 0.9.9).
+- `manage_server.sh`: removed `migrate` subcommand and `auto_migrate()` — they referenced `tools/migrate_storage.py` which was deleted in 0.9.1.
+
+### Changed
+- Docs: `ARCHITECTURE.md` scoring formula updated to `0.33×recency + 0.66×connectedness` (richness was dropped in 0.9.9); compaction budget shown as ~4000 tokens; stale version header removed.
+- Docs: `wiki/Skills-Reference.md` skill table refreshed (six skills, hidden vs user-invocable split); `kg-extract` section rewritten to match the current Tier 1 / Tier 2 model and subsystem/component vocab; stale char-count table replaced with a one-line note.
+- Docs: `wiki/Knowledge-Graph-API.md` `kg_search` entry now documents RRF ranking and actual return shape (gist + notes + score, not full node body).
+- Docs: `wiki/Installation.md` corrected — six skills, not four; `kg-maintain` is auto-loaded *and* user-invocable, not "hidden."
+- Docs: `wiki/Design-Decisions.md`, `Data-and-Backup.md` token references updated 3000 → 4000.
+- Docs: `knowledge-graph/README.md` inline mini-changelog removed; replaced with a pointer to this file.
+- Docs: `visual-editor/README.md` rewritten — it was stuck at the Read-Only MVP era. Now a dev-oriented overview pointing at `VISUAL_EDITOR_GUIDE.md` and the wiki for user-facing content.
+- Skills: `kg-scout` and `kg-extract` frontmatter explicitly marked `user-invocable: true` for consistency with `kg-maintain`.
+- Settings: `.claude/settings.local.json` cleaned of legacy MCP tool names (`kg_ping`, `kg_register_session`, `kg_progress_get`/`_set`, `kg_recall`) and shell-parsing artifacts (`Bash(rtk *)`, `Bash(done)`, `__NEW_LINE__` entries).
+
+### Removed
+- `knowledge-graph/mcp` — orphan thin wrapper around `manage_server.sh`, not referenced anywhere.
+- `knowledge-graph/visual-editor/start.sh` — redundant with `manage_visual.sh` and had a port-3001 default that contradicted everything else.
+
 ## [0.9.10] - 2026-05-20
 
 ### Added

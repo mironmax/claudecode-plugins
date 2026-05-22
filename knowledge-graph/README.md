@@ -108,7 +108,9 @@ kg-visual logs
 - Logs: `/tmp/mcp_server.log`
 - PID file: `/tmp/.mcp_server.pid`
 
-**Auto-start on boot (Linux, optional):** copy the bundled systemd unit into your user units directory and enable it.
+**Auto-start on boot (Linux, optional):** the bundled systemd unit invokes the `kg-memory` shim, so it survives plugin updates without needing to be refreshed.
+
+Prerequisite: run `install_command.sh` once (see [Server Management](#server-management) above) so `kg-memory` exists in `~/.local/bin/`.
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -117,8 +119,6 @@ cp "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name memory-mc
 systemctl --user enable memory-mcp.service
 systemctl --user start memory-mcp.service
 ```
-
-> Copying (rather than symlinking) is intentional — the source path inside the plugin cache changes on each plugin update, but the systemd unit only needs to be refreshed manually when the unit definition itself changes.
 
 ---
 
@@ -230,87 +230,4 @@ MIT — see [LICENSE](LICENSE)
 
 ## Changelog
 
-**0.9.10**
-- Docs: guidance on enabling Claude Code plugin auto-updates for the `maxim-plugins` marketplace (off by default for third-party). Includes `/plugin` UI flow and `/plugin marketplace update maxim-plugins` manual refresh.
-- Install flow simplified: bundled `hooks/hooks.json` auto-registers the UserPromptSubmit memory hook on session start. No more setup-script-with-find-pattern command in install docs.
-- `install_command.sh` demoted to optional — needed only if you want `kg-memory` / `kg-visual` shell symlinks. Also runs idempotent cleanup of the legacy hook entry from `~/.claude/settings.json` (prevents double-firing for upgraders).
-- Server Management section corrected: HTTP server requires manual start (not auto-started by Claude Code as previously implied). Systemd auto-start uses `cp` not `ln -s` to survive plugin cache churn.
-- Configuration section corrected: env vars are read from the shell environment of the `kg-memory start` invocation, not from the plugin's bundled `.mcp.json` (which is overwritten on update).
-- Stale `~/.claude/plugins/knowledge-graph/...` paths removed from all docs — replaced with version-agnostic `${CLAUDE_PLUGIN_ROOT}` (in hooks) or `find ... | sort -V | tail -1` (in the one user-facing shell command that still needs the cache path).
-- README "Version" header replaced with a pointer to `plugin.json` — single source of truth, no more drift between hardcoded version numbers and the actual release.
-
-**0.9.8**
-- kg-maintain: gist and notes hygiene now run on every pass, independent of graph size
-- kg-maintain: gist standard deferred to kg-capture skill — old nodes no longer exempt from current length target
-- kg-maintain: new "Notes Hygiene" section — periodic rewrite pass collapses changelog-style notes to current truth; touch count as trigger signal
-- kg-maintain: new "Gist Hygiene" section — signals and actions for tightening any gist that exceeds the active standard
-- kg-maintain: "Oversized Node Detection" focused on structural splits and CLAUDE.md promotion, separate from hygiene passes
-
-**0.9.7**
-- Backup documentation corrected: removed tiered backup table (hourly/daily/weekly) and git auto-commit section that were never implemented
-- Actual built-in protection documented accurately: atomic writes + single `.prev` rolling copy per save
-- Added user-managed external backup guide: git (simple snapshots) and Borg (deduplicating, better for high-frequency data) with setup instructions
-- Same corrections applied to wiki (Data-and-Backup.md, Configuration.md, Home.md)
-
-**0.9.5**
-- Search upgraded to Reciprocal Rank Fusion (RRF): multi-term queries now tokenize, rank per term by occurrence, and merge into a single unified ranking — project and user results sorted together by score
-- Without session_id, kg_search now falls back to searching all loaded project graphs (best-effort) rather than user graph only; response includes a note explaining the limitation
-- Edge notes removed from full-graph kg_read output — edges show as `from --rel--> to` only; notes appear in single-node reads (same pattern as node notes). Reduces output size meaningfully on large graphs
-- Size notification threshold raised from 40K to 45K chars; tone changed from warning to a calm informational note suggesting `/kg-maintain`
-- kg-maintain made user-invocable (`/kg-maintain`): runs a focused pass — health check, prune if large, fertilize, water — and reports what changed
-- kg-visual command added to install_command.sh (was previously a manual symlink)
-- All skill language rewritten for calm, professional tone — imperative/enforcement framing replaced with collaborative guidance throughout kg-core, kg-recall, kg-capture, kg-maintain
-- kg-core skill body: new Server Operations section documenting both kg-memory and kg-visual with subcommands, ports, install path, and troubleshooting guidance
-
-**0.9.4**
-- Prerequisites section: Python 3 + pip install instructions for macOS/Linux/Windows
-- Quick Install: marketplace URL changed to `https://github.com/mironmax/claudecode-plugins`
-- Quick Install: setup script path now uses `find` to auto-locate version-stamped cache dir
-- Skill guidance rewritten for sharper, more actionable capture/recall/maintain/extract rules
-- Hook rotates through 18 targeted prompts (was a single generic reminder)
-- Removed scheduler plugin (superseded by native `/schedule` skill)
-
-**0.9.3**
-- Four hidden skills (kg-core, kg-capture, kg-recall, kg-maintain) with descriptions rewritten to fit 1,536 char limit
-- UserPromptSubmit hook for scripted memory init
-- Three-tier compaction: active → archived → orphaned
-
-**0.9.1**
-- Compaction tuning: `COMPACTION_TARGET_RATIO` 0.9→0.8 (wider buffer), `GRACE_PERIOD_DAYS` 3→5, `ORPHAN_GRACE_DAYS` 30→365
-- `constants.py` is now single source of truth — env var fallbacks import from constants; service file no longer overrides
-- Storage safety: atomic writes + `.prev` rolling backup on every save
-- Removed `migrate_storage.py` and `replay_sessions.py` (superseded)
-- Docs: values in skills and docs now reference env vars and `constants.py` instead of hardcoded numbers
-- Added comparison with MemPalace and Claude Code Auto-Memory
-
-**0.9.0**
-- Consolidated MCP tools from 13 to 8: removed `kg_ping`, `kg_session_stats`, `kg_register_session`, `kg_recall`, `kg_progress_get`, `kg_progress_set`
-- `kg_read(cwd)` now initializes session and returns `session_id`
-- `kg_read(cwd, id)` reads a single node and promotes archived nodes
-- `kg_progress` merges get/set — omit `state` to read, include to write
-- `kg_delete_node` and `kg_delete_edge` auto-resolve graph level (no `level` param needed)
-
-**0.8.0**
-- Zero-setup behavioral guidance via 4 hidden skills — no CLAUDE.md required
-- Restructured into 6 focused skills (4 hidden + 2 user-invocable)
-- Self-awareness mechanism: Claude checks graph is loaded before any task
-
-**0.7.2**
-- Recommend disabling built-in auto-memory
-- User profile added as top-priority capture target
-- Notes framed as home for rationale/"why"
-
-**0.7.1**
-- Renamed skills to `kg-` prefix to avoid name collisions
-
-**0.7.0**
-- Renamed plugin from "memory" to "knowledge-graph"
-- Centralized storage at `~/.knowledge-graph/`
-- Write-through persistence: every mutation saved immediately to disk
-- Added `kg_search` for full-text search across active and archived nodes
-- Multi-session safe server restart with `setsid`, PID validation
-
-**0.6.x and earlier**
-- Added `kg_progress` tools for persistent task state tracking
-- Added `/skill kg-scout` and `/skill kg-extract`
-- Initial multi-session sync, user/project level separation
+See [`../CHANGELOG.md`](../CHANGELOG.md) for the full release history.

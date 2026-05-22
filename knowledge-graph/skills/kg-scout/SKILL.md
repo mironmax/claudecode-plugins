@@ -1,5 +1,6 @@
 ---
 name: kg-scout
+user-invocable: true
 description: Mine conversation history for patterns and insights worth preserving
 ---
 

@@ -1,227 +1,87 @@
 # Knowledge Graph Visual Editor
 
-Read-only web-based visualization tool for the Memory Plugin knowledge graph.
+A web-based D3.js graph editor for the knowledge graph. Runs as a separate FastAPI server that proxies to the MCP server (port 8765) and serves the SPA frontend.
 
-## Overview
+For end-user usage, see:
+- **[VISUAL_EDITOR_GUIDE.md](../VISUAL_EDITOR_GUIDE.md)** — feature tour: layout, node interaction, inline editing, troubleshooting
+- **[Wiki: Visual Editor](https://github.com/mironmax/claudecode-plugins/wiki/Visual-Editor)** — same content, lives with the rest of the project docs
 
-The Visual Editor provides an interactive D3.js force-directed graph visualization of your knowledge graph, showing both user-level and project-level nodes and edges.
-
-## Features
-
-- **Real-time Visualization**: Force-directed graph layout using D3.js
-- **Dual-Level Support**: View user and project graphs simultaneously
-- **Interactive**: Click nodes to view details, drag to rearrange
-- **Filtering**: Toggle between all levels, user-only, or project-only
-- **Responsive**: Desktop-optimized (minimum 1366px width)
-- **Auto-refresh**: Graph updates every 30 seconds
+This README covers the codebase only.
 
 ## Architecture
 
 ```
-┌─────────────┐
-│   Browser   │
-│  localhost: │
-│    3000     │
-└──────┬──────┘
-       │ HTTP
-       ▼
-┌─────────────────┐
-│ Visual Editor   │
-│ FastAPI Server  │
-│  (backend/)     │
-└──────┬──────────┘
-       │ HTTP
-       ▼
-┌─────────────────┐
-│  MCP Server     │
-│  localhost:8765 │
-│ (mcp_http/app)  │
-└─────────────────┘
+Browser ─HTTP─► Visual Editor (FastAPI, port 3000)
+                    │
+                    ├─HTTP──► MCP Server REST API  (localhost:8765/api/*)
+                    └─WS────► MCP Server WebSocket (localhost:8765/ws)
 ```
 
-## Requirements
+The visual editor stores no data. All reads and writes are proxied to the MCP server. Real-time graph updates arrive via the WebSocket proxy.
 
-- Python 3.10+
-- MCP HTTP Server running on `http://127.0.0.1:8765`
-- Desktop browser (1366px minimum width)
-
-## Installation
-
-```bash
-cd visual-editor
-pip install -r requirements.txt
-```
-
-## Usage
-
-### 1. Start MCP Server
-
-First, ensure the MCP HTTP server is running:
-
-```bash
-cd ../server
-./manage_server.sh start
-```
-
-Verify it's running:
-```bash
-curl http://127.0.0.1:8765/api/health
-```
-
-### 2. Start Visual Editor
-
-```bash
-cd visual-editor/backend
-python server.py
-```
-
-The editor will start on `http://127.0.0.1:3000`
-
-### 3. Open in Browser
-
-Navigate to: `http://localhost:3000`
-
-## Configuration
-
-Environment variables (optional):
-
-- `EDITOR_PORT`: Port for visual editor (default: 3000)
-- `EDITOR_HOST`: Host binding (default: 127.0.0.1)
-- `MCP_SERVER_URL`: MCP server URL (default: http://127.0.0.1:8765)
-
-Example:
-```bash
-EDITOR_PORT=8080 MCP_SERVER_URL=http://localhost:8765 python server.py
-```
-
-## Usage Guide
-
-### Interface Layout
-
-```
-┌─────────────────────────────────────────────────┐
-│ Header: Title | Refresh | Connection Status    │
-├─────────────────────────────────────────────────┤
-│                                                 │
-│  Graph Visualization Panel                      │
-│  - Force-directed layout                        │
-│  - Zoom/pan controls                            │
-│  - Level filter dropdown                        │
-│                                                 │
-├─────────────────────────────────────────────────┤
-│ Detail Panel (bottom)                           │
-│ - Node details shown on click                   │
-│ - ID, level, description, notes, files          │
-└─────────────────────────────────────────────────┘
-```
-
-### Node Colors
-
-- **Blue**: Active user-level node
-- **Cyan**: Active project-level node
-- **Dark grey**: Archived node (semi-transparent)
-- **Light grey**: Orphaned node (very transparent)
-
-### Controls
-
-- **Click node**: View details in bottom panel
-- **Drag node**: Rearrange graph layout
-- **Zoom**: Use +/- buttons or mouse wheel
-- **Filter**: Select level from dropdown (All/User/Project)
-- **Refresh**: Manual refresh button (also auto-refreshes every 30s)
-
-### Keyboard Shortcuts
-
-None currently implemented (read-only mode).
-
-## Development
-
-### File Structure
+## File Structure
 
 ```
 visual-editor/
 ├── backend/
-│   └── server.py          # FastAPI application
+│   ├── server.py            # FastAPI app: REST proxy + WS proxy + static serving
+│   └── project_discovery.py # Scans ~/.claude/projects/ for /api/projects
 ├── frontend/
-│   ├── index.html         # Main HTML page
+│   ├── index.html
 │   └── static/
-│       ├── css/
-│       │   └── style.css  # Styles
-│       └── js/
-│           └── app.js     # D3.js visualization logic
-├── requirements.txt       # Python dependencies
-└── README.md             # This file
+│       ├── css/style.css
+│       └── js/app.js        # D3 force-directed graph, three-panel UI, inline editing
+├── manage_visual.sh         # start | stop | restart | status | logs
+├── requirements.txt
+└── README.md                # this file
 ```
 
-### API Endpoints
+## Run
 
-**Visual Editor Backend:**
-- `GET /` - Serve HTML page
-- `GET /api/health` - Health check (includes MCP server status)
-- `GET /api/graph?session_id=<id>` - Fetch graph data
+The bundled `manage_visual.sh` is the canonical entry point. End users get it as `kg-visual` after running `install_command.sh`. From the source tree:
 
-**MCP Server (proxied):**
-- `GET /api/graph/read?session_id=<id>` - Raw graph data
+```bash
+./manage_visual.sh start    # daemonize, log to /tmp/visual_editor.log
+./manage_visual.sh status
+./manage_visual.sh logs
+./manage_visual.sh stop
+```
 
-## Limitations (Read-Only MVP)
+Requires the MCP server (`kg-memory start`) to be up.
 
-- ❌ No editing capabilities (create/update/delete nodes/edges)
-- ❌ No WebSocket real-time updates (uses polling)
-- ❌ No authentication/authorization
-- ❌ Desktop only (no mobile support)
+## Configuration
 
-These will be addressed in Phase 6 (Write Support).
+| Env var | Default | Purpose |
+|---|---|---|
+| `EDITOR_PORT` | `3000` | Frontend + API port |
+| `EDITOR_HOST` | `127.0.0.1` | Bind address |
+| `MCP_SERVER_URL` | `http://127.0.0.1:8765` | Where to proxy |
 
-## Troubleshooting
+If you change `EDITOR_PORT`, the frontend's WebSocket URL auto-derives from `window.location` so the page stays self-consistent. CORS in `server.py` is set up for same-origin only — exposing on a different port and accessing from another origin would need an entry there.
 
-### "Cannot connect to MCP server"
+## API Endpoints (Backend)
 
-1. Verify MCP server is running:
-   ```bash
-   curl http://127.0.0.1:8765/api/health
-   ```
+All under `http://localhost:$EDITOR_PORT`:
 
-2. Check server logs:
-   ```bash
-   cd ../server
-   ./manage_server.sh status
-   ```
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/` | Serve SPA |
+| GET | `/api/health` | Editor + MCP server status |
+| GET | `/api/projects` | Discovered Claude Code projects |
+| GET | `/api/graph` | Read graph (proxies to MCP `/api/graph/read?reload=true`) |
+| POST | `/api/nodes` | Create/update node |
+| DELETE | `/api/nodes/{level}/{id}` | Delete node |
+| GET | `/api/nodes/{level}/{id}` | Read single node (auto-promotes archived/orphaned) |
+| POST | `/api/edges` | Create/update edge |
+| DELETE | `/api/edges/{level}/{from}/{to}/{rel}` | Delete edge |
+| WS | `/ws` | WebSocket proxy to MCP `/ws` for live updates |
 
-3. Restart MCP server:
-   ```bash
-   ./manage_server.sh restart
-   ```
+## Limitations
 
-### "Desktop Required" message
-
-- Minimum screen width: 1366px
-- Use a desktop or laptop browser
-- This is intentional (graph visualization needs space)
-
-### Graph not loading
-
-1. Check browser console for errors (F12)
-2. Verify network requests in DevTools
-3. Check MCP server is returning data:
-   ```bash
-   curl http://127.0.0.1:8765/api/graph/read
-   ```
-
-### Empty graph
-
-- No nodes in knowledge graph yet
-- Use Claude Code to create nodes first
-- Check if session_id is set correctly
-
-## Next Steps (Phase 6)
-
-- [ ] Add edit capabilities (create/update/delete)
-- [ ] WebSocket real-time updates
-- [ ] Authentication and authorization
-- [ ] Search and filtering improvements
-- [ ] Undo/redo functionality
-- [ ] Export/import capabilities
+- Desktop only — minimum 1366px screen width
+- Edge creation requires typing target node ID (no click-to-connect)
+- No undo, no multi-select, no in-graph search
 
 ## License
 
-Same as parent project (see ../LICENSE)
+Same as parent project — see `../LICENSE`.

@@ -227,21 +227,21 @@ async def delete_edge(level: str, from_id: str, to_id: str, rel: str, session_id
         logger.exception("Error deleting edge")
         raise HTTPException(status_code=500, detail="Failed to delete edge")
 
-@app.post("/api/nodes/{level}/{node_id}/recall")
-async def recall_node(level: str, node_id: str, session_id: str | None = None):
-    """Recall an archived node (proxy to MCP server)."""
+@app.get("/api/nodes/{level}/{node_id}")
+async def read_node(level: str, node_id: str, session_id: str | None = None):
+    """Read a single node — auto-promotes archived/orphaned to active (proxy to MCP server)."""
     try:
         params = {"session_id": session_id} if session_id else {}
         async with httpx.AsyncClient(timeout=MCP_TIMEOUT) as client:
-            response = await client.post(
-                f"{MCP_SERVER_URL}/api/nodes/{level}/{node_id}/recall",
+            response = await client.get(
+                f"{MCP_SERVER_URL}/api/nodes/{level}/{node_id}",
                 params=params
             )
             response.raise_for_status()
             return response.json()
-    except Exception as e:
-        logger.exception("Error recalling node")
-        raise HTTPException(status_code=500, detail="Failed to recall node")
+    except Exception:
+        logger.exception("Error reading node")
+        raise HTTPException(status_code=500, detail="Failed to read node")
 
 
 # ============================================================================

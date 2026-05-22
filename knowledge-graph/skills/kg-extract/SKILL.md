@@ -1,5 +1,6 @@
 ---
 name: kg-extract
+user-invocable: true
 description: Map codebase architecture into the knowledge graph
 ---
 
