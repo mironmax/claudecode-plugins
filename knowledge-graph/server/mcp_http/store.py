@@ -15,6 +15,9 @@ from core import (
     Graph,
     GRACE_PERIOD_DAYS,
     ORPHAN_GRACE_DAYS,
+    MAX_TOKENS,
+    heal_node_fields,
+    gist_is_malformed,
     is_archived,
     version_key_node,
     version_key_edge,
@@ -33,7 +36,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GraphConfig:
     """Configuration for knowledge graph."""
-    max_tokens: int = 5000
+    max_tokens: int = MAX_TOKENS
     orphan_grace_days: int = ORPHAN_GRACE_DAYS
     grace_period_days: int = GRACE_PERIOD_DAYS
     save_interval: int = 30
@@ -116,12 +119,18 @@ class MultiProjectGraphStore:
 
             # Clean up orphaned edges (edges pointing to non-existent nodes)
             self._clean_orphaned_edges(graph)
+            # Heal nodes whose gist swallowed their notes (one-time repair, idempotent)
+            healed = self._heal_corrupt_nodes(graph)
 
             self.graphs[user_key] = graph
             self._versions[user_key] = versions
             self._progress[user_key] = progress
             self._persistence[user_key] = persistence
             self.dirty[user_key] = False
+
+            # Persist the heal so the repair sticks and the next load is a no-op
+            if healed:
+                self._write_through(user_key)
 
             logger.info(f"Loaded user graph: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
 
@@ -146,6 +155,8 @@ class MultiProjectGraphStore:
 
         # Clean up orphaned edges (edges pointing to non-existent nodes)
         self._clean_orphaned_edges(graph)
+        # Heal nodes whose gist swallowed their notes (one-time repair, idempotent)
+        healed = self._heal_corrupt_nodes(graph)
 
         # Stamp project_path on persistence for rename detection
         persistence._project_path = project_root
@@ -155,6 +166,10 @@ class MultiProjectGraphStore:
         self._progress[project_key] = progress
         self._persistence[project_key] = persistence
         self.dirty[project_key] = False
+
+        # Persist the heal so the repair sticks and the next load is a no-op
+        if healed:
+            self._write_through(project_key)
 
         logger.info(f"Loaded project graph for {project_root}: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges (path: {graph_path})")
 
@@ -303,6 +318,12 @@ class MultiProjectGraphStore:
 
             nodes = self.graphs[graph_key]["nodes"]
 
+            # Heal on write: occasionally a client serializes the whole node
+            # (gist + notes + tool-call markup) into the gist string. Repair it
+            # before storing so corruption never lands and notes survive as a
+            # structured field. No-op for well-formed input.
+            gist, notes, touches = heal_node_fields(gist, notes, touches)
+
             # Create or update node
             is_new = node_id not in nodes
             node = nodes.get(node_id, {"id": node_id})
@@ -401,10 +422,21 @@ class MultiProjectGraphStore:
             logger.debug(f"Put edge {from_ref}->{to_ref}:{rel} in {level} graph")
             return {"edge": edge, "level": level}
 
-    def delete_node(self, node_id: str, level: str | None = None, session_id: str | None = None) -> dict:
-        """Delete a node and its connected edges. Level auto-resolved if not provided."""
+    def delete_node(self, node_id: str, level: str | None = None, session_id: str | None = None,
+                    project_path: str | None = None) -> dict:
+        """Delete a node and its connected edges. Level auto-resolved if not provided.
+
+        project_path resolves a project graph directly (used by the visual editor,
+        whose session has no registered project path) — mirrors read_node. The editor
+        sends both session_id and project_path, so project_path takes precedence.
+        """
         with self.lock:
-            if level:
+            if level == "project" and project_path:
+                project_root = str(safe_project_path(project_path))
+                self._ensure_project_loaded(project_root)
+                graph_key = f"project:{project_root}"
+                resolved_level = "project"
+            elif level:
                 graph_key = self._get_graph_key(level, session_id)
                 if graph_key.startswith("project:"):
                     project_root = graph_key.split(":", 1)[1]
@@ -534,7 +566,8 @@ class MultiProjectGraphStore:
 
         return None
 
-    def read_node(self, node_id: str, level: str | None = None, session_id: str | None = None) -> dict:
+    def read_node(self, node_id: str, level: str | None = None, session_id: str | None = None,
+                  project_path: str | None = None) -> dict:
         """
         Read a single node's full content (gist + notes + touches).
         If the node is archived, promotes it to active as a side effect.
@@ -542,13 +575,27 @@ class MultiProjectGraphStore:
         Args:
             node_id: Node ID to read
             level: Optional level hint. If None, auto-resolves by searching both graphs.
-            session_id: Session ID (needed to resolve project graph)
+            session_id: Session ID (resolves project graph via the session's registered path)
+            project_path: Direct project root path — an alternative to session_id for
+                resolving a project-level node. The visual editor uses this because its
+                WebSocket session is not registered against any project path, so a
+                session-only lookup would fail to find (and thus could not recall) a
+                project node. Mirrors read_graphs' project_path handling.
 
         Returns dict with "node" and "level" keys.
         """
         with self.lock:
             # Resolve which graph the node is in
-            if level:
+            if level == "project" and project_path:
+                # Direct project path (visual editor recall): resolve the graph from
+                # the path itself. Takes precedence over session_id because the editor
+                # sends BOTH — its WebSocket session_id is real but has no project_path
+                # registered, so a session-based lookup would (and did) raise here.
+                project_root = str(safe_project_path(project_path))
+                self._ensure_project_loaded(project_root)
+                graph_key = f"project:{project_root}"
+                resolved_level = "project"
+            elif level:
                 graph_key = self._get_graph_key(level, session_id)
                 if graph_key.startswith("project:"):
                     project_root = graph_key.split(":", 1)[1]
@@ -575,9 +622,10 @@ class MultiProjectGraphStore:
             # If archived or orphaned, promote to active
             was_archived = is_archived(node) or "_orphaned_ts" in node
             if was_archived:
-                del node["_archived"]
-                if "_orphaned_ts" in node:
-                    del node["_orphaned_ts"]
+                # Use pop(): an orphaned node may lack _archived (defensive), and a
+                # missing flag should be a no-op, not a KeyError that 500s recall.
+                node.pop("_archived", None)
+                node.pop("_orphaned_ts", None)
 
                 # Update version
                 ver_key = version_key_node(node_id)
@@ -694,8 +742,11 @@ class MultiProjectGraphStore:
     def _maybe_compact(self, graph_key: str):
         """Compact graph if over token limit. Caller must hold lock.
 
-        Two-pass compaction:
+        Passes (only one of compact/refill acts on a given call — they sit on
+        opposite sides of a hysteresis band):
           Pass 1: archive lowest-scored active nodes until active tokens ≤ max_tokens.
+          Pass 1r: refill — if active tokens are well under budget, promote the
+                   highest-scored archived nodes back up to use the headroom.
           Pass 2: orphan lowest-connectivity archived nodes until archived tokens ≤ 30% of max.
         """
         nodes = self.graphs[graph_key]["nodes"]
@@ -703,9 +754,12 @@ class MultiProjectGraphStore:
         versions = self._versions[graph_key]
 
         archived = self.compactor.compact_if_needed(nodes, edges, versions)
+        # Refill only fires when under the low-water mark; if we just archived (graph
+        # was over budget) the refill trigger can't be met, so this is a no-op then.
+        refilled = self.compactor.refill_if_room(nodes, edges, versions)
         orphaned = self.compactor.orphan_archived_if_needed(nodes, edges)
 
-        if archived or orphaned:
+        if archived or refilled or orphaned:
             self.dirty[graph_key] = True
             self._write_through(graph_key)
 
@@ -735,6 +789,44 @@ class MultiProjectGraphStore:
 
         if orphaned_keys:
             logger.info(f"Cleaned {len(orphaned_keys)} orphaned edge(s)")
+
+    def _heal_corrupt_nodes(self, graph: dict) -> bool:
+        """Repair nodes whose gist swallowed their notes + tool-call markup.
+
+        Some writes (before heal-on-write existed, or from clients that bypass it)
+        landed the whole node — gist, notes, and surrounding tool-call tags — in
+        the gist string, leaving notes empty. Those oversized gists are charged on
+        every full-graph read, so they dominate the token budget.
+
+        Run at load time on every graph: split the real headline back out and
+        recover the embedded notes/touches into their proper fields. Idempotent —
+        already-clean nodes are skipped — so re-running it on each load is free.
+        Returns True if anything changed, so the caller can persist the repair.
+
+        Modifies graph in-place.
+        """
+        healed = 0
+        for node_id, node in graph["nodes"].items():
+            gist = node.get("gist", "") or ""
+            if not gist_is_malformed(gist):
+                continue
+            new_gist, new_notes, new_touches = heal_node_fields(
+                gist, node.get("notes"), node.get("touches")
+            )
+            node["gist"] = new_gist
+            if new_notes is not None:
+                node["notes"] = new_notes
+            if new_touches is not None:
+                node["touches"] = new_touches
+            healed += 1
+            logger.warning(
+                f"Healed corrupt node '{node_id}': gist {len(gist)}->{len(new_gist)} chars, "
+                f"recovered {len(new_notes) if new_notes else 0} note(s)"
+            )
+
+        if healed:
+            logger.info(f"Healed {healed} corrupt node(s) on load")
+        return healed > 0
 
     def _prune_orphans(self, graph_key: str):
         """Delete orphaned nodes whose grace period has expired. Caller must hold lock.

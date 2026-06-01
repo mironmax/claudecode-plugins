@@ -126,7 +126,7 @@ Claude Code persists tool results over ~50K chars to disk — model sees only a 
 kg_read output is the full graph as text. If kg_read shows a size warning (>40K chars):
 1. Review nodes for staleness, duplicates, disconnected entries
 2. Delete or merge low-value nodes
-3. KG_MAX_TOKENS default is 4000 per graph level — two graphs ≈ 32K chars, safe under 50K limit
+3. KG_MAX_TOKENS default is 5000 per graph level — two graphs ≈ 40K chars, safe under 50K limit
 
 ### Project renames
 When project folder renamed, graph slug changes. Server handles via alias detection.

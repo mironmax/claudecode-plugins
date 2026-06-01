@@ -588,12 +588,29 @@ function confirmDeleteNode(node) {
     `);
 }
 
+// Build the query string for single-node API calls (read/recall/delete).
+// A project node must be resolved by project_path: the editor's WebSocket session
+// is not registered against any project, so session_id alone can't find it on the
+// MCP server. The graph load uses the same project_path mechanism.
+function nodeApiQuery() {
+    const params = new URLSearchParams();
+    if (state.sessionId) params.set('session_id', state.sessionId);
+    if (state.graphLevel === 'project' && state.selectedProject) {
+        params.set('project_path', state.selectedProject);
+    }
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+}
+
 async function deleteNode(nodeId) {
     try {
-        await fetch(
-            `${CONFIG.apiBaseUrl}/api/nodes/${state.graphLevel}/${encodeURIComponent(nodeId)}?session_id=${state.sessionId || ''}`,
+        const response = await fetch(
+            `${CONFIG.apiBaseUrl}/api/nodes/${state.graphLevel}/${encodeURIComponent(nodeId)}${nodeApiQuery()}`,
             {method: 'DELETE'}
         );
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
         showToast('Node deleted', 'success');
         closeModal();
         state.selectedNode = null;
@@ -609,7 +626,7 @@ async function recallNode(node) {
         // Reading a node via the REST API auto-promotes it from archived/orphaned to active
         // (same path the MCP kg_read(cwd, id) tool uses).
         const response = await fetch(
-            `${CONFIG.apiBaseUrl}/api/nodes/${state.graphLevel}/${encodeURIComponent(node.id)}?session_id=${state.sessionId || ''}`
+            `${CONFIG.apiBaseUrl}/api/nodes/${state.graphLevel}/${encodeURIComponent(node.id)}${nodeApiQuery()}`
         );
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -750,8 +767,10 @@ function handleContextMenuAction(action) {
         case 'edit': openEditNodeModal(node); break;
         case 'delete': confirmDeleteNode(node); break;
         case 'recall':
-            if (node.archived) recallNode(node);
-            else showToast('Node is not archived', 'warning');
+            // Both archived and orphaned nodes are recallable (read promotes either
+            // back to active). Active nodes have nothing to recall.
+            if (node.archived || node.orphaned) recallNode(node);
+            else showToast('Node is already active', 'info');
             break;
         case 'create-edge': startEdgeCreation(node); break;
     }
