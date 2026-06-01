@@ -151,7 +151,7 @@ The server reads tunables from environment variables. Set them in your shell rc 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KG_MAX_TOKENS` | `4000` | Token limit before compaction triggers, per graph level |
+| `KG_MAX_TOKENS` | `5000` | Token limit before compaction triggers, per graph level (overrides `MAX_TOKENS` in `core/constants.py`) |
 | `KG_GRACE_PERIOD_DAYS` | see `constants.py` | Days a node is protected from archival after last update |
 | `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
@@ -180,9 +180,13 @@ cp ~/.knowledge-graph/projects/<slug>/graph.json.prev \
    ~/.knowledge-graph/projects/<slug>/graph.json
 ```
 
+### Self-healing on load (0.9.12+)
+
+If a node ever lands with its `gist`, `notes`, and tool-call markup mashed into one oversized string (an occasional client glitch that bloated the token budget), the server repairs it automatically — sanitizing on write and healing any existing damage when a graph is loaded, then writing the fix back. It's idempotent and never overwrites data you supplied. The first 0.9.12 run logs `Healed N corrupt node(s) on load`; that's expected and one-time. See [Data and Backup](https://github.com/mironmax/claudecode-plugins/wiki/Data-and-Backup#self-healing-on-load) for details.
+
 ### External backups (optional, user-managed)
 
-The plugin does not include a backup scheduler. For versioned history or off-machine copies, set one up externally. Two options:
+The plugin does not include a backup scheduler. For versioned history, off-machine copies, or a snapshot before upgrading, set one up externally. Two options:
 
 **Git** — simple, no extra tools:
 ```bash

@@ -181,10 +181,19 @@ async def create_node(data: NodeCreate):
         raise HTTPException(status_code=500, detail="Failed to create node")
 
 @app.delete("/api/nodes/{level}/{node_id}")
-async def delete_node(level: str, node_id: str, session_id: str | None = None):
-    """Delete a node (proxy to MCP server)."""
+async def delete_node(level: str, node_id: str, session_id: str | None = None,
+                      project_path: str | None = None):
+    """Delete a node (proxy to MCP server).
+
+    project_path lets the editor delete a project node without a session registered
+    against that project — mirrors read_node.
+    """
     try:
-        params = {"session_id": session_id} if session_id else {}
+        params = {}
+        if session_id:
+            params["session_id"] = session_id
+        if project_path:
+            params["project_path"] = project_path
         async with httpx.AsyncClient(timeout=MCP_TIMEOUT) as client:
             response = await client.delete(
                 f"{MCP_SERVER_URL}/api/nodes/{level}/{node_id}",
@@ -228,10 +237,19 @@ async def delete_edge(level: str, from_id: str, to_id: str, rel: str, session_id
         raise HTTPException(status_code=500, detail="Failed to delete edge")
 
 @app.get("/api/nodes/{level}/{node_id}")
-async def read_node(level: str, node_id: str, session_id: str | None = None):
-    """Read a single node — auto-promotes archived/orphaned to active (proxy to MCP server)."""
+async def read_node(level: str, node_id: str, session_id: str | None = None,
+                    project_path: str | None = None):
+    """Read a single node — auto-promotes archived/orphaned to active (proxy to MCP server).
+
+    project_path lets the editor recall a project node without a session registered
+    against that project (its WebSocket session has none).
+    """
     try:
-        params = {"session_id": session_id} if session_id else {}
+        params = {}
+        if session_id:
+            params["session_id"] = session_id
+        if project_path:
+            params["project_path"] = project_path
         async with httpx.AsyncClient(timeout=MCP_TIMEOUT) as client:
             response = await client.get(
                 f"{MCP_SERVER_URL}/api/nodes/{level}/{node_id}",

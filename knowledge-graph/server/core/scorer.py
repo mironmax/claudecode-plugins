@@ -2,6 +2,8 @@
 
 import time
 
+from .constants import ARCHIVED_EDGE_WEIGHT
+
 
 class NodeScorer:
     """Scores nodes for compaction decisions."""
@@ -12,15 +14,45 @@ class NodeScorer:
     def _is_active(self, node: dict) -> bool:
         return not node.get("_archived") and "_orphaned_ts" not in node
 
-    def _connectedness(self, node_id: str, active_ids: set, edges: dict) -> float:
-        """Weighted in/out degree counting only edges to/from active nodes."""
-        in_degree = 0
-        out_degree = 0
+    @staticmethod
+    def _build_adjacency(edges: dict) -> dict:
+        """Index edges by endpoint once: {node_id: ([in_neighbours], [out_neighbours])}.
+
+        Scoring is called per-candidate (and refill re-scores each round), so without
+        an index _connectedness would re-scan every edge for every candidate —
+        O(candidates × edges). Building this once makes each connectedness lookup
+        O(degree of that node) instead.
+        """
+        adj: dict[str, tuple] = {}
         for edge in edges.values():
-            if edge["to"] == node_id and edge["from"] in active_ids:
-                in_degree += 1
-            if edge["from"] == node_id and edge["to"] in active_ids:
-                out_degree += 1
+            f, t = edge["from"], edge["to"]
+            adj.setdefault(t, ([], []))[0].append(f)   # f is an in-neighbour of t
+            adj.setdefault(f, ([], []))[1].append(t)   # t is an out-neighbour of f
+        return adj
+
+    def _connectedness(self, node_id: str, active_ids: set, archived_ids: set, adj: dict) -> float:
+        """Weighted in/out degree, using the prebuilt adjacency index.
+
+        An edge to an active neighbour counts at full weight (1.0); an edge to an
+        archived neighbour counts at ARCHIVED_EDGE_WEIGHT (a "string" you can't pull
+        yet, but not worthless). Edges to orphaned neighbours count for nothing.
+
+        Without the archived term, a cluster that archived together scored 0
+        connectedness for every member — so refill could never resurface any of
+        them. The reduced weight lets a dense archived hub float up the refill order
+        and lead its cluster back gradually.
+        """
+        in_neighbours, out_neighbours = adj.get(node_id, ([], []))
+
+        def weight(nid: str) -> float:
+            if nid in active_ids:
+                return 1.0
+            if nid in archived_ids:
+                return ARCHIVED_EDGE_WEIGHT
+            return 0.0  # orphaned or missing — not a pullable string
+
+        in_degree = sum(weight(nid) for nid in in_neighbours)
+        out_degree = sum(weight(nid) for nid in out_neighbours)
         return 0.66 * in_degree + 0.33 * out_degree
 
     def _recency(self, node_id: str, node: dict, versions: dict, current_time: float) -> float:
@@ -45,6 +77,16 @@ class NodeScorer:
         """
         current_time = time.time()
         active_ids = {nid for nid, n in nodes.items() if self._is_active(n)}
+        # Archived (but not orphaned) neighbours contribute reduced connectedness so a
+        # cluster that archived together isn't scored as fully disconnected (see
+        # _connectedness). Orphaned nodes are excluded — they are invisible and unpullable.
+        archived_ids = {
+            nid for nid, n in nodes.items()
+            if n.get("_archived") and "_orphaned_ts" not in n
+        }
+
+        # Build the edge index once, not per-candidate (see _build_adjacency).
+        adj = self._build_adjacency(edges)
 
         eligible = []
         for node_id, node in nodes.items():
@@ -59,7 +101,7 @@ class NodeScorer:
                 "id": node_id,
                 "archived": bool(node.get("_archived")),
                 "recency_raw": self._recency(node_id, node, versions, current_time),
-                "connectedness_raw": self._connectedness(node_id, active_ids, edges),
+                "connectedness_raw": self._connectedness(node_id, active_ids, archived_ids, adj),
             })
 
         if not eligible:

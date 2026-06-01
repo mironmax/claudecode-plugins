@@ -7,7 +7,18 @@ from .estimator import TokenEstimator
 from .scorer import NodeScorer
 from .compactor import Compactor
 from .persistence import GraphPersistence
-from .utils import is_archived, version_key_node, version_key_edge, edge_storage_key, validate_level
+from .healer import heal_node_fields, gist_is_malformed
+from .utils import (
+    is_archived,
+    is_orphaned,
+    is_active,
+    active_node_ids,
+    edge_is_live,
+    version_key_node,
+    version_key_edge,
+    edge_storage_key,
+    validate_level,
+)
 
 __all__ = [
     # Types
@@ -18,8 +29,12 @@ __all__ = [
     "BASE_NODE_TOKENS",
     "CHARS_PER_TOKEN",
     "TOKENS_PER_EDGE",
+    "ARCHIVED_ID_TOKENS",
+    "MAX_TOKENS",
     "COMPACTION_TARGET_RATIO",
+    "REFILL_TRIGGER_RATIO",
     "ARCHIVED_BUDGET_RATIO",
+    "RESURRECTION_MARGIN",
     "SESSION_ID_LENGTH",
     "SESSION_TTL_SECONDS",
     "GRACE_PERIOD_DAYS",
@@ -46,8 +61,15 @@ __all__ = [
     "NodeScorer",
     "Compactor",
     "GraphPersistence",
+    # Healer
+    "heal_node_fields",
+    "gist_is_malformed",
     # Utils
     "is_archived",
+    "is_orphaned",
+    "is_active",
+    "active_node_ids",
+    "edge_is_live",
     "version_key_node",
     "version_key_edge",
     "edge_storage_key",

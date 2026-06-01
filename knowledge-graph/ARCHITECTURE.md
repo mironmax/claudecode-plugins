@@ -157,22 +157,32 @@ KnowledgeGraphManager (in-memory + file-backed)
 #### Why This Works
 
 **Load everything by default:**
-- ~4000 token budget for active knowledge per level (`KG_MAX_TOKENS`, configurable)
+- ~5000 token budget for active knowledge per level (`KG_MAX_TOKENS`, configurable; single source of truth in `core/constants.py`)
 - LLM scans entire graph in milliseconds
 - No query language or retrieval algorithms
 - Simple `kg_read()` → full context
 
 **When memory grows beyond limit:**
 - Archival scores nodes by: 0.33×recency + 0.66×connectedness (weighted sum of percentiles; richness was dropped in 0.9.9 — see scorer.py)
-- Connectedness counts edges to active nodes only: in × 0.66 + out × 0.33
+- Connectedness weights edges by neighbour state: an edge to an active node counts full (1.0), to an archived node `ARCHIVED_EDGE_WEIGHT` (0.2), to an orphaned node 0 — then `in × 0.66 + out × 0.33`. The reduced-but-nonzero archived weight lets a cluster that archived together still be resurfaced by refill (a member isn't scored as fully disconnected just because its neighbours archived too)
 - Archive nodes until graph is under `COMPACTION_TARGET_RATIO` (0.8) of the token limit
 - Run a resurrection pass: any pre-existing archived node that outscores a just-archived node by ≥0.05 is restored to active
-- Keep edges to archived nodes (memory traces)
 - `kg_read(cwd, id)` retrieves full content and promotes archived nodes
 
+**When memory sits well *under* the limit (reverse refill):**
+- Compaction only moves nodes down; a separate refill pass (`refill_if_room`) moves them back up so headroom isn't wasted
+- Triggers only when active tokens fall below `REFILL_TRIGGER_RATIO` (0.6 × limit); promotes the highest-scored archived nodes; fills up to `COMPACTION_TARGET_RATIO` (0.8 × limit)
+- The gap between the 0.6 trigger and the 1.0 archive threshold is a hysteresis dead-band — refill can't push the graph into an immediate archive, and archiving can't drop it into an immediate refill, so the two never thrash
+
+**Edges as resurfacing "strings" (render == charge):**
+- An edge is a *string* you pull to resurface a connected node: holding an active node, you see its edges and know what is worth reading next, without reading it first.
+- A string is only useful if you hold at least one end. So `kg_read` renders — and the token budget charges — an edge **only when at least one endpoint is active** (or is a file/artifact reference, which is always present). See `core/utils.edge_is_live`.
+- An edge between two archived nodes is a dangling thread between things you are not holding: it adds output mass and budget cost with zero resurfacing value. These are suppressed from `kg_read` and not charged. They reappear automatically the moment either end is promoted — nothing is lost.
+- A single predicate (`edge_is_live`) drives **both** rendering and charging, so the visible output and the compaction budget can never drift apart. The token estimator therefore charges *exactly* what `kg_read` shows: active gists + archived ID anchors + live edges.
+
 **Memory traces enable graph traversal:**
-- See edge to archived node → know something related exists
-- Traverse via `kg_read(cwd, id)` → surface hidden knowledge
+- See a live edge to an archived node → know something related exists, ready to pull
+- Traverse via `kg_read(cwd, id)` → surface hidden knowledge (and its now-live neighbours)
 - Sequential reading reconstructs context
 
 **Result:** Simplicity + reliability >> algorithmic complexity
@@ -208,7 +218,8 @@ KnowledgeGraphManager (in-memory + file-backed)
              │  - User graph (singleton)    │
              │  - Project graphs (N)        │
              │  - Write-through persistence │
-             │  - Auto-compact (~4000 tok.) │
+             │  - Auto-compact (~5000 tok.) │
+             │  - Self-heal on load/write   │
              └──────────┬───────────────────┘
                         │
                 ┌───────┴────────┐
@@ -398,6 +409,8 @@ WebSocket          ← Visual editor (we control the client)
 **Design decision: Centralized storage.** Previous iterations stored project graphs inside project directories (`.claude/knowledge/graph.json`). This created issues with discovery, backup, and git tracking across multiple projects. Centralizing under `~/.knowledge-graph/` simplifies management while keeping project isolation via slug-based subdirectories.
 
 **Write-through persistence.** Every mutation (node/edge create, update, delete) is immediately persisted to disk. The previous periodic auto-save approach (30s interval) risked data loss on crashes. Write-through eliminates this at negligible performance cost for the typical write frequency.
+
+**Self-healing on load and write.** A node should be stored as discrete fields (`gist`, `notes`, `touches`). A client can occasionally serialize the whole node — including tool-call markup — into the `gist` string, leaving `notes` empty; the oversized gist then inflates the active-token budget on every `kg_read`. Rather than trust every writer to be well-formed, the store sanitizes defensively: `core.healer.heal_node_fields` is applied both on write (`put_node`) and on load (each graph is healed the first time it is read from disk, then rewritten). The same function powers both paths, so rendering and storage cannot drift, and it is idempotent — already-clean graphs pass through untouched. This is a third robustness layer alongside atomic writes and the `.prev` rolling backup: those guard against bad *I/O*; healing guards against bad *data*.
 
 ### Why JSON Files?
 

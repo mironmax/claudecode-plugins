@@ -33,6 +33,7 @@ from core.exceptions import (
     NodeNotFoundError,
     SessionNotFoundError,
 )
+from core.utils import is_active, edge_is_live
 
 # Configure logging
 log_level = os.getenv("KG_LOG_LEVEL", "INFO").upper()
@@ -305,11 +306,20 @@ def create_mcp_server() -> Server:
 
                 def format_graph_compact(level_label: str, nodes: list, edges: list) -> str:
                     """Compact text format: active nodes as id:gist, archived as id only, edges as triples.
-                    Orphaned nodes (_orphaned_ts set) are invisible — they don't appear in any section.
-                    Their edges are also suppressed to keep the edge list clean.
-                    Edge notes are omitted here — they appear only in kg_read(cwd, id) single-node output.
+
+                    Only *live* edges are shown — those with at least one active (or
+                    artifact) endpoint, per core.utils.edge_is_live. An edge between two
+                    archived nodes is a dangling string you cannot pull, so it is
+                    suppressed; it reappears automatically once either end is promoted.
+                    The SAME predicate drives token charging in TokenEstimator, so what
+                    is rendered here is exactly what the compaction budget pays for.
+
+                    Orphaned nodes (_orphaned_ts set) are invisible. Edge notes are
+                    omitted — they appear only in kg_read(cwd, id) single-node output.
                     """
-                    orphaned_ids = {n["id"] for n in nodes if "_orphaned_ts" in n}
+                    # edge_is_live keys off node dicts; build an id->node map for it.
+                    node_map = {n["id"]: n for n in nodes}
+                    active_ids = {nid for nid, n in node_map.items() if is_active(n)}
                     active = [n for n in nodes if not n.get("_archived")]
                     # Archived = archived but NOT orphaned
                     archived = [n for n in nodes if n.get("_archived") and "_orphaned_ts" not in n]
@@ -326,13 +336,10 @@ def create_mcp_server() -> Server:
                         for n in archived:
                             lines.append(f"  {n['id']}")
 
-                    if edges:
+                    live = [e for e in edges if edge_is_live(e, node_map, active_ids)]
+                    if live:
                         lines.append("EDGES:")
-                        for e in edges:
-                            # Suppress edges where either endpoint is orphaned —
-                            # a reference to an invisible node is a dangling pointer.
-                            if e["from"] in orphaned_ids or e["to"] in orphaned_ids:
-                                continue
+                        for e in live:
                             # Notes omitted in full-graph view (see single-node read for details)
                             lines.append(f"  {e['from']} --{e['rel']}--> {e['to']}")
 
@@ -341,19 +348,21 @@ def create_mcp_server() -> Server:
                 user_text = format_graph_compact("User Graph", graphs["user"]["nodes"], graphs["user"]["edges"])
                 proj_text = format_graph_compact("Project Graph", graphs["project"]["nodes"], graphs["project"]["edges"])
 
-                # Append health stats
+                # Append health stats. Counts reflect what kg_read actually shows:
+                # active nodes and live edges (the same edges rendered above), so the
+                # numbers match the visible sections rather than raw on-disk totals.
                 def health_line(nodes: list, edges: list) -> str:
+                    node_map = {n["id"]: n for n in nodes}
+                    active_ids = {nid for nid, n in node_map.items() if is_active(n)}
                     active = [n for n in nodes if not n.get("_archived")]
-                    orphans = []
+                    live = [e for e in edges if edge_is_live(e, node_map, active_ids)]
                     connected_ids = set()
-                    for e in edges:
+                    for e in live:
                         connected_ids.add(e["from"])
                         connected_ids.add(e["to"])
-                    for n in active:
-                        if n["id"] not in connected_ids:
-                            orphans.append(n["id"])
+                    orphans = [n for n in active if n["id"] not in connected_ids]
                     n_count = len(active)
-                    e_count = len(edges)
+                    e_count = len(live)
                     o_count = len(orphans)
                     o_pct = round(100 * o_count / n_count) if n_count else 0
                     avg_edges = round(e_count / n_count, 1) if n_count else 0
@@ -622,10 +631,10 @@ async def main():
     # Load configuration
     from core.constants import (
         get_storage_root, user_graph_path,
-        GRACE_PERIOD_DAYS, ORPHAN_GRACE_DAYS,
+        GRACE_PERIOD_DAYS, ORPHAN_GRACE_DAYS, MAX_TOKENS,
     )
     config = GraphConfig(
-        max_tokens=int(os.getenv("KG_MAX_TOKENS", "4000")),
+        max_tokens=int(os.getenv("KG_MAX_TOKENS", str(MAX_TOKENS))),
         orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", str(ORPHAN_GRACE_DAYS))),
         grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", str(GRACE_PERIOD_DAYS))),
         save_interval=int(os.getenv("KG_SAVE_INTERVAL", "30")),
@@ -725,10 +734,16 @@ async def main():
             raise HTTPException(status_code=500, detail=str(e))
 
     @rest_api.delete("/api/nodes/{level}/{node_id}")
-    async def rest_delete_node(level: str, node_id: str, session_id: str | None = None):
-        """Delete a node."""
+    async def rest_delete_node(level: str, node_id: str, session_id: str | None = None,
+                               project_path: str | None = None):
+        """Delete a node.
+
+        project_path resolves a project node without a registered session (editor) —
+        mirrors rest_read_node.
+        """
         try:
-            result = store.delete_node(level, node_id, session_id)
+            result = store.delete_node(node_id, level=level, session_id=session_id,
+                                       project_path=project_path)
             return result
         except NodeNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))
@@ -814,10 +829,16 @@ async def main():
             raise HTTPException(status_code=500, detail=str(e))
 
     @rest_api.get("/api/nodes/{level}/{node_id}")
-    async def rest_read_node(level: str, node_id: str, session_id: str | None = None):
-        """Read a single node's full content. Promotes archived nodes to active."""
+    async def rest_read_node(level: str, node_id: str, session_id: str | None = None,
+                             project_path: str | None = None):
+        """Read a single node's full content. Promotes archived nodes to active.
+
+        project_path is an alternative to session_id for resolving a project node
+        (used by the visual editor, whose session has no registered project path).
+        """
         try:
-            result = store.read_node(node_id, level=level, session_id=session_id)
+            result = store.read_node(node_id, level=level, session_id=session_id,
+                                     project_path=project_path)
             return result
         except NodeNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e))

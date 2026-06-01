@@ -11,14 +11,43 @@ logger = logging.getLogger(__name__)
 BASE_NODE_TOKENS = 20
 CHARS_PER_TOKEN = 4
 TOKENS_PER_EDGE = 15
+# An archived node renders as a single ID line in kg_read — cheaper than an
+# active node (which renders id + gist). This is the "anchor" cost of keeping a
+# node reachable but collapsed. Single source of truth for both the estimator
+# and the orphan-pass; previously the orphan pass hardcoded its own copy.
+ARCHIVED_ID_TOKENS = 5
 
 # Compaction
+# Active-graph token budget. When the rendered active graph (active node gists +
+# live-string edges + archived anchors) exceeds this, the compactor archives the
+# lowest-scored active nodes. Single source of truth; the server still honours a
+# KG_MAX_TOKENS env override but falls back to this value, not a separate literal.
+MAX_TOKENS = 5000
 COMPACTION_TARGET_RATIO = 0.8
+# Refill (reverse compaction): when the active graph sits well below budget — e.g.
+# after edges stopped counting archived-archived strings, or after nodes aged out —
+# the highest-scored archived nodes are promoted back to active to use the headroom.
+# Two ratios form a hysteresis band so refill and archiving never thrash:
+#   - refill only TRIGGERS below REFILL_TRIGGER_RATIO (low-water mark)
+#   - refill FILLS UP TO COMPACTION_TARGET_RATIO (the same level archiving compacts to)
+# Between trigger (0.6) and the archive threshold (1.0) is a stable zone where neither
+# pass acts. Refilling to 0.8 (not 1.0) leaves slack so a refill can't trigger archiving.
+REFILL_TRIGGER_RATIO = 0.6
 # Archived nodes budget: max fraction of max_tokens that archived IDs+edges may occupy.
 # When exceeded, lowest-scored archived nodes are demoted to orphaned (invisible in kg_read).
 ARCHIVED_BUDGET_RATIO = 0.30
 # Resurrection: minimum score delta for an archived node to displace a freshly-archived one.
 RESURRECTION_MARGIN = 0.05
+# Connectedness weight for an edge to an ARCHIVED neighbour, relative to an edge to an
+# active neighbour (which is 1.0). A "live string" you can pull (active endpoint) is worth
+# full weight; a string between two archived nodes is worth less — but NOT zero. Counting
+# archived-neighbour edges at zero created a ratchet: when a well-connected cluster archived
+# together, every member's connectedness collapsed to 0 at once, so the refill pass could
+# never pull any of them back ("big nodes flying inactive"). At 0.2 a dense archived hub
+# scores above an isolated archived node and floats up the refill order; once it is promoted,
+# its edges become fully live and the rest of its cluster becomes eligible on the next tick —
+# gradual, self-limiting cluster recovery rather than an all-at-once resurrection.
+ARCHIVED_EDGE_WEIGHT = 0.2
 
 # Session
 SESSION_ID_LENGTH = 8
