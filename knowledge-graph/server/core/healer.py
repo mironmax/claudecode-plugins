@@ -60,8 +60,13 @@ _CORRUPTION_SIGNATURES = (
 
 # A notes/touches payload is a JSON array. We pull it out of the leaked tail by
 # locating its opener tag and reading the first balanced [...] that follows.
-_NOTES_OPENER = re.compile(r'<(?:parameter name="notes"|notes)[^>]*>')
-_TOUCHES_OPENER = re.compile(r'<(?:parameter name="touches"|touches)[^>]*>')
+# The ``(?=[\s>])`` lookahead pins the tag name to a real boundary (a space before
+# attributes, or the closing ``>``). Without it, ``[^>]*>`` is ambiguous about where
+# the name ends, so re's backtracker retries the unbounded tail at every offset —
+# quadratic time on a crafted gist (a ReDoS the heal-on-write/load paths would run).
+# The boundary also stops ``<notesfoo>`` from being mistaken for a ``<notes>`` opener.
+_NOTES_OPENER = re.compile(r'<(?:parameter\s+name="notes"|notes)(?=[\s>])[^>]*>')
+_TOUCHES_OPENER = re.compile(r'<(?:parameter\s+name="touches"|touches)(?=[\s>])[^>]*>')
 
 
 def gist_is_malformed(gist: str) -> bool:

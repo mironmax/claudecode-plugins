@@ -107,6 +107,21 @@ def test_healer():
     g, n, t = heal_node_fields("Long real gist.</invoke>", None, None)
     check("bare invoke tail, no notes", g == "Long real gist." and not n, (repr(g), repr(n)))
 
+    # opener tags carrying attributes still recover (lookahead requires a boundary)
+    bad4 = 'I.</gist>\n<parameter name="notes" extra="x">["only"]'
+    g, n, t = heal_node_fields(bad4, None, None)
+    check("notes opener with attributes recovers", g == "I." and n == ["only"], (repr(g), repr(n)))
+
+    # ReDoS guard: a crafted gist of repeated "<notes" prefixes (no closing '>') must
+    # heal in linear time. The old `[^>]*>` opener was quadratic — ~1.3s at 48KB; the
+    # boundary lookahead makes it linear. Healing runs on every write AND every load,
+    # so a single poisoned node could otherwise stall the server. Bound generously.
+    poison = "Gist.</gist>\n" + "<notes" * 50000
+    t0 = time.perf_counter()
+    heal_node_fields(poison, None, None)
+    dt = time.perf_counter() - t0
+    check(f"healer linear on adversarial gist ({dt*1000:.0f}ms for 300KB)", dt < 0.5, f"{dt:.3f}s")
+
 
 # --- 2. live-string edges ---------------------------------------------------
 def test_edges():
