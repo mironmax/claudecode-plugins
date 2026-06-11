@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Self-contained regression tests for the v0.9.12 changes.
+"""Self-contained regression tests for the core graph logic.
 
 No pytest dependency — run directly with the project venv:
 
-    cd knowledge-graph/server && ./venv/bin/python tests/test_v0912.py
+    cd knowledge-graph/server && ./venv/bin/python tests/test_core.py
 
-Covers the four runtime change-areas verified during development:
+Covers:
   1. Gist-corruption healer (heal_node_fields / gist_is_malformed)
   2. Live-string edge accounting (edge_is_live, estimator render==charge)
-  3. Iterative refill + archived-edge connectedness weight
+  3. Refill: single-threshold trigger, iterative re-scoring, skip-not-break,
+     archived-edge connectedness weight
   4. Node promotion (recall) flag handling
+  5. Identifier validation (node ids, edge refs, rels)
 
+Run alongside tests/test_http.py (endpoint smoke tests) before a release.
 Exits non-zero if any assertion fails. Uses only in-memory fixtures — never
 touches real graph files under ~/.knowledge-graph.
 """
@@ -23,14 +26,17 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.healer import heal_node_fields, gist_is_malformed
-from core.utils import edge_is_live, is_active, active_node_ids
+from core.utils import (
+    edge_is_live, is_active, active_node_ids,
+    validate_node_id, validate_rel, validate_edge_ref,
+)
+from core.exceptions import KGError
 from core.estimator import TokenEstimator
 from core.scorer import NodeScorer
 from core.compactor import Compactor
 from core.constants import (
     ARCHIVED_ID_TOKENS,
     ARCHIVED_EDGE_WEIGHT,
-    REFILL_TRIGGER_RATIO,
     COMPACTION_TARGET_RATIO,
     GRACE_PERIOD_DAYS,
 )
@@ -112,15 +118,28 @@ def test_healer():
     g, n, t = heal_node_fields(bad4, None, None)
     check("notes opener with attributes recovers", g == "I." and n == ["only"], (repr(g), repr(n)))
 
-    # ReDoS guard: a crafted gist of repeated "<notes" prefixes (no closing '>') must
-    # heal in linear time. The old `[^>]*>` opener was quadratic — ~1.3s at 48KB; the
-    # boundary lookahead makes it linear. Healing runs on every write AND every load,
-    # so a single poisoned node could otherwise stall the server. Bound generously.
+    # ReDoS guards — healing runs on every write AND every load, so a single
+    # poisoned node could otherwise stall the server. Two witness families:
+    # (a) glued junk "<notes<notes..." — rejected per-start in O(1) by the
+    #     boundary lookahead;
+    # (b) viable starts "<notes <notes ..." (space passes the lookahead, no '>'
+    #     anywhere) — kept linear by the bounded attribute tail [^>]{0,256}.
+    #     The unbounded tail was quadratic here (~7.7s at 140KB; CodeQL alert 12).
     poison = "Gist.</gist>\n" + "<notes" * 50000
     t0 = time.perf_counter()
     heal_node_fields(poison, None, None)
     dt = time.perf_counter() - t0
-    check(f"healer linear on adversarial gist ({dt*1000:.0f}ms for 300KB)", dt < 0.5, f"{dt:.3f}s")
+    check(f"healer linear on glued adversarial gist ({dt*1000:.0f}ms for 300KB)", dt < 0.5, f"{dt:.3f}s")
+
+    poison2 = "Gist.</gist>\n" + "<notes " * 50000
+    t0 = time.perf_counter()
+    heal_node_fields(poison2, None, None)
+    dt = time.perf_counter() - t0
+    check(f"healer linear on viable-start adversarial gist ({dt*1000:.0f}ms for 350KB)", dt < 0.5, f"{dt:.3f}s")
+
+    # the bound must not break recovery of a normal opener with attributes
+    g, n, t = heal_node_fields('J.</gist>\n<notes class="x">["v"]', None, None)
+    check("bounded tail still recovers attributed opener", g == "J." and n == ["v"], (repr(g), repr(n)))
 
 
 # --- 2. live-string edges ---------------------------------------------------
@@ -192,7 +211,9 @@ def _cluster_graph():
 def test_refill():
     print("refill:")
     check("archived-edge weight between 0 and 1", 0 < ARCHIVED_EDGE_WEIGHT < 1, ARCHIVED_EDGE_WEIGHT)
-    check("hysteresis band ordered", REFILL_TRIGGER_RATIO < COMPACTION_TARGET_RATIO < 1.0)
+    # Single threshold: refill triggers below the fill ceiling, which must sit
+    # under the archive threshold (1.0) — that gap is the no-thrash guarantee.
+    check("fill ceiling below archive threshold", 0 < COMPACTION_TARGET_RATIO < 1.0)
 
     # connectedness now counts archived neighbours at reduced weight (not zero)
     sc = NodeScorer(GRACE_PERIOD_DAYS)
@@ -222,10 +243,34 @@ def test_refill():
     second = comp.refill_if_room(nodes, edges, {})
     check("second refill is no-op (no thrash)", second == [], second)
 
-    # does not fire when already over the trigger (graph near/over budget)
+    # does not fire when already at/over the fill ceiling
     big_nodes = {f"n{i}": {"id": f"n{i}", "gist": "q" * 400, "_created_ts": past_grace_ts()} for i in range(40)}
     fired = comp.refill_if_room(big_nodes, {}, {})
-    check("no refill when over trigger", fired == [], fired)
+    check("no refill at/over fill ceiling", fired == [], fired)
+
+    # SKIP-NOT-BREAK: a top-scored candidate too large for the headroom must not
+    # block smaller candidates behind it (the old break-on-first-non-fit stranded
+    # everything behind one monster gist permanently).
+    old = past_grace_ts()
+    mnodes = {
+        "anchor": {"id": "anchor", "gist": "x" * 400, "_created_ts": old},
+        # monster: huge gist + best connectivity (in-edge from active anchor) → top score
+        "monster": {"id": "monster", "gist": "m" * 2000, "_created_ts": old, "_archived": True},
+        "small1": {"id": "small1", "gist": "s" * 200, "_created_ts": old, "_archived": True},
+        "small2": {"id": "small2", "gist": "s" * 200, "_created_ts": old, "_archived": True},
+    }
+    medges = {
+        "anchor->monster:r": {"from": "anchor", "to": "monster", "rel": "r"},
+        "monster->anchor:r": {"from": "monster", "to": "anchor", "rel": "r"},
+        "anchor->small1:r": {"from": "anchor", "to": "small1", "rel": "r"},
+        "small1->small2:r": {"from": "small1", "to": "small2", "rel": "r"},
+    }
+    small_comp = Compactor(sc, est, max_tokens=600)  # ceiling 480; monster alone costs ~520
+    mpromoted = small_comp.refill_if_room(mnodes, medges, {})
+    check("oversized candidate skipped, not promoted", "monster" not in mpromoted, mpromoted)
+    check("smaller candidates promoted past the blocker",
+          {"small1", "small2"}.issubset(set(mpromoted)), mpromoted)
+    check("monster stays archived", mnodes["monster"].get("_archived") is True)
 
     # PERF GUARD: the adjacency index keeps refill cheap even on a large dense graph
     # (this exact shape effectively hung before the index existed). Generous bound —
@@ -269,12 +314,38 @@ def test_promotion_flags():
     check("orphaned-without-archived pop is safe", ok)
 
 
+# --- 5. identifier validation ------------------------------------------------
+def test_validation():
+    print("validation:")
+
+    def raises(fn, *args):
+        try:
+            fn(*args)
+            return False
+        except KGError:
+            return True
+
+    for ok in ("kebab-case-id", "v0.9.10-consistency-audit", "A1", "x"):
+        check(f"valid node id: {ok!r}", not raises(validate_node_id, ok))
+    for bad in ("", "a b", "<script>", "a/b", "a'b", '-leading', "a" * 200):
+        check(f"invalid node id rejected: {bad[:20]!r}", raises(validate_node_id, bad))
+
+    for ok in ("knowledge-graph/server/store.py", "~/Mail/x", "node-id"):
+        check(f"valid edge ref: {ok!r}", not raises(validate_edge_ref, ok))
+    for bad in ("", "a'b", '<img>', "a b"):
+        check(f"invalid edge ref rejected: {bad!r}", raises(validate_edge_ref, bad))
+
+    check("valid rel", not raises(validate_rel, "instance-of"))
+    check("invalid rel rejected", raises(validate_rel, "has space"))
+
+
 def main():
-    print("=== v0.9.12 regression tests ===")
+    print("=== core regression tests ===")
     test_healer()
     test_edges()
     test_refill()
     test_promotion_flags()
+    test_validation()
     print(f"\n{_PASS} passed, {_FAIL} failed")
     sys.exit(1 if _FAIL else 0)
 

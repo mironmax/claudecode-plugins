@@ -11,6 +11,10 @@ VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
 SERVER_SCRIPT="$SCRIPT_DIR/mcp_streamable_server.py"
 PID_FILE="$SCRIPT_DIR/.mcp_server.pid"
 STORAGE_ROOT="$HOME/.knowledge-graph"
+# Log lives in the user's state dir, not world-writable /tmp (predictable /tmp
+# paths are symlink-clobber bait on shared machines). Not under STORAGE_ROOT —
+# that's a git repo with auto-commit, and logs don't belong in it.
+LOG_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph/mcp_server.log"
 PORT="${KG_HTTP_PORT:-8765}"
 HOST="${KG_HTTP_HOST:-127.0.0.1}"
 
@@ -79,13 +83,14 @@ start() {
     fi
 
     echo "Starting MCP Streamable HTTP Server..."
+    mkdir -p "$(dirname "$LOG_FILE")"
     # Launch in a new session so the server is fully detached from the
     # calling process tree (critical when called from within Claude Code).
     # setsid is Linux-only; fall back to nohup on macOS.
     if command -v setsid > /dev/null 2>&1; then
-        setsid "$VENV_PYTHON" "$SERVER_SCRIPT" > /tmp/mcp_server.log 2>&1 &
+        setsid "$VENV_PYTHON" "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &
     else
-        nohup "$VENV_PYTHON" "$SERVER_SCRIPT" > /tmp/mcp_server.log 2>&1 &
+        nohup "$VENV_PYTHON" "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &
     fi
     echo $! > "$PID_FILE"
     # Disown so the shell doesn't track this job
@@ -94,9 +99,9 @@ start() {
     # Wait for server to be healthy (up to 10s)
     if wait_healthy 10; then
         echo "Server started (PID: $(cat "$PID_FILE"))"
-        echo "Logs: /tmp/mcp_server.log"
+        echo "Logs: $LOG_FILE"
     else
-        echo "Failed to start server. Check /tmp/mcp_server.log"
+        echo "Failed to start server. Check $LOG_FILE"
         rm -f "$PID_FILE"
         return 1
     fi
@@ -246,7 +251,7 @@ restart() {
 }
 
 logs() {
-    tail -f /tmp/mcp_server.log
+    tail -f "$LOG_FILE"
 }
 
 case "$1" in

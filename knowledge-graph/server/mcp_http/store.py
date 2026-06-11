@@ -4,7 +4,6 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Any
 from dataclasses import dataclass, field
 
 from core import (
@@ -23,6 +22,9 @@ from core import (
     version_key_edge,
     NodeNotFoundError,
     validate_level,
+    validate_node_id,
+    validate_rel,
+    validate_edge_ref,
     get_storage_root,
     project_graph_path,
     user_graph_path,
@@ -79,6 +81,7 @@ class MultiProjectGraphStore:
 
         # Background saver
         self.running = True
+        self._stop_event = threading.Event()  # wakes the saver thread for fast shutdown
         self.saver_thread = threading.Thread(target=self._periodic_save, daemon=True)
 
         # Load user graph
@@ -149,17 +152,14 @@ class MultiProjectGraphStore:
         # (handles renames via alias lookup and auto-migration)
         graph_path = project_graph_path(project_root)
 
-        # Load from disk
-        persistence = GraphPersistence(graph_path)
+        # Load from disk (project_path is stamped into _meta for rename detection)
+        persistence = GraphPersistence(graph_path, project_path=project_root)
         graph, versions, progress = self._load_with_fallback(persistence)
 
         # Clean up orphaned edges (edges pointing to non-existent nodes)
         self._clean_orphaned_edges(graph)
         # Heal nodes whose gist swallowed their notes (one-time repair, idempotent)
         healed = self._heal_corrupt_nodes(graph)
-
-        # Stamp project_path on persistence for rename detection
-        persistence._project_path = project_root
 
         self.graphs[project_key] = graph
         self._versions[project_key] = versions
@@ -188,6 +188,28 @@ class MultiProjectGraphStore:
                 raise ValueError(f"Session {session_id} has no project_path registered")
 
             return f"project:{project_root}"
+
+    def _resolve_graph_key(self, level: str, session_id: str | None,
+                           project_path: str | None) -> tuple[str, str]:
+        """Resolve (level, graph_key) for an explicit level, loading the project
+        graph if needed. Caller must hold lock.
+
+        project_path resolves a project graph directly and takes PRECEDENCE over
+        session_id whenever both are present: the visual editor sends both, but
+        its WebSocket session has no project_path registered, so a session-based
+        lookup would fail. Used by every node/edge operation so read, write and
+        delete all accept the same addressing.
+        """
+        if level == "project" and project_path:
+            project_root = str(safe_project_path(project_path))
+            self._ensure_project_loaded(project_root)
+            return "project", f"project:{project_root}"
+
+        graph_key = self._get_graph_key(level, session_id)
+        if graph_key.startswith("project:"):
+            project_root = graph_key.split(":", 1)[1]
+            self._ensure_project_loaded(project_root)
+        return level, graph_key
 
     def _bump_version(self, graph_key: str, key: str, session_id: str | None = None) -> dict:
         """Increment version for a key and return new version. Caller must hold lock."""
@@ -260,11 +282,18 @@ class MultiProjectGraphStore:
             if force_reload:
                 self._load_user_graph()
 
+            # Shallow-copy each node/edge dict: callers serialize the result after
+            # the lock is released, and the background maintenance thread mutates
+            # these dicts in place (archival flags, healing) — live references
+            # would race with that serialization.
+            def snapshot(graph: dict) -> dict:
+                return {
+                    "nodes": [dict(n) for n in graph["nodes"].values()],
+                    "edges": [dict(e) for e in graph["edges"].values()],
+                }
+
             result = {
-                "user": {
-                    "nodes": list(self.graphs["user"]["nodes"].values()),
-                    "edges": list(self.graphs["user"]["edges"].values()),
-                },
+                "user": snapshot(self.graphs["user"]),
                 "project": {"nodes": [], "edges": []}
             }
 
@@ -289,10 +318,7 @@ class MultiProjectGraphStore:
                     self._ensure_project_loaded(project_root, force_reload=force_reload)
                     project_key = f"project:{project_root}"
 
-                    result["project"] = {
-                        "nodes": list(self.graphs[project_key]["nodes"].values()),
-                        "edges": list(self.graphs[project_key]["edges"].values()),
-                    }
+                    result["project"] = snapshot(self.graphs[project_key])
                 except Exception as e:
                     logger.warning(f"Could not load project graph for {project_root}: {e}")
 
@@ -306,15 +332,16 @@ class MultiProjectGraphStore:
         notes: list[str] | None = None,
         touches: list[str] | None = None,
         session_id: str | None = None,
+        project_path: str | None = None,
     ) -> dict:
-        """Create or update a node."""
-        with self.lock:
-            graph_key = self._get_graph_key(level, session_id)
+        """Create or update a node.
 
-            # Ensure project graph is loaded
-            if graph_key.startswith("project:"):
-                project_root = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_root)
+        project_path resolves a project graph directly (visual editor) — see
+        _resolve_graph_key.
+        """
+        validate_node_id(node_id)
+        with self.lock:
+            level, graph_key = self._resolve_graph_key(level, session_id, project_path)
 
             nodes = self.graphs[graph_key]["nodes"]
 
@@ -379,15 +406,18 @@ class MultiProjectGraphStore:
         rel: str,
         notes: list[str] | None = None,
         session_id: str | None = None,
+        project_path: str | None = None,
     ) -> dict:
-        """Create or update an edge."""
-        with self.lock:
-            graph_key = self._get_graph_key(level, session_id)
+        """Create or update an edge.
 
-            # Ensure project graph is loaded
-            if graph_key.startswith("project:"):
-                project_root = graph_key.split(":", 1)[1]
-                self._ensure_project_loaded(project_root)
+        project_path resolves a project graph directly (visual editor) — see
+        _resolve_graph_key.
+        """
+        validate_edge_ref(from_ref)
+        validate_edge_ref(to_ref)
+        validate_rel(rel)
+        with self.lock:
+            level, graph_key = self._resolve_graph_key(level, session_id, project_path)
 
             edges = self.graphs[graph_key]["edges"]
             edge_key = (from_ref, to_ref, rel)
@@ -431,17 +461,8 @@ class MultiProjectGraphStore:
         sends both session_id and project_path, so project_path takes precedence.
         """
         with self.lock:
-            if level == "project" and project_path:
-                project_root = str(safe_project_path(project_path))
-                self._ensure_project_loaded(project_root)
-                graph_key = f"project:{project_root}"
-                resolved_level = "project"
-            elif level:
-                graph_key = self._get_graph_key(level, session_id)
-                if graph_key.startswith("project:"):
-                    project_root = graph_key.split(":", 1)[1]
-                    self._ensure_project_loaded(project_root)
-                resolved_level = level
+            if level:
+                resolved_level, graph_key = self._resolve_graph_key(level, session_id, project_path)
             else:
                 result = self.find_node_level(node_id, session_id)
                 if not result:
@@ -505,15 +526,16 @@ class MultiProjectGraphStore:
         rel: str,
         level: str | None = None,
         session_id: str | None = None,
+        project_path: str | None = None,
     ) -> dict:
-        """Delete an edge. Level auto-resolved if not provided."""
+        """Delete an edge. Level auto-resolved if not provided.
+
+        project_path resolves a project graph directly (visual editor) — see
+        _resolve_graph_key.
+        """
         with self.lock:
             if level:
-                graph_key = self._get_graph_key(level, session_id)
-                if graph_key.startswith("project:"):
-                    project_root = graph_key.split(":", 1)[1]
-                    self._ensure_project_loaded(project_root)
-                resolved_level = level
+                resolved_level, graph_key = self._resolve_graph_key(level, session_id, project_path)
             else:
                 result = self.find_edge_level(from_ref, to_ref, rel, session_id)
                 if result:
@@ -586,21 +608,8 @@ class MultiProjectGraphStore:
         """
         with self.lock:
             # Resolve which graph the node is in
-            if level == "project" and project_path:
-                # Direct project path (visual editor recall): resolve the graph from
-                # the path itself. Takes precedence over session_id because the editor
-                # sends BOTH — its WebSocket session_id is real but has no project_path
-                # registered, so a session-based lookup would (and did) raise here.
-                project_root = str(safe_project_path(project_path))
-                self._ensure_project_loaded(project_root)
-                graph_key = f"project:{project_root}"
-                resolved_level = "project"
-            elif level:
-                graph_key = self._get_graph_key(level, session_id)
-                if graph_key.startswith("project:"):
-                    project_root = graph_key.split(":", 1)[1]
-                    self._ensure_project_loaded(project_root)
-                resolved_level = level
+            if level:
+                resolved_level, graph_key = self._resolve_graph_key(level, session_id, project_path)
             else:
                 result = self.find_node_level(node_id, session_id)
                 if not result:
@@ -711,6 +720,92 @@ class MultiProjectGraphStore:
 
             return result
 
+    def search(self, query: str, session_id: str | None = None) -> list[dict]:
+        """Full-text search across node IDs, gists, notes and touches.
+
+        Reciprocal Rank Fusion across per-term ranked lists: the query is split
+        on whitespace; for each term, nodes are ranked by occurrence count in
+        their searchable text; ranks merge via score += 1/(60 + rank). Always
+        searches the user graph; the project graph comes from the session's
+        registered path, or — without a session — best-effort across all loaded
+        project graphs.
+
+        Returns records sorted by RRF score descending. Holds the store lock for
+        the whole scan (the background maintenance thread mutates node dicts).
+        """
+        RRF_K = 60
+        terms = list(dict.fromkeys(t for t in query.lower().split() if t))
+
+        def search_graph_rrf(graph_key: str) -> dict[str, float]:
+            if graph_key not in self.graphs:
+                return {}
+            nodes = self.graphs[graph_key]["nodes"]
+
+            searchable = {
+                node_id: " ".join([
+                    node_id,
+                    node.get("gist", ""),
+                    " ".join(node.get("notes", [])),
+                    " ".join(node.get("touches", [])),
+                ]).lower()
+                for node_id, node in nodes.items()
+            }
+
+            rrf_scores: dict[str, float] = {}
+            for term in terms:
+                term_scores = [
+                    (node_id, text.count(term))
+                    for node_id, text in searchable.items()
+                    if term in text
+                ]
+                term_scores.sort(key=lambda x: x[1], reverse=True)
+                for rank, (node_id, _) in enumerate(term_scores):
+                    rrf_scores[node_id] = rrf_scores.get(node_id, 0.0) + 1.0 / (RRF_K + rank)
+            return rrf_scores
+
+        def build_record(graph_key: str, node_id: str, label: str, score: float) -> dict:
+            node = self.graphs.get(graph_key, {}).get("nodes", {}).get(node_id, {})
+            return {
+                "level": label,
+                "id": node_id,
+                "gist": node.get("gist", ""),
+                "archived": node.get("_archived", False),
+                "orphaned": "_orphaned_ts" in node,
+                "notes": list(node.get("notes", [])),
+                "score": round(score, 4),
+            }
+
+        with self.lock:
+            records = [
+                build_record("user", node_id, "user", score)
+                for node_id, score in search_graph_rrf("user").items()
+            ]
+
+            # Project graph(s): via session when available, else all loaded graphs.
+            proj_scores: dict[str, float] = {}
+            proj_key_map: dict[str, str] = {}
+            project_keys: list[str] = []
+            if session_id:
+                project_path = self.session_manager.get_project_path(session_id)
+                if project_path:
+                    project_keys = [f"project:{project_path}"]
+            else:
+                project_keys = [k for k in self.graphs if k.startswith("project:")]
+
+            for graph_key in project_keys:
+                for node_id, score in search_graph_rrf(graph_key).items():
+                    if node_id not in proj_scores or score > proj_scores[node_id]:
+                        proj_scores[node_id] = score
+                        proj_key_map[node_id] = graph_key
+
+            records.extend(
+                build_record(proj_key_map[node_id], node_id, "project", score)
+                for node_id, score in proj_scores.items()
+            )
+
+        records.sort(key=lambda r: r["score"], reverse=True)
+        return records
+
     # ========================================================================
     # Progress Tracking
     # ========================================================================
@@ -742,10 +837,10 @@ class MultiProjectGraphStore:
     def _maybe_compact(self, graph_key: str):
         """Compact graph if over token limit. Caller must hold lock.
 
-        Passes (only one of compact/refill acts on a given call — they sit on
-        opposite sides of a hysteresis band):
+        Passes (at most one of compact/refill acts per call — refill is skipped
+        on any tick that archived):
           Pass 1: archive lowest-scored active nodes until active tokens ≤ max_tokens.
-          Pass 1r: refill — if active tokens are well under budget, promote the
+          Pass 1r: refill — if active tokens sit under the fill ceiling, promote the
                    highest-scored archived nodes back up to use the headroom.
           Pass 2: orphan lowest-connectivity archived nodes until archived tokens ≤ 30% of max.
         """
@@ -754,9 +849,10 @@ class MultiProjectGraphStore:
         versions = self._versions[graph_key]
 
         archived = self.compactor.compact_if_needed(nodes, edges, versions)
-        # Refill only fires when under the low-water mark; if we just archived (graph
-        # was over budget) the refill trigger can't be met, so this is a no-op then.
-        refilled = self.compactor.refill_if_room(nodes, edges, versions)
+        # Never refill on a tick that just archived: compaction lands at the same
+        # ceiling refill fills to, so running both would partially undo the archive
+        # in the same call. Skipping keeps "one of compact/refill acts per tick".
+        refilled = [] if archived else self.compactor.refill_if_room(nodes, edges, versions)
         orphaned = self.compactor.orphan_archived_if_needed(nodes, edges)
 
         if archived or refilled or orphaned:
@@ -873,7 +969,10 @@ class MultiProjectGraphStore:
         """Background thread for periodic maintenance (compaction, pruning).
         Write-through handles immediate persistence; this handles background tasks."""
         while self.running:
-            time.sleep(self.config.save_interval)
+            # Event-based wait instead of sleep: shutdown sets the event so the
+            # thread exits immediately rather than after up to save_interval.
+            if self._stop_event.wait(self.config.save_interval):
+                break
 
             with self.lock:
                 for graph_key in list(self.graphs.keys()):
@@ -891,9 +990,13 @@ class MultiProjectGraphStore:
                 self.session_manager.save_sessions()
 
     def shutdown(self):
-        """Gracefully shutdown the store."""
+        """Gracefully shutdown the store. Idempotent — both the lifespan hook and
+        the post-serve fallback call this; the second call is a no-op."""
+        if not self.running:
+            return
         logger.info("Shutting down graph store...")
         self.running = False
+        self._stop_event.set()
         self.saver_thread.join(timeout=5)
 
         # Final save

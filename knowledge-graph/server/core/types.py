@@ -15,15 +15,20 @@ class Node(TypedDict):
     _last_read_ts: NotRequired[float]
 
 
-class Edge(TypedDict):
-    """Edge in the knowledge graph."""
-    from_ref: str  # 'from' is reserved, but we use it in dict form
-    to: str
-    rel: str
-    notes: NotRequired[list[str]]
+# Functional syntax because the runtime key really is "from" (a Python keyword).
+Edge = TypedDict("Edge", {
+    "from": str,
+    "to": str,
+    "rel": str,
+    "notes": NotRequired[list[str]],
+})
 
 
 class Graph(TypedDict):
-    """Complete graph structure."""
+    """Complete graph structure (in-memory shape).
+
+    Edges are keyed by (from, to, rel) tuples in memory; on disk they are
+    serialized with string keys ("from->to:rel") — see GraphPersistence.
+    """
     nodes: dict[str, Node]
     edges: dict[tuple[str, str, str], Edge]

@@ -77,16 +77,6 @@ class HTTPSessionManager:
         self.ensure_session(session_id)
         return self._sessions[session_id]["start_ts"]
 
-    def is_valid(self, session_id: str) -> bool:
-        """Check if session exists and is not expired."""
-        if session_id not in self._sessions:
-            return False
-
-        # Check expiration
-        session = self._sessions[session_id]
-        age = time.time() - session["last_activity"]
-        return age <= self.session_ttl
-
     def _update_activity(self, session_id: str):
         """Update last activity timestamp for a session."""
         if session_id in self._sessions:
@@ -139,14 +129,6 @@ class HTTPSessionManager:
     def count(self) -> int:
         """Return number of active sessions."""
         return len(self._sessions)
-
-    def get_all_project_paths(self) -> set[str]:
-        """Get all unique project paths from active sessions."""
-        return {
-            data["project_path"]
-            for data in self._sessions.values()
-            if data["project_path"] is not None
-        }
 
     # ========================================================================
     # Session persistence (survive server restarts)

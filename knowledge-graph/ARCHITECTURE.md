@@ -169,10 +169,11 @@ KnowledgeGraphManager (in-memory + file-backed)
 - Run a resurrection pass: any pre-existing archived node that outscores a just-archived node by ≥0.05 is restored to active
 - `kg_read(cwd, id)` retrieves full content and promotes archived nodes
 
-**When memory sits well *under* the limit (reverse refill):**
+**When memory sits *under* the fill ceiling (reverse refill):**
 - Compaction only moves nodes down; a separate refill pass (`refill_if_room`) moves them back up so headroom isn't wasted
-- Triggers only when active tokens fall below `REFILL_TRIGGER_RATIO` (0.6 × limit); promotes the highest-scored archived nodes; fills up to `COMPACTION_TARGET_RATIO` (0.8 × limit)
-- The gap between the 0.6 trigger and the 1.0 archive threshold is a hysteresis dead-band — refill can't push the graph into an immediate archive, and archiving can't drop it into an immediate refill, so the two never thrash
+- A single threshold governs refill: it acts whenever active tokens are below `COMPACTION_TARGET_RATIO` (0.8 × limit) and fills up to that same ceiling. (An earlier separate 0.6 trigger created a dead band where graphs settled permanently with unused headroom and most knowledge stranded archived.)
+- No-thrash comes from the ceiling (0.8) sitting below the archive threshold (1.0) — a refill can never push the graph into an immediate archive — plus the store skipping refill on any tick that just archived
+- A top-scored candidate too large for the remaining headroom is *skipped*, not allowed to block smaller candidates behind it (the fit check uses an exact O(degree) promotion delta, so walking past blockers is cheap)
 
 **Edges as resurfacing "strings" (render == charge):**
 - An edge is a *string* you pull to resurface a connected node: holding an active node, you see its edges and know what is worth reading next, without reading it first.

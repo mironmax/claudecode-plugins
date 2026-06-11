@@ -41,7 +41,7 @@ visual-editor/
 The bundled `manage_visual.sh` is the canonical entry point. End users get it as `kg-visual` after running `install_command.sh`. From the source tree:
 
 ```bash
-./manage_visual.sh start    # daemonize, log to /tmp/visual_editor.log
+./manage_visual.sh start    # daemonize, log to ~/.local/state/knowledge-graph/visual_editor.log
 ./manage_visual.sh status
 ./manage_visual.sh logs
 ./manage_visual.sh stop

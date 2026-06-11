@@ -13,8 +13,10 @@ logger = logging.getLogger(__name__)
 class GraphPersistence:
     """Handles graph persistence with atomic writes."""
 
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, project_path: str | None = None):
         self.path = path
+        # Stamped into _meta on save; used for rename detection of project graphs.
+        self.project_path = project_path
 
     def load(self) -> tuple[dict, dict, dict]:
         """
@@ -69,8 +71,8 @@ class GraphPersistence:
             meta = {"versions": versions}
             if progress:
                 meta["progress"] = progress
-            if hasattr(self, '_project_path') and self._project_path:
-                meta["project_path"] = self._project_path
+            if self.project_path:
+                meta["project_path"] = self.project_path
 
             data = {
                 "nodes": graph["nodes"],

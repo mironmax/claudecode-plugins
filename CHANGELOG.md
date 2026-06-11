@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.13] - 2026-06-11
+
+### Fixed
+- **Visual editor writes to project graphs.** Creating a node, editing gist/notes/touches inline, and creating an edge on a *project* graph all 500'd: the editor's session has no project path registered, and unlike the read/recall/delete paths (fixed in 0.9.12), the write paths never accepted `project_path`. Now `POST /api/nodes` and `POST /api/edges` take `project_path`, the editor sends it, and all node/edge operations share one graph-addressing helper in the store (`_resolve_graph_key`).
+- **REST `DELETE /api/edges/...` always failed** — the endpoint passed its arguments to the store positionally in the wrong order (`level` landed in `from_ref`, `rel` in `level`), so every call errored. Latent because the editor UI has no delete-edge action yet; fixed and covered by tests.
+- **Refill dead band: graphs settled permanently with most knowledge stranded archived.** Refill only triggered below 0.6×budget but filled to 0.8×, so any graph sitting between 0.6 and 0.8 (where compacted graphs naturally land) never refilled — observed live: a user graph at 33 active / 128 archived with ~560 tokens of unused headroom and refill never firing. Refill now acts whenever the graph is below the 0.8 fill ceiling (single threshold; no-thrash is preserved by the ceiling sitting under the 1.0 archive threshold, plus skipping refill on any tick that just archived).
+- **Refill blocker: one oversized gist stranded everything behind it.** A top-scored candidate too large for the remaining headroom used to stop the whole pass ("reconsidered next time" — but the estimate only grows, so it never fit later either). Non-fitting candidates are now skipped and smaller ones behind them promote. The fit check uses an exact O(degree) promotion delta from the adjacency index, so skipping is cheap even on dense graphs.
+- **Compaction token bookkeeping.** Archiving re-measures the graph instead of subtracting the node cost (which ignored the remaining anchor cost and edges going dead); the resurrection pass now re-measures too and reverts a swap that would push the graph back over budget.
+- Server shutdown ran the store flush twice, each waiting up to 5s for the sleeping maintenance thread (~10s exit latency). `shutdown()` is now idempotent and wakes the thread via an event — exit is immediate.
+- `kg_search` iterated graph dicts without the store lock — racing the background maintenance thread (archival, pruning) could blow up mid-scan. Search moved into the store behind the lock; `read_graphs` now returns snapshot copies instead of live dict references for the same reason.
+
+### Security
+- **Healer ReDoS, complete fix (CodeQL alert 12).** The 0.9.12 boundary-lookahead fix killed one witness family (`<notes` glued to junk) but a gist full of *viable* opener starts (`<notes <notes …`, no `>` anywhere) still made every start scan the unbounded `[^>]*` tail to end-of-string — measured quadratic (7.7s at 140KB; healing runs on every write and load). The attribute tail is now bounded (`[^>]{0,256}`), making the scan linear (100ms on the same witness). Regression-tested with both witness families.
+- **WebSocket Origin validation.** Browsers do not apply CORS to WebSocket upgrades, so any web page could previously open `ws://127.0.0.1:8765/ws` (or the editor's `:3000/ws` proxy) and silently receive every graph broadcast — node contents included. Upgrades with a non-local `Origin` are now rejected; absent `Origin` (non-browser clients) still works.
+- **Host-header validation (anti DNS-rebinding)** on every HTTP/WebSocket request to both servers: requests not addressed to `localhost`/`127.0.0.1`/`::1` (or the explicitly configured bind host) are rejected with `421`, closing the rebinding route around CORS for the REST *and* MCP endpoints.
+- **Server-side identifier validation.** Node IDs, edge endpoints, and rel types are validated to a safe character set at the write boundary (REST and MCP alike) — markup can no longer enter the store and reach surfaces that render it. Existing graphs are unaffected (scanned: all existing IDs already conform).
+- **Visual editor XSS hardening:** `escapeHtml` now escapes quotes (attribute contexts); the edit-modal title escapes the node ID; node IDs are no longer interpolated into inline `onclick` JS (entity-escaping cannot make that context safe — replaced with data attributes + listeners).
+- SECURITY.md now states the trust boundary explicitly (local processes; session IDs are namespacing, not auth) and documents the new guards.
+
+### Changed
+- REST API construction extracted from the server entrypoint into `mcp_http/rest.py`; RRF search logic moved from the MCP tool handler into `MultiProjectGraphStore.search()`. Both moves make the wiring layer testable in-process.
+- REST write/read endpoints return `400` with a real message on validation errors (was a generic `500`); the editor proxy forwards upstream status + detail, and editor toasts show it.
+- `GraphPersistence` takes `project_path` as a constructor parameter (was injected post-hoc as a private attribute).
+- Tests: `tests/test_v0912.py` renamed to `tests/test_core.py` (57 assertions, including new refill skip-not-break and validation coverage); new `tests/test_http.py` exercises every REST endpoint in-process with the editor's exact addressing shape, plus the WebSocket Origin policy (28 assertions). Both run with the project venv, no pytest:
+  `./venv/bin/python tests/test_core.py && ./venv/bin/python tests/test_http.py`
+
 ## [0.9.12] - 2026-06-01
 
 ### Added

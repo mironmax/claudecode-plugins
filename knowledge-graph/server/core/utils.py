@@ -1,7 +1,46 @@
 """Utility functions for knowledge graph operations."""
 
+import re
+
 from .constants import LEVELS
 from .exceptions import KGError
+
+# Identifier validation. The graph is rendered into other surfaces (kg_read text,
+# the visual editor's DOM, REST URL paths), so identifiers are confined to a safe
+# charset at the write boundary — quotes, angle brackets, whitespace and the like
+# never enter the store. Node IDs additionally exclude "/" so they stay routable
+# as a single REST path segment. Edge endpoints may be file/artifact paths, so
+# they allow "/" and "~".
+_NODE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_REL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_EDGE_REF_RE = re.compile(r"^[A-Za-z0-9~/][A-Za-z0-9._~/-]{0,255}$")
+
+
+def validate_node_id(node_id: str):
+    """Validate a node ID (kebab-ish, single path segment). Raises KGError."""
+    if not isinstance(node_id, str) or not _NODE_ID_RE.match(node_id):
+        raise KGError(
+            f"Invalid node id {node_id!r}: use letters, digits, '.', '_', '-' "
+            f"(max 128 chars, must start alphanumeric)"
+        )
+
+
+def validate_rel(rel: str):
+    """Validate an edge relationship type. Raises KGError."""
+    if not isinstance(rel, str) or not _REL_RE.match(rel):
+        raise KGError(
+            f"Invalid rel {rel!r}: use letters, digits, '.', '_', '-' "
+            f"(max 64 chars, must start alphanumeric)"
+        )
+
+
+def validate_edge_ref(ref: str):
+    """Validate an edge endpoint (node ID or file/artifact path). Raises KGError."""
+    if not isinstance(ref, str) or not _EDGE_REF_RE.match(ref):
+        raise KGError(
+            f"Invalid edge ref {ref!r}: use letters, digits, '.', '_', '-', '/', '~' "
+            f"(max 256 chars)"
+        )
 
 
 def is_archived(node: dict) -> bool:

@@ -105,8 +105,8 @@ kg-visual logs
 **Server details:**
 - Endpoint: `http://127.0.0.1:8765/`
 - Health check: `http://127.0.0.1:8765/health`
-- Logs: `/tmp/mcp_server.log`
-- PID file: `/tmp/.mcp_server.pid`
+- Logs: `~/.local/state/knowledge-graph/mcp_server.log`
+- PID file: `.mcp_server.pid` (next to `manage_server.sh` in the plugin's `server/` directory)
 
 **Auto-start on boot (Linux, optional):** the bundled systemd unit invokes the `kg-memory` shim, so it survives plugin updates without needing to be refreshed.
 

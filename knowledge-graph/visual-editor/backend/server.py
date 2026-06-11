@@ -1,5 +1,6 @@
 """Visual Editor Backend - FastAPI server for knowledge graph visualization."""
 
+import json
 import logging
 import os
 import sys
@@ -11,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from urllib.parse import urlsplit
 
 # Import project discovery utilities
 sys.path.insert(0, str(Path(__file__).parent))
@@ -27,7 +30,19 @@ logger = logging.getLogger(__name__)
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8765")
 MCP_TIMEOUT = 30.0
 
-app = FastAPI(title="Knowledge Graph Visual Editor", version="0.1.0")
+
+def _plugin_version() -> str:
+    """The editor versions with the plugin — read it from plugin.json."""
+    try:
+        plugin_json = Path(__file__).parent.parent.parent / ".claude-plugin" / "plugin.json"
+        return json.loads(plugin_json.read_text())["version"]
+    except Exception:
+        return "unknown"
+
+
+EDITOR_VERSION = _plugin_version()
+
+app = FastAPI(title="Knowledge Graph Visual Editor", version=EDITOR_VERSION)
 
 # CORS configuration (allow browser access)
 app.add_middleware(
@@ -37,6 +52,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Anti DNS-rebinding: a malicious page whose domain re-resolves to 127.0.0.1
+# becomes same-origin to this editor (CORS no longer applies) and could read
+# the whole graph through the proxy — but it still carries its own domain in
+# the Host header. Only accept requests addressed to this machine.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "[::1]"])
+
+
+def _origin_is_local(origin: str | None) -> bool:
+    """Browsers do not apply CORS to WebSocket upgrades — check Origin manually.
+    Absent Origin (non-browser client) is allowed; present must be local."""
+    if not origin:
+        return True
+    parts = urlsplit(origin.strip().lower())
+    return parts.scheme in ("http", "https") and parts.hostname in ("localhost", "127.0.0.1", "::1")
 
 # Static files (frontend)
 frontend_dir = Path(__file__).parent.parent / "frontend"
@@ -69,7 +99,7 @@ async def health_check():
 
     return {
         "status": "ok",
-        "editor_version": "0.1.0",
+        "editor_version": EDITOR_VERSION,
         "mcp_server": mcp_status
     }
 
@@ -152,6 +182,10 @@ class NodeCreate(BaseModel):
     notes: list[str] | None = None
     touches: list[str] | None = None
     session_id: str | None = None
+    # Resolves a project graph on the MCP server — the editor's session has no
+    # project_path registered, so writes to project graphs need this (same
+    # addressing as read/recall/delete).
+    project_path: str | None = None
 
 class EdgeCreate(BaseModel):
     level: str
@@ -160,6 +194,18 @@ class EdgeCreate(BaseModel):
     rel: str
     notes: list[str] | None = None
     session_id: str | None = None
+    project_path: str | None = None
+
+def _raise_upstream(response: httpx.Response):
+    """Surface the MCP server's status + detail instead of a generic 500,
+    so validation errors (400) and not-found (404) reach the editor UI."""
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("detail", response.text)
+        except Exception:
+            detail = response.text
+        raise HTTPException(status_code=response.status_code, detail=detail)
+
 
 @app.post("/api/nodes")
 async def create_node(data: NodeCreate):
@@ -170,12 +216,14 @@ async def create_node(data: NodeCreate):
                 f"{MCP_SERVER_URL}/api/nodes",
                 json=data.model_dump(by_alias=True)
             )
-            response.raise_for_status()
+            _raise_upstream(response)
             return response.json()
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="MCP server timeout")
     except httpx.ConnectError:
         raise HTTPException(status_code=503, detail=f"Cannot connect to MCP server")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error creating node")
         raise HTTPException(status_code=500, detail="Failed to create node")
@@ -199,8 +247,10 @@ async def delete_node(level: str, node_id: str, session_id: str | None = None,
                 f"{MCP_SERVER_URL}/api/nodes/{level}/{node_id}",
                 params=params
             )
-            response.raise_for_status()
+            _raise_upstream(response)
             return response.json()
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error deleting node")
         raise HTTPException(status_code=500, detail="Failed to delete node")
@@ -214,24 +264,33 @@ async def create_edge(data: EdgeCreate):
                 f"{MCP_SERVER_URL}/api/edges",
                 json=data.model_dump(by_alias=True)
             )
-            response.raise_for_status()
+            _raise_upstream(response)
             return response.json()
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error creating edge")
         raise HTTPException(status_code=500, detail="Failed to create edge")
 
 @app.delete("/api/edges/{level}/{from_id}/{to_id}/{rel}")
-async def delete_edge(level: str, from_id: str, to_id: str, rel: str, session_id: str | None = None):
+async def delete_edge(level: str, from_id: str, to_id: str, rel: str, session_id: str | None = None,
+                      project_path: str | None = None):
     """Delete an edge (proxy to MCP server)."""
     try:
-        params = {"session_id": session_id} if session_id else {}
+        params = {}
+        if session_id:
+            params["session_id"] = session_id
+        if project_path:
+            params["project_path"] = project_path
         async with httpx.AsyncClient(timeout=MCP_TIMEOUT) as client:
             response = await client.delete(
                 f"{MCP_SERVER_URL}/api/edges/{level}/{from_id}/{to_id}/{rel}",
                 params=params
             )
-            response.raise_for_status()
+            _raise_upstream(response)
             return response.json()
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Error deleting edge")
         raise HTTPException(status_code=500, detail="Failed to delete edge")
@@ -255,8 +314,10 @@ async def read_node(level: str, node_id: str, session_id: str | None = None,
                 f"{MCP_SERVER_URL}/api/nodes/{level}/{node_id}",
                 params=params
             )
-            response.raise_for_status()
+            _raise_upstream(response)
             return response.json()
+    except HTTPException:
+        raise
     except Exception:
         logger.exception("Error reading node")
         raise HTTPException(status_code=500, detail="Failed to read node")
@@ -269,6 +330,11 @@ async def read_node(level: str, node_id: str, session_id: str | None = None,
 @app.websocket("/ws")
 async def websocket_proxy(websocket: WebSocket, session_id: str | None = None):
     """WebSocket proxy to MCP server."""
+    if not _origin_is_local(websocket.headers.get("origin")):
+        logger.warning(f"Rejected WebSocket from origin: {websocket.headers.get('origin')}")
+        await websocket.close(code=1008)
+        return
+
     await websocket.accept()
 
     import websockets

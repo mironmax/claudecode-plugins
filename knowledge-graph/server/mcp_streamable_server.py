@@ -6,6 +6,7 @@ Uses Streamable HTTP transport (replaces deprecated SSE).
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import signal
@@ -15,11 +16,8 @@ from pathlib import Path
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import Tool, TextContent
-from starlette.applications import Starlette
-from starlette.routing import Route, Mount
-from starlette.responses import JSONResponse
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.websockets import WebSocketClose
 
 # Add server directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -28,6 +26,8 @@ from version import __version__
 from mcp_http.session_manager import HTTPSessionManager
 from mcp_http.store import MultiProjectGraphStore, GraphConfig
 from mcp_http.websocket import ConnectionManager
+from mcp_http.rest import create_rest_api
+from mcp_http.security import host_allowed
 from core.exceptions import (
     KGError,
     NodeNotFoundError,
@@ -288,7 +288,6 @@ def create_mcp_server() -> Server:
 
                 # Single node read
                 if node_id:
-                    import json
                     if not session_id:
                         # Find session from recent registrations (cwd should have been passed)
                         return [TextContent(type="text", text="Error: cwd required on first kg_read call to initialize session")]
@@ -389,105 +388,14 @@ def create_mcp_server() -> Server:
                 ]
 
             elif name == "kg_search":
-                import json
                 query_raw = arguments["query"]
                 sid = arguments.get("session_id")
                 if sid:
                     session_manager.increment_ops(sid)
 
-                def build_node_record(node_id: str, node: dict, label: str) -> dict:
-                    return {
-                        "level": label,
-                        "id": node_id,
-                        "gist": node.get("gist", ""),
-                        "archived": node.get("_archived", False),
-                        "orphaned": "_orphaned_ts" in node,
-                        "notes": node.get("notes", []),
-                    }
-
-                def search_graph_rrf(graph_key: str, label: str, terms: list[str]) -> dict[str, float]:
-                    """
-                    Reciprocal Rank Fusion across per-term ranked lists.
-                    For each term, rank nodes by number of occurrences in their searchable text.
-                    Merge ranks using RRF: score += 1 / (60 + rank) per term.
-                    Returns {node_id: rrf_score} for nodes that match at least one term.
-                    """
-                    if graph_key not in store.graphs:
-                        return {}
-                    nodes = store.graphs[graph_key]["nodes"]
-                    RRF_K = 60
-
-                    # Pre-build searchable text per node
-                    searchable = {}
-                    for node_id, node in nodes.items():
-                        searchable[node_id] = " ".join([
-                            node_id,
-                            node.get("gist", ""),
-                            " ".join(node.get("notes", [])),
-                            " ".join(node.get("touches", [])),
-                        ]).lower()
-
-                    rrf_scores: dict[str, float] = {}
-                    for term in terms:
-                        t = term.lower()
-                        # Score each node by occurrence count for this term
-                        term_scores = []
-                        for node_id, text in searchable.items():
-                            count = text.count(t)
-                            if count > 0:
-                                term_scores.append((node_id, count))
-                        if not term_scores:
-                            continue
-                        # Sort descending by count → rank 0 = best
-                        term_scores.sort(key=lambda x: x[1], reverse=True)
-                        for rank, (node_id, _) in enumerate(term_scores):
-                            rrf_scores[node_id] = rrf_scores.get(node_id, 0.0) + 1.0 / (RRF_K + rank)
-
-                    return rrf_scores
-
-                # Tokenize query: split on whitespace, deduplicate, drop empty
-                terms = list(dict.fromkeys(t for t in query_raw.lower().split() if t))
-
-                # Always search user graph
-                user_scores = search_graph_rrf("user", "user", terms)
-
-                # Search project graph — use session if provided, otherwise scan all loaded project graphs
-                proj_scores: dict[str, float] = {}
-                proj_label_map: dict[str, str] = {}  # node_id -> graph_key
-                if sid:
-                    project_path = session_manager.get_project_path(sid)
-                    if project_path:
-                        graph_key = f"project:{project_path}"
-                        for node_id, score in search_graph_rrf(graph_key, "project", terms).items():
-                            proj_scores[node_id] = score
-                            proj_label_map[node_id] = graph_key
-                else:
-                    # No session: search all currently-loaded project graphs as best-effort
-                    for graph_key in store.graphs:
-                        if not graph_key.startswith("project:"):
-                            continue
-                        for node_id, score in search_graph_rrf(graph_key, "project", terms).items():
-                            if node_id not in proj_scores or score > proj_scores[node_id]:
-                                proj_scores[node_id] = score
-                                proj_label_map[node_id] = graph_key
-
-                # Merge user + project scores into a single unified ranking by RRF score
-                all_scored = []
-                user_nodes = store.graphs.get("user", {}).get("nodes", {})
-                for node_id, score in user_scores.items():
-                    node = user_nodes.get(node_id, {})
-                    rec = build_node_record(node_id, node, "user")
-                    rec["score"] = round(score, 4)
-                    all_scored.append(rec)
-
-                for node_id, score in proj_scores.items():
-                    graph_key = proj_label_map[node_id]
-                    node = store.graphs.get(graph_key, {}).get("nodes", {}).get(node_id, {})
-                    rec = build_node_record(node_id, node, "project")
-                    rec["score"] = round(score, 4)
-                    all_scored.append(rec)
-
-                results = sorted(all_scored, key=lambda x: x["score"], reverse=True)
+                # RRF search lives in the store (which holds the lock during the
+                # scan — the maintenance thread mutates node dicts concurrently).
+                results = store.search(query_raw, session_id=sid)
 
                 if not results:
                     suffix = "" if sid else " (no session_id — project graph searched best-effort; pass session_id from kg_read for accurate project search)"
@@ -599,7 +507,6 @@ def create_mcp_server() -> Server:
                     return [TextContent(type="text", text=f"Progress saved for task '{task_id}'")]
                 else:
                     # Read mode
-                    import json
                     result = store.get_progress(task_id, level, sid)
                     if not result:
                         return [TextContent(type="text", text=f"No progress found for task '{task_id}'")]
@@ -662,222 +569,32 @@ async def main():
         stateless=True,  # Allow stateless connections (Claude Code compatible)
     )
 
-    # ========================================================================
-    # REST API for Visual Editor (FastAPI)
-    # ========================================================================
+    # REST API + WebSocket for the visual editor (see mcp_http/rest.py)
+    rest_api = create_rest_api(store, session_manager, connection_manager, __version__)
 
-    # TODO: Add authentication/authorization before production
-    # See MASTER_PLAN for security requirements
-
-    rest_api = FastAPI(title="Knowledge Graph REST API", version=__version__)
-
-    @rest_api.get("/api/health")
-    async def rest_health():
-        """REST API health check."""
-        return {
-            "status": "ok",
-            "version": __version__,
-            "transport": "streamable-http",
-            "active_sessions": session_manager.count(),
-            "loaded_graphs": len(store.graphs)
-        }
-
-    @rest_api.get("/api/graph/read")
-    async def rest_read_graphs(session_id: str | None = None, project_path: str | None = None, reload: bool = False):
-        """Read all graphs. Pass reload=true to force re-read from disk."""
-        try:
-            return store.read_graphs(session_id=session_id, project_path=project_path, force_reload=reload)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @rest_api.post("/api/sessions/register")
-    async def rest_register_session(project_path: str | None = None):
-        """Register a new session. Used by visual editor."""
-        result = session_manager.register(project_path)
-        return result
-
-    # ========================================================================
-    # Write API Endpoints
-    # ========================================================================
-
-    class NodeCreateRequest(BaseModel):
-        level: str
-        id: str
-        gist: str
-        notes: list[str] | None = None
-        touches: list[str] | None = None
-        session_id: str | None = None
-
-    class EdgeCreateRequest(BaseModel):
-        level: str
-        from_: str = Field(alias="from")
-        to: str
-        rel: str
-        notes: list[str] | None = None
-        session_id: str | None = None
-
-    @rest_api.post("/api/nodes")
-    async def rest_create_node(data: NodeCreateRequest):
-        """Create or update a node."""
-        try:
-            result = store.put_node(
-                level=data.level,
-                node_id=data.id,
-                gist=data.gist,
-                notes=data.notes,
-                touches=data.touches,
-                session_id=data.session_id
-            )
-            return result
-        except Exception as e:
-            logger.exception("Error creating node")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @rest_api.delete("/api/nodes/{level}/{node_id}")
-    async def rest_delete_node(level: str, node_id: str, session_id: str | None = None,
-                               project_path: str | None = None):
-        """Delete a node.
-
-        project_path resolves a project node without a registered session (editor) —
-        mirrors rest_read_node.
-        """
-        try:
-            result = store.delete_node(node_id, level=level, session_id=session_id,
-                                       project_path=project_path)
-            return result
-        except NodeNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.exception("Error deleting node")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @rest_api.post("/api/edges")
-    async def rest_create_edge(data: EdgeCreateRequest):
-        """Create or update an edge."""
-        try:
-            result = store.put_edge(
-                level=data.level,
-                from_ref=data.from_,
-                to_ref=data.to,
-                rel=data.rel,
-                notes=data.notes,
-                session_id=data.session_id
-            )
-            return result
-        except Exception as e:
-            logger.exception("Error creating edge")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @rest_api.delete("/api/edges/{level}/{from_id}/{to_id}/{rel}")
-    async def rest_delete_edge(level: str, from_id: str, to_id: str, rel: str, session_id: str | None = None):
-        """Delete an edge."""
-        try:
-            result = store.delete_edge(level, from_id, to_id, rel, session_id)
-            return result
-        except Exception as e:
-            logger.exception("Error deleting edge")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    # ========================================================================
-    # Progress & Stats REST Endpoints
-    # ========================================================================
-
-    @rest_api.get("/api/progress/{task_id}")
-    async def rest_get_progress(task_id: str, level: str = "user", session_id: str | None = None):
-        """Get progress for a task."""
-        try:
-            return store.get_progress(task_id, level, session_id)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    class ProgressSetRequest(BaseModel):
-        task_id: str
-        state: dict
-        level: str = "user"
-        session_id: str | None = None
-
-    @rest_api.post("/api/progress")
-    async def rest_set_progress(data: ProgressSetRequest):
-        """Set progress for a task."""
-        try:
-            return store.set_progress(data.task_id, data.state, data.level, data.session_id)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @rest_api.get("/api/sessions/{session_id}/stats")
-    async def rest_session_stats(session_id: str):
-        """Get session statistics."""
-        try:
-            stats = session_manager.get_stats(session_id)
-            user_graph = store.graphs.get("user", {"nodes": {}, "edges": {}})
-            stats["graphs"] = {
-                "user": {"nodes": len(user_graph["nodes"]), "edges": len(user_graph["edges"])}
-            }
-            try:
-                pp = session_manager.get_project_path(session_id)
-                if pp:
-                    pk = f"project:{pp}"
-                    if pk in store.graphs:
-                        pg = store.graphs[pk]
-                        stats["graphs"]["project"] = {"nodes": len(pg["nodes"]), "edges": len(pg["edges"])}
-            except Exception:
-                pass
-            return stats
-        except SessionNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @rest_api.get("/api/nodes/{level}/{node_id}")
-    async def rest_read_node(level: str, node_id: str, session_id: str | None = None,
-                             project_path: str | None = None):
-        """Read a single node's full content. Promotes archived nodes to active.
-
-        project_path is an alternative to session_id for resolving a project node
-        (used by the visual editor, whose session has no registered project path).
-        """
-        try:
-            result = store.read_node(node_id, level=level, session_id=session_id,
-                                     project_path=project_path)
-            return result
-        except NodeNotFoundError as e:
-            raise HTTPException(status_code=404, detail=str(e))
-        except Exception as e:
-            logger.exception("Error reading node")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    # ========================================================================
-    # WebSocket Endpoint
-    # ========================================================================
-
-    @rest_api.websocket("/ws")
-    async def websocket_endpoint(websocket: WebSocket, session_id: str | None = None):
-        """WebSocket endpoint for real-time graph updates."""
-        if not session_id:
-            session_result = session_manager.register(None)
-            session_id = session_result["session_id"]
-
-        await connection_manager.connect(websocket, session_id)
-
-        try:
-            await connection_manager.send_personal(session_id, {
-                "type": "connected",
-                "session_id": session_id
-            })
-
-            while True:
-                data = await websocket.receive_text()
-                if data == "ping":
-                    await connection_manager.send_personal(session_id, {"type": "pong"})
-
-        except WebSocketDisconnect:
-            connection_manager.disconnect(session_id)
-            logger.info(f"WebSocket disconnected: {session_id}")
+    port = int(os.getenv("KG_HTTP_PORT", "8765"))
+    host = os.getenv("KG_HTTP_HOST", "127.0.0.1")
 
     # Create Starlette app with custom ASGI routing
     async def app_asgi(scope, receive, send):
         """ASGI app that routes between MCP, REST API, and health endpoints."""
         path = scope.get("path", "")
+
+        # Anti DNS-rebinding: every HTTP/WebSocket request must address this
+        # machine by a local hostname. A malicious page whose domain re-resolves
+        # to 127.0.0.1 becomes same-origin to this server (CORS no longer
+        # applies), but it still carries the attacker's domain in Host — reject.
+        if scope["type"] in ("http", "websocket"):
+            headers = dict(scope.get("headers") or [])
+            host_header = headers.get(b"host", b"").decode("latin-1")
+            if not host_allowed(host_header, configured_host=host):
+                logger.warning(f"Rejected request with non-local Host: {host_header!r}")
+                if scope["type"] == "websocket":
+                    await WebSocketClose(code=1008)(scope, receive, send)
+                else:
+                    response = PlainTextResponse("Misdirected Request: Host must be local", status_code=421)
+                    await response(scope, receive, send)
+                return
 
         if path == "/health":
             # MCP health check (simple)
@@ -897,11 +614,8 @@ async def main():
             await mcp_session_manager.handle_request(scope, receive, send)
         else:
             # 404 for other paths
-            from starlette.responses import PlainTextResponse
             response = PlainTextResponse("Not Found", status_code=404)
             await response(scope, receive, send)
-
-    routes = []  # No routes needed, using raw ASGI
 
     @contextlib.asynccontextmanager
     async def lifespan(scope):
@@ -913,10 +627,9 @@ async def main():
             logger.info("MCP session manager running")
             yield
 
-        # Shutdown — mark store as already shut down to avoid double-flush
+        # Shutdown (idempotent — the post-serve fallback may call it again)
         if store:
             store.shutdown()
-            store._shutdown_done = True
         logger.info("Server stopped")
 
     # Wrap ASGI app with lifespan
@@ -935,9 +648,6 @@ async def main():
                 await app_asgi(scope, receive, send)
 
     app = AppWithLifespan()
-
-    port = int(os.getenv("KG_HTTP_PORT", "8765"))
-    host = os.getenv("KG_HTTP_HOST", "127.0.0.1")
 
     logger.info(f"MCP Streamable HTTP endpoint: http://{host}:{port}/")
     logger.info(f"Health check: http://{host}:{port}/health")
@@ -965,9 +675,8 @@ async def main():
 
     await server_uvi.serve()
 
-    # After uvicorn exits, flush store (if lifespan didn't already)
-    if store and not getattr(store, '_shutdown_done', False):
-        logger.info("Saving data before exit...")
+    # After uvicorn exits, flush store (no-op if lifespan already did)
+    if store:
         store.shutdown()
 
 

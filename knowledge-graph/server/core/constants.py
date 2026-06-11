@@ -24,15 +24,15 @@ ARCHIVED_ID_TOKENS = 5
 # KG_MAX_TOKENS env override but falls back to this value, not a separate literal.
 MAX_TOKENS = 5000
 COMPACTION_TARGET_RATIO = 0.8
-# Refill (reverse compaction): when the active graph sits well below budget — e.g.
-# after edges stopped counting archived-archived strings, or after nodes aged out —
-# the highest-scored archived nodes are promoted back to active to use the headroom.
-# Two ratios form a hysteresis band so refill and archiving never thrash:
-#   - refill only TRIGGERS below REFILL_TRIGGER_RATIO (low-water mark)
-#   - refill FILLS UP TO COMPACTION_TARGET_RATIO (the same level archiving compacts to)
-# Between trigger (0.6) and the archive threshold (1.0) is a stable zone where neither
-# pass acts. Refilling to 0.8 (not 1.0) leaves slack so a refill can't trigger archiving.
-REFILL_TRIGGER_RATIO = 0.6
+# Refill (reverse compaction): when the active graph sits below the fill ceiling
+# (COMPACTION_TARGET_RATIO × max), the highest-scored archived nodes are promoted
+# back to active to use the headroom. A single threshold — the ceiling itself —
+# governs both trigger and fill level. The old separate low-water trigger (0.6)
+# created a dead band: a graph at 0.62-0.79 of budget had real headroom but refill
+# never fired, so graphs settled there permanently with most nodes stranded in the
+# archive. The no-thrash guarantee never needed the dead band — it comes from the
+# ceiling (0.8) sitting below the archive threshold (1.0), plus _maybe_compact
+# skipping refill on any tick that just archived.
 # Archived nodes budget: max fraction of max_tokens that archived IDs+edges may occupy.
 # When exceeded, lowest-scored archived nodes are demoted to orphaned (invisible in kg_read).
 ARCHIVED_BUDGET_RATIO = 0.30

@@ -10,7 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 VENV_PYTHON="$SCRIPT_DIR/venv/bin/python"
 SERVER_SCRIPT="$SCRIPT_DIR/backend/server.py"
 PID_FILE="$SCRIPT_DIR/.visual_editor.pid"
-LOG_FILE="/tmp/visual_editor.log"
+# Log lives in the user's state dir, not world-writable /tmp (and not in
+# ~/.knowledge-graph, which is a git repo with auto-commit).
+LOG_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph/visual_editor.log"
 PORT="${EDITOR_PORT:-3000}"
 
 start() {
@@ -26,6 +28,7 @@ start() {
     fi
 
     echo "Starting Visual Editor..."
+    mkdir -p "$(dirname "$LOG_FILE")"
     nohup "$VENV_PYTHON" "$SERVER_SCRIPT" > "$LOG_FILE" 2>&1 &
     echo $! > "$PID_FILE"
     sleep 2

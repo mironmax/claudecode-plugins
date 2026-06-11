@@ -4,10 +4,10 @@ import logging
 import time
 from .constants import (
     COMPACTION_TARGET_RATIO,
-    REFILL_TRIGGER_RATIO,
     ARCHIVED_BUDGET_RATIO,
     RESURRECTION_MARGIN,
     ARCHIVED_ID_TOKENS,
+    TOKENS_PER_EDGE,
 )
 from .estimator import TokenEstimator
 from .scorer import NodeScorer
@@ -56,11 +56,13 @@ class Compactor:
                 break
             node = nodes.get(node_id)
             if node and not node.get("_archived"):
-                token_cost = self.estimator.estimate_node(node)
                 node["_archived"] = True
-                estimated_tokens -= token_cost
+                # Re-measure rather than decrement: archiving swaps the node's gist
+                # cost for an anchor AND can kill live edges, so the true delta isn't
+                # the node cost alone. (Refill re-measures the same way.)
+                estimated_tokens = self.estimator.estimate_graph(nodes, edges, include_archived=False)
                 archived_this_pass.append(node_id)
-                logger.debug(f"Archived node '{node_id}' (score: {score:.2f}, tokens: {token_cost})")
+                logger.debug(f"Archived node '{node_id}' (score: {score:.2f}, now ~{estimated_tokens} tokens)")
 
         # Pass 2: resurrection — re-score everything (active + archived) in unified pool.
         # If an archived node beats a freshly-archived node by RESURRECTION_MARGIN, swap.
@@ -83,8 +85,16 @@ class Compactor:
                             best_archived_id = nid
 
                 if best_archived_id and (best_archived_score - archived_score) >= RESURRECTION_MARGIN:
-                    # Swap: resurrect the better-scored archived node, keep just_archived_id archived
+                    # Swap: resurrect the better-scored archived node, keep just_archived_id
+                    # archived — but only if the graph stays within budget. The swap isn't
+                    # token-neutral (different gist sizes, different edges going live), so
+                    # re-measure and revert a swap that would push the graph back over max.
                     nodes[best_archived_id]["_archived"] = False
+                    new_estimate = self.estimator.estimate_graph(nodes, edges, include_archived=False)
+                    if new_estimate > self.max_tokens:
+                        nodes[best_archived_id]["_archived"] = True
+                        continue
+                    estimated_tokens = new_estimate
                     resurrected.append(best_archived_id)
                     logger.debug(
                         f"Resurrected '{best_archived_id}' (score: {best_archived_score:.2f}) "
@@ -107,12 +117,13 @@ class Compactor:
         edge-accounting change freed the budget that archived-archived strings used
         to occupy.
 
-        Hysteresis prevents thrashing against compact_if_needed:
-          - refill only TRIGGERS when active tokens < REFILL_TRIGGER_RATIO × max (0.6)
-          - refill FILLS UP TO COMPACTION_TARGET_RATIO × max (0.8)
-        Between 0.8 and the archive threshold (1.0×max) is a dead band, so a refill
-        can never push the graph into an immediate archive, and an archive can never
-        drop it straight into an immediate refill.
+        Single threshold: refill acts whenever the graph is below the fill ceiling
+        (COMPACTION_TARGET_RATIO × max, 0.8) and fills up to it. There is no separate
+        lower trigger — an earlier 0.6 low-water mark created a dead band (0.6–0.8 of
+        budget) where graphs settled permanently with headroom unused and most nodes
+        stranded archived. No-thrash is guaranteed by the ceiling sitting below the
+        archive threshold (1.0×max) and by the store skipping refill on any tick that
+        just archived.
 
         Iterative re-scoring. Promotion is not a fixed-order sweep: promoting a node
         makes ITS edges to other archived nodes become full-weight "live" strings, which
@@ -122,54 +133,89 @@ class Compactor:
         pass — pull the hub, its satellites re-rank to the top, pull them next — instead
         of stranding the cluster because every member looked disconnected at the start.
 
+        Skip, don't stop, on a non-fitting candidate. A top-scored node too large for
+        the remaining headroom is set aside for this pass and the next-best is tried.
+        The earlier break-on-first-non-fit meant one oversized gist permanently blocked
+        every smaller candidate behind it (the estimate only grows during a pass, so
+        "reconsidered next time" never fit either). Skipping within the pass cannot
+        invert long-term priority: refill runs every tick, so a high-scored node that
+        fits later is still taken first then.
+
         Returns the list of newly-promoted (resurfaced) node IDs, in promotion order.
         """
         estimated_tokens = self.estimator.estimate_graph(nodes, edges, include_archived=False)
 
-        trigger = int(self.max_tokens * REFILL_TRIGGER_RATIO)
-        if estimated_tokens >= trigger:
+        fill_ceiling = int(self.max_tokens * COMPACTION_TARGET_RATIO)
+        if estimated_tokens >= fill_ceiling:
             return []
 
-        fill_ceiling = int(self.max_tokens * COMPACTION_TARGET_RATIO)
         promoted = []
+        too_big: set[str] = set()  # didn't fit this pass; estimate only grows, so final
 
-        # Iterate: each round re-scores the remaining archived candidates against the
-        # current (growing) active set, then promotes the single best that still fits.
-        # The candidate pool strictly shrinks each round, so this terminates; the extra
-        # safety bound on the loop count is just a guard against pathological input.
+        # Outer loop: one iteration per successful promotion (bounded by node count).
+        # Re-scoring happens only here — a promotion changes the active set, which
+        # changes candidate ranks. Skipping a non-fitting candidate changes nothing,
+        # so the inner walk continues down the SAME ranking without re-scoring
+        # (re-scoring per skip made a saturated dense graph take ~40s).
         for _ in range(len(nodes) + 1):
             candidates = [
                 nid for nid, n in nodes.items()
-                if n.get("_archived") and "_orphaned_ts" not in n
+                if n.get("_archived") and "_orphaned_ts" not in n and nid not in too_big
             ]
             if not candidates:
                 break
 
-            # Re-score every round: a previous promotion may have made some candidate's
-            # edges live, changing its rank. Scoring includes archived nodes so active
-            # and archived candidates share a comparable scale.
+            # Scoring includes archived nodes so active and archived candidates
+            # share a comparable scale.
             scores = self.scorer.score_all(nodes, edges, versions, include_archived=True)
-            best_id = max(candidates, key=lambda nid: scores.get(nid, 0.0))
+            ranked = sorted(candidates, key=lambda nid: scores.get(nid, 0.0), reverse=True)
 
-            # Promote tentatively and re-measure the whole graph: promotion turns an
-            # archived anchor (ARCHIVED_ID_TOKENS) into a full active node (id + gist)
-            # AND makes more edges live, so the delta isn't guessable up front.
-            node = nodes[best_id]
-            node["_archived"] = False
-            new_estimate = self.estimator.estimate_graph(nodes, edges, include_archived=False)
-            if new_estimate > fill_ceiling:
-                # The single most-valuable remaining candidate doesn't fit — revert it
-                # and stop. Deliberate choice of break over skip-to-next: a lower-scored
-                # candidate may be smaller and would fit, but promoting it ahead of a more
-                # valuable node inverts the priority the scoring exists to set. Refill is
-                # best-effort and runs every tick, so a node that just missed this pass is
-                # reconsidered next time (and can always be pulled by an explicit recall).
-                node["_archived"] = True
-                break
+            # Per-round fit check uses the exact promotion delta, computed from the
+            # adjacency index: promoting X swaps its anchor for the full node cost,
+            # and turns exactly its X–archived edges live (X–active and X–artifact
+            # edges were live already; X–orphaned stay dead). O(degree) per
+            # candidate instead of re-measuring the whole graph per skip.
+            adj = self.scorer._build_adjacency(edges)
+            archived_ids = {
+                nid for nid, n in nodes.items()
+                if n.get("_archived") and "_orphaned_ts" not in n
+            }
 
-            estimated_tokens = new_estimate
-            promoted.append(best_id)
-            logger.debug(f"Refilled node '{best_id}' (score: {scores.get(best_id, 0.0):.2f})")
+            promoted_this_round = None
+            for nid in ranked:
+                node = nodes[nid]
+                in_n, out_n = adj.get(nid, ([], []))
+                newly_live = (
+                    sum(1 for nb in in_n if nb in archived_ids)
+                    + sum(1 for nb in out_n if nb in archived_ids)
+                )
+                delta = (
+                    self.estimator.estimate_node(node) - ARCHIVED_ID_TOKENS
+                    + newly_live * TOKENS_PER_EDGE
+                )
+                if estimated_tokens + delta > fill_ceiling:
+                    # Doesn't fit — set aside and try the next-best this round.
+                    too_big.add(nid)
+                    continue
+
+                # Accept: promote and take an authoritative full re-measure (the
+                # delta is exact in the common case; this guards degenerate shapes
+                # like self-loops, which the adjacency index counts twice).
+                node["_archived"] = False
+                new_estimate = self.estimator.estimate_graph(nodes, edges, include_archived=False)
+                if new_estimate > fill_ceiling:
+                    node["_archived"] = True
+                    too_big.add(nid)
+                    continue
+
+                estimated_tokens = new_estimate
+                promoted.append(nid)
+                promoted_this_round = nid
+                logger.debug(f"Refilled node '{nid}' (score: {scores.get(nid, 0.0):.2f})")
+                break  # active set changed — re-score before picking the next one
+
+            if promoted_this_round is None:
+                break  # nothing left fits
 
         if promoted:
             logger.info(f"Refill: promoted {len(promoted)} archived node(s) to use spare budget, now ~{estimated_tokens} tokens")

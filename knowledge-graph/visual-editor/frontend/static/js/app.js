@@ -31,8 +31,6 @@ function icon(name, size = '') {
 
 const CONFIG = {
     apiBaseUrl: window.location.origin,
-    mcpServerUrl: 'http://127.0.0.1:8765',
-    refreshInterval: 30000,
     gistMaxLen: 120,
     simulation: {
         linkDistance: 120,
@@ -169,6 +167,16 @@ function formatUpdateMessage(message) {
         'node_recalled': `Node recalled: ${message.node?.id}`
     };
     return actions[message.type] || 'Graph updated';
+}
+
+// Extract a useful error message from a failed API response (the server sends
+// {"detail": ...} with real validation messages on 400s).
+async function errDetail(response) {
+    try {
+        const data = await response.json();
+        if (data.detail) return `HTTP ${response.status}: ${data.detail}`;
+    } catch (e) { /* non-JSON body */ }
+    return `HTTP ${response.status}`;
 }
 
 function showToast(message, type = 'info') {
@@ -433,7 +441,7 @@ function closeModal() {
 
 function openEditNodeModal(node = null) {
     const isEdit = node !== null;
-    const title = isEdit ? `Edit Node: ${node.id}` : 'Create New Node';
+    const title = isEdit ? `Edit Node: ${escapeHtml(node.id)}` : 'Create New Node';
 
     const content = `
         <form id="node-form">
@@ -498,11 +506,12 @@ async function submitNodeForm(isEdit) {
                 gist: gist,
                 notes: notesText ? notesText.split('\n').filter(n => n.trim()) : null,
                 touches: touchesText ? touchesText.split('\n').filter(t => t.trim()) : null,
-                session_id: state.sessionId
+                session_id: state.sessionId,
+                ...projectPathBody()
             })
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw new Error(await errDetail(response));
 
         showToast(`Node ${isEdit ? 'updated' : 'created'}`, 'success');
         closeModal();
@@ -557,7 +566,7 @@ async function submitEdgeForm() {
     }
 
     try {
-        await fetch(`${CONFIG.apiBaseUrl}/api/edges`, {
+        const response = await fetch(`${CONFIG.apiBaseUrl}/api/edges`, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -566,9 +575,12 @@ async function submitEdgeForm() {
                 to: to,
                 rel: rel,
                 notes: notesText ? notesText.split('\n').filter(n => n.trim()) : null,
-                session_id: state.sessionId
+                session_id: state.sessionId,
+                ...projectPathBody()
             })
         });
+
+        if (!response.ok) throw new Error(await errDetail(response));
 
         showToast('Edge created', 'success');
         closeModal();
@@ -579,19 +591,31 @@ async function submitEdgeForm() {
 }
 
 function confirmDeleteNode(node) {
+    // The node id is bound via a listener, never interpolated into an inline
+    // onclick — entity-escaping cannot make data safe inside a JS-in-attribute
+    // context (attributes are entity-decoded before the JS runs).
     openModal('Confirm Deletion', `
         <p>Delete node <strong>${escapeHtml(node.id)}</strong>?</p>
         <p style="color: var(--warning-color); margin-top: 0.5rem;">Connected edges will also be deleted.</p>
     `, `
         <button class="btn" onclick="closeModal()">Cancel</button>
-        <button class="btn btn-danger" onclick="deleteNode('${escapeHtml(node.id)}')">Delete</button>
+        <button class="btn btn-danger" id="confirm-delete-btn">Delete</button>
     `);
+    document.getElementById('confirm-delete-btn')
+        .addEventListener('click', () => deleteNode(node.id));
+}
+
+// project_path for write request bodies — a project graph must be resolved by
+// path: the editor's WebSocket session is not registered against any project,
+// so session_id alone can't address it on the MCP server.
+function projectPathBody() {
+    return (state.graphLevel === 'project' && state.selectedProject)
+        ? { project_path: state.selectedProject }
+        : {};
 }
 
 // Build the query string for single-node API calls (read/recall/delete).
-// A project node must be resolved by project_path: the editor's WebSocket session
-// is not registered against any project, so session_id alone can't find it on the
-// MCP server. The graph load uses the same project_path mechanism.
+// Same project_path mechanism as projectPathBody, in query-string form.
 function nodeApiQuery() {
     const params = new URLSearchParams();
     if (state.sessionId) params.set('session_id', state.sessionId);
@@ -695,11 +719,12 @@ async function saveInlineEdit(field) {
                 gist,
                 notes,
                 touches,
-                session_id: state.sessionId
+                session_id: state.sessionId,
+                ...projectPathBody()
             })
         });
 
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        if (!response.ok) throw new Error(await errDetail(response));
 
         // Optimistically update the in-memory node so re-render looks right immediately
         node.gist = gist;
@@ -970,10 +995,12 @@ function buildConnectionsSection(node) {
             ? (l.target.id || l.target)
             : (l.source.id || l.source);
         const arrow = direction === 'out' ? '→' : '←';
+        // Peer id travels as a data attribute and is bound to a listener in
+        // renderNodeDetails — never interpolated into an inline onclick.
         return `<li class="conn-row">
             <span class="conn-arrow">${arrow}</span>
             <span class="conn-rel">${escapeHtml(l.rel)}</span>
-            <span class="conn-peer" onclick="selectNodeById('${escapeHtml(other)}')" title="Click to select">${escapeHtml(other)}</span>
+            <span class="conn-peer" data-peer="${escapeHtml(other)}" title="Click to select">${escapeHtml(other)}</span>
         </li>`;
     }
 
@@ -1151,6 +1178,11 @@ function renderNodeDetails(node) {
         </div>
     `;
 
+    // Wire up connection-peer clicks (ids bound via data attribute, not inline JS)
+    container.querySelectorAll('.conn-peer').forEach(el => {
+        el.addEventListener('click', () => selectNodeById(el.dataset.peer));
+    });
+
     // Wire up live char counter for gist
     if (ef === 'gist') {
         const ta = document.getElementById('inline-gist');
@@ -1299,9 +1331,14 @@ function truncateText(text, maxLength) {
 }
 
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    // Escapes quotes as well as &<> — values are interpolated into attribute
+    // contexts (title="...", data-*="..."), where a bare quote breaks out.
+    return String(text)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
 }
 
 // ============================================================================
