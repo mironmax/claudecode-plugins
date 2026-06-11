@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.14] - 2026-06-11
+
+### Fixed
+- **First run actually works now.** There was no venv bootstrap anywhere: a fresh install had no Python environment and no documented step to create one, so `kg-memory start` failed with `venv/bin/python: No such file` and the plugin could not complete first run on any machine where the venv hadn't been built by hand. Worse, plugin updates install into a fresh version-stamped directory, so even a hand-built venv vanished on every update. `manage_server.sh` and `manage_visual.sh` now build the venv automatically on `start` when it's missing or incomplete (one-time ~1 min, with a marker file so a half-finished `pip install` is retried rather than trusted).
+
+### Added
+- **Server auto-start.** A bundled SessionStart hook health-checks the memory server on every session and launches it in the background when down — combined with the venv bootstrap, "install → restart → done" is now literally true. The hook only ever *starts* the server; it never stops or restarts a running one. When a session connected while the server was down, the hook tells Claude to verify health and ask the user for the one step only they can do: `/mcp` → `plugin:knowledge-graph:kg` → **Reconnect**.
+
+### Changed
+- `kg-core` skill guidance updated: connection-refused is now "warming up — retry, then /mcp Reconnect", not "ask the user to start the server".
+- README rewritten around the real first-run experience: honest "Done." claim, Python 3.10+ requirement stated up front, and a "Your first five minutes" section (what Claude says, how to seed the graph with `/kg-extract` and `/kg-scout`, what to ask next session). Wiki Installation/Server-Management/Home updated to match.
+
 ## [0.9.13] - 2026-06-11
 
 ### Fixed

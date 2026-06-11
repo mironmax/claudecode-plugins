@@ -75,17 +75,17 @@ If you already have a `settings.json`, merge these into your existing `permissio
 
 ## Server Management
 
-The plugin runs a shared HTTP MCP server on port 8765, used by every Claude Code session simultaneously. The server is started manually (or by your init system) and stays running across sessions.
+The plugin runs a shared HTTP MCP server on port 8765, used by every Claude Code session simultaneously. **It starts automatically** — a SessionStart hook launches it whenever it's down, and the start script builds its Python environment on first run (and again after plugin updates, which install into a fresh directory). The hook only ever starts the server; it never stops or restarts one you're running.
 
-**Install the helper commands** (one-time, optional but recommended):
+> If a session connected while the server was still down (e.g. the very first run), the `kg_*` tools stay offline for that session — run `/mcp`, select `plugin:knowledge-graph:kg`, and hit **Reconnect** once the server is up.
+
+For manual control from your terminal, **install the helper commands** (one-time, optional):
 
 ```bash
 bash "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name install_command.sh | sort -V | tail -1)"
 ```
 
 That symlinks `kg-memory` and `kg-visual` into `~/.local/bin/`. Make sure `~/.local/bin` is in your `PATH`.
-
-**Then start the server:**
 
 ```bash
 # MCP graph server

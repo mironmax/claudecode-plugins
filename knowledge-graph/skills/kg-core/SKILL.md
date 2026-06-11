@@ -11,9 +11,9 @@ description: |
   start with <persisted-output> and show only a preview; the full output is saved to the
   file path shown — read it with the Read tool to get the complete picture including session_id.
   Announce "I have recalled KG Memories" once both sections have been read.
-  Connection refused means the server is down — let the user know: `kg-memory start` will
-  bring it back. If kg-memory isn't found, the install script hasn't been run yet:
-  knowledge-graph/install_command.sh registers both kg-memory and kg-visual.
+  Connection refused: the server auto-starts at session start (first run ~1 min) — retry
+  after a few seconds. If tools stay offline, the user must run /mcp →
+  plugin:knowledge-graph:kg → Reconnect. Manual fallback: `kg-memory start`.
 
   Before searching files, docs, or the web — check what's already known. The graph often
   has the answer, and reading from memory is faster than rediscovering.
@@ -90,20 +90,29 @@ Rules of coexistence:
 
 ## Server Operations
 
-Two registered shell commands manage the KG stack. Both are symlinks in `~/.local/bin/`,
-installed by running `knowledge-graph/install_command.sh` once.
+The plugin auto-starts the server: a SessionStart hook health-checks port 8765 and launches
+the server in the background if it is down (a first run also builds the Python venv, ~1 min).
+So a connection-refused on the first kg_read usually means "warming up" — wait a few seconds
+and retry before treating it as an outage. The hook only ever starts; it never stops or
+restarts a running server.
+
+**If the server was down when the session connected**, the kg_* MCP tools are offline for
+this session even after the server comes up — Claude Code's MCP connection went stale at
+startup. Recovery requires the user: verify the server responds
+(`curl -sf http://127.0.0.1:8765/health`), then ask them to run `/mcp`, select
+`plugin:knowledge-graph:kg`, and hit **Reconnect**. Tools work immediately after.
+
+Two registered shell commands give manual control. Both are symlinks in `~/.local/bin/`,
+installed by running `knowledge-graph/install_command.sh` once (optional).
 
 ```
 kg-memory start|stop|restart|status|logs    # MCP graph server (port 8765)
 kg-visual start|stop|restart|status|logs    # Visual editor web UI (port 3000, http://localhost:3000)
 ```
 
-If a command is not found, the install script likely hasn't been run yet. Let the user know:
-`knowledge-graph/install_command.sh` registers both commands — run it once, then restart Claude Code.
-
-If kg_read returns a connection error, the server is down. `kg-memory start` brings it back.
-Starting it from within Claude Code's tool environment isn't reliable (hooks run in a detached
-shell), so it's better to ask the user to run it in their terminal.
+If the server stays unreachable after retries, ask the user to run `kg-memory start` in their
+terminal (or the install script first if the command is missing) — the error output there
+shows what's wrong.
 
 After `kg-memory restart`, the MCP tools go offline in the current session — the connection
 reference goes stale. Let the user know: "Please run `/mcp` in Claude Code, find

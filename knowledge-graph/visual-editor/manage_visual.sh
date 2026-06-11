@@ -15,6 +15,31 @@ PID_FILE="$SCRIPT_DIR/.visual_editor.pid"
 LOG_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph/visual_editor.log"
 PORT="${EDITOR_PORT:-3000}"
 
+# Create the Python venv on first run (or after a plugin update wiped it —
+# every update installs into a fresh version-stamped cache dir).
+ensure_venv() {
+    if [ -x "$VENV_PYTHON" ] && [ -f "$SCRIPT_DIR/venv/.deps_ok" ]; then
+        return 0
+    fi
+    local py
+    py=$(command -v python3 || command -v python)
+    if [ -z "$py" ]; then
+        echo "ERROR: python3 not found. Install Python 3.10+ and run 'kg-visual start' again."
+        return 1
+    fi
+    echo "First run: setting up Python environment (one-time, ~1 min)..."
+    if [ ! -x "$VENV_PYTHON" ]; then
+        "$py" -m venv "$SCRIPT_DIR/venv" || { echo "ERROR: could not create venv"; return 1; }
+    fi
+    if "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check -r "$SCRIPT_DIR/requirements.txt"; then
+        touch "$SCRIPT_DIR/venv/.deps_ok"
+        echo "✓ Python environment ready"
+    else
+        echo "ERROR: dependency install failed — will retry on next start"
+        return 1
+    fi
+}
+
 start() {
     if [ -f "$PID_FILE" ]; then
         PID=$(cat "$PID_FILE")
@@ -26,6 +51,8 @@ start() {
             rm "$PID_FILE"
         fi
     fi
+
+    ensure_venv || return 1
 
     echo "Starting Visual Editor..."
     mkdir -p "$(dirname "$LOG_FILE")"
