@@ -96,7 +96,7 @@ kg-memory restart   # Restart server
 kg-memory logs      # View logs (tail -f)
 
 # Visual editor — browser-based graph explorer (optional)
-kg-visual start     # Start at http://localhost:3000
+kg-visual start     # Start at http://localhost:8766
 kg-visual stop
 kg-visual status
 kg-visual logs
@@ -156,6 +156,7 @@ The server reads tunables from environment variables. Set them in your shell rc 
 | `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
+| `KG_AUTOCOMMIT_INTERVAL` | `900` | Git auto-commit interval for the storage root (seconds); `0` disables. Only acts when `~/.knowledge-graph` is a git repository |
 
 > Don't edit the plugin's bundled `.mcp.json` — that file just declares the HTTP endpoint Claude Code connects to (`http://127.0.0.1:8765/`), and it gets overwritten on every plugin update.
 
@@ -184,11 +185,11 @@ cp ~/.knowledge-graph/projects/<slug>/graph.json.prev \
 
 If a node ever lands with its `gist`, `notes`, and tool-call markup mashed into one oversized string (an occasional client glitch that bloated the token budget), the server repairs it automatically — sanitizing on write and healing any existing damage when a graph is loaded, then writing the fix back. It's idempotent and never overwrites data you supplied. The first 0.9.12 run logs `Healed N corrupt node(s) on load`; that's expected and one-time. See [Data and Backup](https://github.com/mironmax/claudecode-plugins/wiki/Data-and-Backup#self-healing-on-load) for details.
 
-### External backups (optional, user-managed)
+### Versioned history and external backups
 
-The plugin does not include a backup scheduler. For versioned history, off-machine copies, or a snapshot before upgrading, set one up externally. Two options:
+For versioned history, the plugin has git support built in. For off-machine copies, set up an external tool. Two options:
 
-**Git** — simple, no extra tools:
+**Git** — one-time setup, then automatic:
 ```bash
 cd ~/.knowledge-graph
 git init
@@ -196,7 +197,7 @@ echo "*.prev" >> .gitignore
 echo "*.tmp" >> .gitignore
 git add -A && git commit -m "initial"
 ```
-Then commit periodically (e.g. via cron or a post-save hook). Good for occasional snapshots; not ideal for high-frequency writes since every tool call mutates the files, producing noisy diffs and many tiny commits.
+That's it: the server detects the repository and commits changes itself every 15 minutes (`Auto-save YYYY-MM-DD HH:MM` commits, only when something actually changed), plus a final commit on graceful shutdown. Tune or disable with `KG_AUTOCOMMIT_INTERVAL` (seconds; `0` disables). `kg-memory commit` forces an immediate commit by hand.
 
 **Borg** — better fit for frequently-changing data:
 ```bash

@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.15] - 2026-07-02
+
+### Fixed
+- **Storage git auto-commit never fired in normal operation.** Commits of `~/.knowledge-graph` only happened in `manage_server.sh` on managed `stop`/`restart` — but in real life the server is launched by the SessionStart hook and dies with machine shutdown, so a managed stop (and thus a commit) never ran; on one machine the last `Auto-save` commit was three weeks stale despite daily use, and a crash during that window would have lost the entire uncommitted history. The server now commits **periodically from within the Python process** (`core/autocommit.py`, daemon thread on the same Event-wait pattern as the store's saver thread), so history accumulates no matter how the server is started or killed. Every `KG_AUTOCOMMIT_INTERVAL` seconds (default 900 = 15 min; `0` disables) it commits pending changes with the existing `Auto-save YYYY-MM-DD HH:MM` message convention — only when the tree is actually dirty (no empty commits), silent no-op when the storage root has no `.git` (a later `git init` is picked up without a restart), and git failures are logged but never fatal. A final best-effort commit also runs on graceful shutdown (SIGTERM/SIGINT), ordered after the store's disk flush so it captures the final state. `manage_server.sh commit_storage()` stays as-is for `kg-memory commit` and the managed stop paths.
+
+### Added
+- `KG_AUTOCOMMIT_INTERVAL` environment variable (documented in README configuration table and as a commented example in `server/memory-mcp.service`).
+- Tests: `tests/test_autocommit.py` (8 tests on throwaway git repos — dirty/untracked commit, clean-tree no-op, no-`.git` no-op, interval parsing, disabled mode, idempotent shutdown commit, periodic loop firing). Runs standalone like the other suites or via pytest.
+
+### Changed
+- README "External backups" git section rewritten: `git init` in `~/.knowledge-graph` is now a one-time setup — the server handles the periodic commits itself. ARCHITECTURE.md storage layer documents the design.
+
 ## [0.9.14] - 2026-06-11
 
 ### Fixed

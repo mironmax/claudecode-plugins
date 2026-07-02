@@ -17,6 +17,8 @@ RestartSec=5s
 Environment="KG_LOG_LEVEL=INFO"
 Environment="KG_HTTP_HOST=127.0.0.1"
 Environment="KG_HTTP_PORT=8765"
+# Git auto-commit cadence for ~/.knowledge-graph (seconds; 0 disables). Default 900.
+# Environment="KG_AUTOCOMMIT_INTERVAL=900"
 
 [Install]
 WantedBy=default.target

@@ -28,6 +28,7 @@ from mcp_http.store import MultiProjectGraphStore, GraphConfig
 from mcp_http.websocket import ConnectionManager
 from mcp_http.rest import create_rest_api
 from mcp_http.security import host_allowed
+from core.autocommit import AutoCommitter
 from core.exceptions import (
     KGError,
     NodeNotFoundError,
@@ -561,6 +562,12 @@ async def main():
     store = MultiProjectGraphStore(config, session_manager, broadcast_callback)
     mcp_server = create_mcp_server()
 
+    # Periodic git auto-commit of the storage root (KG_AUTOCOMMIT_INTERVAL,
+    # default 900s, 0 disables). Runs inside the server so history accumulates
+    # even when the process dies with the machine and no managed stop ever runs.
+    autocommitter = AutoCommitter(config.storage_root)
+    autocommitter.start()
+
     # Create Streamable HTTP session manager
     mcp_session_manager = StreamableHTTPSessionManager(
         app=mcp_server,
@@ -627,9 +634,12 @@ async def main():
             logger.info("MCP session manager running")
             yield
 
-        # Shutdown (idempotent — the post-serve fallback may call it again)
+        # Shutdown (idempotent — the post-serve fallback may call it again).
+        # Order matters: flush the store to disk first, then make a final
+        # best-effort commit so it captures the flushed state.
         if store:
             store.shutdown()
+        autocommitter.stop(final_commit=True)
         logger.info("Server stopped")
 
     # Wrap ASGI app with lifespan
@@ -675,9 +685,10 @@ async def main():
 
     await server_uvi.serve()
 
-    # After uvicorn exits, flush store (no-op if lifespan already did)
+    # After uvicorn exits, flush store + final commit (no-op if lifespan already did)
     if store:
         store.shutdown()
+    autocommitter.stop(final_commit=True)
 
 
 if __name__ == "__main__":
