@@ -21,6 +21,7 @@ from core import (
     version_key_node,
     version_key_edge,
     NodeNotFoundError,
+    SessionNotFoundError,
     validate_level,
     validate_node_id,
     validate_rel,
@@ -29,6 +30,8 @@ from core import (
     project_graph_path,
     user_graph_path,
     safe_project_path,
+    project_namespace,
+    is_project_namespace,
 )
 from .session_manager import HTTPSessionManager
 
@@ -143,7 +146,7 @@ class MultiProjectGraphStore:
         project_root: Absolute path to project root directory.
         force_reload: If True, reload from disk even if already cached.
         """
-        project_key = f"project:{project_root}"
+        project_key = project_namespace(project_root)
 
         if project_key in self.graphs and not force_reload:
             return
@@ -187,7 +190,7 @@ class MultiProjectGraphStore:
             if not project_root:
                 raise ValueError(f"Session {session_id} has no project_path registered")
 
-            return f"project:{project_root}"
+            return project_namespace(project_root)
 
     def _resolve_graph_key(self, level: str, session_id: str | None,
                            project_path: str | None) -> tuple[str, str]:
@@ -203,10 +206,10 @@ class MultiProjectGraphStore:
         if level == "project" and project_path:
             project_root = str(safe_project_path(project_path))
             self._ensure_project_loaded(project_root)
-            return "project", f"project:{project_root}"
+            return "project", project_namespace(project_root)
 
         graph_key = self._get_graph_key(level, session_id)
-        if graph_key.startswith("project:"):
+        if is_project_namespace(graph_key):
             project_root = graph_key.split(":", 1)[1]
             self._ensure_project_loaded(project_root)
         return level, graph_key
@@ -316,13 +319,64 @@ class MultiProjectGraphStore:
             if project_root:
                 try:
                     self._ensure_project_loaded(project_root, force_reload=force_reload)
-                    project_key = f"project:{project_root}"
+                    project_key = project_namespace(project_root)
 
                     result["project"] = snapshot(self.graphs[project_key])
                 except Exception as e:
                     logger.warning(f"Could not load project graph for {project_root}: {e}")
 
             return result
+
+    def mark_useful(self, node_ids: list, session_id: str) -> dict:
+        """Record explicit usefulness endorsements ("likes") on nodes.
+
+        The usefulness signal that feeds the scorer: an agent marks the nodes
+        that actually helped this session. Endorsement, not traffic — at most
+        MAX_LIKES_PER_SESSION per session, one vote per node per session; the
+        per-session ledger lives on the session record, the decaying timestamps
+        on the node (_useful_ts). Reads deliberately don't feed this signal.
+
+        A like is not a content write: node versions are untouched, so liking
+        never resets recency or sync state.
+
+        Returns {"accepted": [ids], "rejected": {id: reason},
+                 "remaining": budget left this session}.
+        """
+        from core.constants import MAX_LIKES_PER_SESSION
+
+        with self.lock:
+            session = self.session_manager.lookup(session_id)
+            if session is None:
+                raise SessionNotFoundError(session_id)
+            liked = session.setdefault("liked_ids", [])
+
+            accepted: list = []
+            rejected: dict = {}
+            now = time.time()
+            for node_id in node_ids:
+                if node_id in liked:
+                    rejected[node_id] = "already liked this session"
+                    continue
+                if len(liked) >= MAX_LIKES_PER_SESSION:
+                    rejected[node_id] = f"session like budget ({MAX_LIKES_PER_SESSION}) exhausted"
+                    continue
+                found = self.find_node_level(node_id, session_id)
+                if not found:
+                    rejected[node_id] = "not found"
+                    continue
+                _level, graph_key = found
+                node = self.graphs[graph_key]["nodes"][node_id]
+                node.setdefault("_useful_ts", []).append(now)
+                liked.append(node_id)
+                accepted.append(node_id)
+                self.dirty[graph_key] = True
+                self._write_through(graph_key)
+
+            return {
+                "accepted": accepted,
+                "rejected": rejected,
+                "remaining": max(0, MAX_LIKES_PER_SESSION - len(liked)),
+            }
 
     def scores_for_read(self, session_id: str | None = None) -> dict:
         """Node scores per level for kg_read's degradation ladder.
@@ -339,7 +393,7 @@ class MultiProjectGraphStore:
             if session_id:
                 project_root = self.session_manager.get_project_path(session_id)
                 if project_root:
-                    keys.append(("project", f"project:{project_root}"))
+                    keys.append(("project", project_namespace(project_root)))
             for label, graph_key in keys:
                 graph = self.graphs.get(graph_key)
                 if not graph:
@@ -538,7 +592,7 @@ class MultiProjectGraphStore:
             try:
                 project_root = self.session_manager.get_project_path(session_id)
                 if project_root:
-                    project_key = f"project:{project_root}"
+                    project_key = project_namespace(project_root)
                     self._ensure_project_loaded(project_root)
                     if project_key in self.graphs and edge_key in self.graphs[project_key]["edges"]:
                         return ("project", project_key)
@@ -606,7 +660,7 @@ class MultiProjectGraphStore:
             try:
                 project_root = self.session_manager.get_project_path(session_id)
                 if project_root:
-                    project_key = f"project:{project_root}"
+                    project_key = project_namespace(project_root)
                     self._ensure_project_loaded(project_root)
                     if project_key in self.graphs and node_id in self.graphs[project_key]["nodes"]:
                         return ("project", project_key)
@@ -751,7 +805,7 @@ class MultiProjectGraphStore:
             try:
                 project_root = self.session_manager.get_project_path(session_id)
                 if project_root:
-                    project_key = f"project:{project_root}"
+                    project_key = project_namespace(project_root)
                     if project_key in self.graphs:
                         result["project"] = get_updates(project_key)
             except Exception as e:
@@ -839,9 +893,9 @@ class MultiProjectGraphStore:
             if session_id:
                 project_path = self.session_manager.get_project_path(session_id)
                 if project_path:
-                    project_keys = [f"project:{project_path}"]
+                    project_keys = [project_namespace(project_path)]
             else:
-                project_keys = [k for k in self.graphs if k.startswith("project:")]
+                project_keys = [k for k in self.graphs if is_project_namespace(k)]
             graph_keys = ["user"] + [k for k in project_keys if k in self.graphs]
 
             records = [

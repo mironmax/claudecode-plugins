@@ -73,6 +73,14 @@ class GraphPersistence:
                 meta["progress"] = progress
             if self.project_path:
                 meta["project_path"] = self.project_path
+            # Namespace identity of this graph file. "owner" is a placeholder
+            # for multi-user/role setups — today every graph belongs to the
+            # local user; the field exists so future kinds slot in without a
+            # storage migration.
+            meta["namespace"] = {
+                "kind": "project" if self.project_path else "user",
+                "owner": None,
+            }
 
             data = {
                 "nodes": graph["nodes"],

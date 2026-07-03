@@ -2,7 +2,13 @@
 
 import time
 
-from .constants import ARCHIVED_EDGE_WEIGHT
+from .constants import (
+    ARCHIVED_EDGE_WEIGHT,
+    USEFUL_HALF_LIFE_DAYS,
+    SCORE_WEIGHT_RECENCY,
+    SCORE_WEIGHT_CONNECTEDNESS,
+    SCORE_WEIGHT_USEFULNESS,
+)
 
 
 class NodeScorer:
@@ -62,6 +68,21 @@ class NodeScorer:
         read_ts = node.get("_last_read_ts", 0)
         return max(write_ts, read_ts)
 
+    @staticmethod
+    def _usefulness(node: dict, current_time: float) -> float:
+        """Decayed like-count from explicit kg_useful endorsements.
+
+        Each like contributes 0.5 ** (age / half_life) — a node liked recently
+        and repeatedly scores high; past usefulness fades unless renewed. Reads
+        deliberately don't count: a well-formed gist never needs the full read,
+        so read-counting would reward the weakest gists.
+        """
+        half_life_seconds = USEFUL_HALF_LIFE_DAYS * 24 * 3600
+        return sum(
+            0.5 ** (max(0.0, current_time - ts) / half_life_seconds)
+            for ts in node.get("_useful_ts", [])
+        )
+
     def _past_grace(self, node: dict, current_time: float) -> bool:
         """Grace period based on _created_ts only — never reset by updates or reads."""
         created_ts = node.get("_created_ts", 0)
@@ -102,25 +123,45 @@ class NodeScorer:
                 "archived": bool(node.get("_archived")),
                 "recency_raw": self._recency(node_id, node, versions, current_time),
                 "connectedness_raw": self._connectedness(node_id, active_ids, archived_ids, adj),
+                "usefulness_raw": self._usefulness(node, current_time),
             })
 
         if not eligible:
             return {}
 
         def assign_percentiles(items: list, raw_key: str, pct_key: str):
+            """Tie-aware percentiles: equal raw values share the average rank.
+
+            This matters most for usefulness, where the bulk of nodes sit at
+            exactly 0 likes — index-order percentiles would spread identical
+            values across the whole 0..1 range arbitrarily. With average ranks,
+            an all-zero column collapses to a uniform 0.5 and distorts nothing.
+            """
             sorted_items = sorted(items, key=lambda x: x[raw_key])
             n = len(sorted_items)
-            for i, item in enumerate(sorted_items):
-                item[pct_key] = i / (n - 1) if n > 1 else 0.5
+            if n == 1:
+                sorted_items[0][pct_key] = 0.5
+                return
+            i = 0
+            while i < n:
+                j = i
+                while j + 1 < n and sorted_items[j + 1][raw_key] == sorted_items[i][raw_key]:
+                    j += 1
+                avg_rank = (i + j) / 2
+                for k in range(i, j + 1):
+                    sorted_items[k][pct_key] = avg_rank / (n - 1)
+                i = j + 1
 
         assign_percentiles(eligible, "recency_raw", "recency_pct")
         assign_percentiles(eligible, "connectedness_raw", "connectedness_pct")
+        assign_percentiles(eligible, "usefulness_raw", "usefulness_pct")
 
         scores = {}
         for item in eligible:
             scores[item["id"]] = (
-                0.33 * item["recency_pct"] +
-                0.66 * item["connectedness_pct"]
+                SCORE_WEIGHT_RECENCY * item["recency_pct"]
+                + SCORE_WEIGHT_CONNECTEDNESS * item["connectedness_pct"]
+                + SCORE_WEIGHT_USEFULNESS * item["usefulness_pct"]
             )
 
         return scores

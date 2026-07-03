@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.18] - 2026-07-03
+
+### Added
+- **`kg_useful` — explicit usefulness endorsement.** At session wrap-up, the agent marks up to 5 nodes that *actually helped*, judged against real results rather than mid-flight promise. One vote per node per session; the ledger lives on the session, decaying timestamps (90-day half-life) on the node. Reads deliberately do **not** feed this signal: a well-formed gist is self-sufficient, so counting reads would reward the weakest gists. A like is not a content write — versions, recency, and sync state are untouched.
+- **Usefulness in archival scoring.** The score blend is now 0.25 recency / 0.40 connectedness / 0.35 usefulness (percentile ranks). Percentile assignment became tie-aware (equal raw values share the average rank), which the usefulness column requires — with most nodes at zero likes, index-order percentiles would have spread identical values across the whole range arbitrarily; an all-zero column now collapses to a uniform 0.5 and distorts nothing.
+- Tests: `tests/test_v0918.py` (22 assertions: like budget/ledger/decay, scorer blend and tie-awareness, namespace helpers, namespace meta).
+
+### Changed
+- **Namespace seam (internal, no behavior change).** Graph keys are constructed and inspected only through `core.constants` helpers (`project_namespace`, `is_project_namespace`, `namespace_kind`) instead of scattered string literals, and every graph file now carries `_meta.namespace = {kind, owner}`. This is the storage-level seam for future namespace kinds (role/org graphs, multi-user owners) — they slot in without a migration.
+
 ## [0.9.17] - 2026-07-03
 
 ### Added

@@ -21,6 +21,7 @@ msgs=(
   "Check archived node IDs — any feel related to current work? kg_read(cwd, id) to promote and use."
   "Did you discover how two parts of the codebase connect? That's an edge. Write it now."
   "KG is your twin across sessions — what would future-you wish was recorded from this conversation?"
+  "Wrapping up? Look back at actual results: which nodes truly changed the outcome? kg_useful(session_id, ids=[...]) — up to 5, judged by experience, not promise."
 )
 
 idx=$(( RANDOM % ${#msgs[@]} ))

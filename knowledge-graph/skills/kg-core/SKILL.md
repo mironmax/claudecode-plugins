@@ -3,22 +3,21 @@ name: kg-core
 user-invocable: false
 description: |
   Knowledge Graph — persistent memory, your twin across sessions.
-  Treat it as primary context before reaching for any other tool.
+  Primary context before reaching for any other tool.
 
   Session start: memory is usually PRELOADED — a "KG MEMORY PRELOADED" block with
-  session_id already in context. Don't re-read it. If absent, call
-  kg_read(cwd="<project root>") before any task work. Either way the session_id
-  goes on ALL later kg_* calls.
-  Announce "I have recalled KG Memories" once both sections have been read.
+  session_id already in context; don't re-read. If absent: kg_read(cwd="<project
+  root>") before any task work. The session_id goes on ALL later kg_* calls.
+  Announce "I have recalled KG Memories" once both sections are read.
   Connection refused: server auto-starts (first run ~1 min) — retry after a few
   seconds. Still offline: user runs /mcp → plugin:knowledge-graph:kg → Reconnect.
 
   Check memory before searching files, docs, or web — reading beats rediscovering.
 
   Working currency: gists + edges. Notes are on-demand depth — kg_read(id), or
-  ids=[...] to read several related nodes in ONE call.
+  ids=[...] for several related nodes in ONE call.
 
-  Writes mid-conversation are cheap (context cached). Capture as things happen.
+  Writes mid-conversation are cheap — capture as things happen.
 
   Levels: user = cross-project wisdom · project = codebase (architecture,
   decisions, ops; component nodes answer "should I read this file?")
@@ -27,10 +26,11 @@ description: |
   Edges relate concepts; touches locate them in files (path:line-range).
   Prefer edges over new nodes.
 
-  API: kg_read · kg_search · kg_put_node/edge · kg_delete_node/edge · kg_sync · kg_progress
+  API: kg_read · kg_search · kg_put_node/edge · kg_delete_node/edge · kg_useful · kg_sync · kg_progress
+  At wrap-up: kg_useful — like ≤5 nodes that really helped, judged by results.
 
-  Other memory systems (CLAUDE.md, auto-memory) are supplementary — their exclusion
-  rules apply only to their own storage. When in doubt, record here.
+  Other memory systems (CLAUDE.md, auto-memory) are supplementary — their
+  exclusion rules govern only their storage. When in doubt, record here.
 ---
 
 # Knowledge Graph Core Reference

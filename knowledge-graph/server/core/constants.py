@@ -46,6 +46,19 @@ COMPACTION_TARGET_RATIO = 0.8
 ARCHIVED_BUDGET_RATIO = 0.30
 # Resurrection: minimum score delta for an archived node to displace a freshly-archived one.
 RESURRECTION_MARGIN = 0.05
+# Usefulness signal ("likes"): explicit endorsement via kg_useful — the agent marks
+# the nodes that actually helped a session. Reads deliberately do NOT feed this: a
+# well-formed gist is self-sufficient, so counting reads would reward weak gists.
+# Each like decays with a half-life so past usefulness fades unless renewed.
+USEFUL_HALF_LIFE_DAYS = 90
+# At most this many likes per session — endorsement, not traffic. One vote per
+# node per session.
+MAX_LIKES_PER_SESSION = 5
+# Archival score blend (percentile ranks): recency / connectedness / usefulness.
+SCORE_WEIGHT_RECENCY = 0.25
+SCORE_WEIGHT_CONNECTEDNESS = 0.40
+SCORE_WEIGHT_USEFULNESS = 0.35
+
 # Connectedness weight for an edge to an ARCHIVED neighbour, relative to an edge to an
 # active neighbour (which is 1.0). A "live string" you can pull (active endpoint) is worth
 # full weight; a string between two archived nodes is worth less — but NOT zero. Counting
@@ -67,6 +80,33 @@ ORPHAN_GRACE_DAYS = 365
 
 # Graph levels
 LEVELS = ("user", "project")
+
+# ---------------------------------------------------------------------------
+# Graph namespaces
+#
+# A graph is addressed by a namespace key. Two kinds exist today — the
+# singleton "user" namespace and per-project namespaces ("project:<root>") —
+# but the key scheme is deliberately open: future kinds (e.g. role graphs for
+# team setups: "role:cmo") extend the scheme without touching storage or store
+# internals. Construct and inspect keys ONLY through these helpers; never
+# hand-build "project:..." strings at call sites.
+# ---------------------------------------------------------------------------
+USER_NAMESPACE = "user"
+
+
+def project_namespace(project_root: str) -> str:
+    """Namespace key for a project graph."""
+    return f"project:{project_root}"
+
+
+def is_project_namespace(key: str) -> bool:
+    """Is this namespace key a project graph?"""
+    return key.startswith("project:")
+
+
+def namespace_kind(key: str) -> str:
+    """The kind prefix of a namespace key: 'user', 'project', (future: 'role', …)."""
+    return key.split(":", 1)[0]
 
 # Centralized storage
 # All graphs stored under ~/.knowledge-graph/ (git-tracked, outside .claude/)

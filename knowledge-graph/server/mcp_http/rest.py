@@ -15,6 +15,7 @@ import logging
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from core.constants import project_namespace
 from core.exceptions import KGError, NodeNotFoundError, SessionNotFoundError
 from .security import origin_allowed
 
@@ -226,7 +227,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             try:
                 pp = session_manager.get_project_path(session_id)
                 if pp:
-                    pk = f"project:{pp}"
+                    pk = project_namespace(pp)
                     if pk in store.graphs:
                         pg = store.graphs[pk]
                         stats["graphs"]["project"] = {"nodes": len(pg["nodes"]), "edges": len(pg["edges"])}

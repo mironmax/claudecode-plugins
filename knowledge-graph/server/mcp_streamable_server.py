@@ -232,6 +232,25 @@ def create_mcp_server() -> Server:
                 }
             ),
             Tool(
+                name="kg_useful",
+                description="Mark the nodes that actually HELPED this session — explicit usefulness endorsement that feeds archival scoring (useful nodes stay active longer). Up to 5 per session, one vote per node; endorsement, not traffic — reads don't count. Call this toward the END of the session (wrap-up), judging against actual results: which knowledge demonstrably changed the outcome — not what merely seemed promising mid-flight.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": "Session ID from kg_read/preload"
+                        },
+                        "ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Node IDs that proved genuinely useful (session budget: 5 total)"
+                        }
+                    },
+                    "required": ["session_id", "ids"]
+                }
+            ),
+            Tool(
                 name="kg_sync",
                 description="Pull changes made by other sessions since your last sync. Returns new/updated nodes and edges. Call after subagents finish, periodically in long sessions, or before decisions depending on shared knowledge.",
                 inputSchema={
@@ -409,6 +428,17 @@ def create_mcp_server() -> Server:
                     type="text",
                     text=f"Edge {arguments['from']}->{arguments['to']}:{arguments['rel']} saved to {arguments['level']} graph"
                 )]
+
+            elif name == "kg_useful":
+                sid = arguments["session_id"]
+                session_manager.increment_ops(sid)
+                result = store.mark_useful(arguments["ids"], sid)
+                parts = []
+                if result["accepted"]:
+                    parts.append("Marked useful: " + ", ".join(result["accepted"]))
+                parts.extend(f"Skipped {nid}: {why}" for nid, why in result["rejected"].items())
+                parts.append(f"{result['remaining']} like(s) remaining this session.")
+                return [TextContent(type="text", text="\n".join(parts))]
 
             elif name == "kg_delete_node":
                 sid = arguments["session_id"]
