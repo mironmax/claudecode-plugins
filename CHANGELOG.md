@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.19] - 2026-07-03
+
+### Changed
+- **The session-start preload is a compact core (≤10K chars) — and the loud `kg_read` never repeats it.** Hook `additionalContext` rides a much smaller inline window than tool results: measured on Claude Code 2.1.199, hook output stays inline up to ~10,100 chars and spills to a persisted file (2KB preview) at ~10,150 — so v0.9.17's full-render preload silently landed in a file on any real graph. The bootstrap now renders under a hard `BOOTSTRAP_CHAR_BUDGET` (10,000, instruction header included — render == charge covers every character the hook emits) with an extended degradation ladder: archived anchors first, then edge citations, then whole active gists, lowest-scored first — the hubs stay. The two channels then split the work: the silent preload gives the model its top-scored orientation before the first tool call; `kg_read(session_id)` renders the full graph with preloaded gists collapsed to id-only `(preloaded)` anchors, spending its 40K budget on everything the compact core had to drop. Explicit `ids=[...]` reads are never deduped.
+- **Memory loading is no longer invisible.** The SessionStart hook emits a `systemMessage` one-liner (active node counts, gists inline, session id) so the user sees memory load instead of inferring it from a missing tool call.
+- **The prompt-time reminder is stage-aware.** `kg-remind.sh` now weights its nudge pool by session depth (transcript size): early prompts point at recall, mid-session at capture, deep sessions at maintenance and wrap-up (`kg_useful`). New reminder: subagents never receive the preload — the dispatching session puts the relevant gists or `kg_*` instructions in their prompts (measured: SessionStart does not fire for Agent-tool subagents).
+
+### Added
+- Tests: `tests/test_v0919.py` (30 assertions: bootstrap budget cap and hub-first selection, read dedup and freed budget, preloaded-set session tracking with save/load round-trip).
+
 ## [0.9.18] - 2026-07-03
 
 ### Added

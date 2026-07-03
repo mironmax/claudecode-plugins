@@ -127,6 +127,23 @@ class HTTPSessionManager:
         session = self._sessions.get(session_id)
         return set(session.get("seen_ids", [])) if session else set()
 
+    def set_preloaded(self, session_id: str, node_ids) -> None:
+        """Record which node gists the session-start preload actually rendered.
+
+        Feeds kg_read dedup: the loud full-graph read shows these as id-only
+        anchors and spends its budget on everything the compact preload had to
+        drop. Set, not append — a preload defines the session's baseline.
+        """
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        session["preloaded_ids"] = list(node_ids)
+
+    def get_preloaded(self, session_id: str) -> set:
+        """Node ids whose gists the session-start preload put in context."""
+        session = self._sessions.get(session_id)
+        return set(session.get("preloaded_ids", [])) if session else set()
+
     def mark_synced(self, session_id: str) -> None:
         """Update last_synced_ts so kg_sync only returns changes after this point."""
         if session_id in self._sessions:

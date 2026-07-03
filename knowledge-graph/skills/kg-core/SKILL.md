@@ -5,9 +5,11 @@ description: |
   Knowledge Graph — persistent memory, your twin across sessions.
   Primary context before reaching for any other tool.
 
-  Session start: memory is usually PRELOADED — a "KG MEMORY PRELOADED" block with
-  session_id already in context; don't re-read. If absent: kg_read(cwd="<project
-  root>") before any task work. The session_id goes on ALL later kg_* calls.
+  Session start: memory usually arrives PRELOADED — a "KG MEMORY PRELOADED" block
+  with session_id already in context. It is a compact core (top-scored nodes);
+  before substantive work, kg_read(session_id) renders the FULL graph without
+  repeating it. If no block: kg_read(cwd="<project root>") first. The session_id
+  goes on ALL later kg_* calls.
   Announce "I have recalled KG Memories" once both sections are read.
   Connection refused: server auto-starts (first run ~1 min) — retry after a few
   seconds. Still offline: user runs /mcp → plugin:knowledge-graph:kg → Reconnect.
@@ -37,10 +39,16 @@ description: |
 
 ## Session Protocol (Detailed)
 
-Memory usually arrives **preloaded**: the SessionStart hook injects the full graph as
-a "KG MEMORY PRELOADED" context block, including the session_id — zero tool calls,
-nothing to fetch. When that block is present, do not call kg_read for the full graph;
-scan the block and work.
+Memory usually arrives **preloaded**: the SessionStart hook injects a "KG MEMORY
+PRELOADED" context block, including the session_id — zero tool calls, orientation
+before the first decision. The block is a **compact core**: the top-scored nodes of
+both graphs, capped so it always lands inline (hook context tolerates far less than
+tool results). For a quick session it may be all the memory needed.
+
+Before substantive work, make the **loud read**: `kg_read(session_id)` renders the
+full graph — preloaded gists collapse to id-only `(preloaded)` anchors, so the
+budget goes to everything the compact core had to drop. Nothing is shown twice;
+`kg_read(session_id, ids=[...])` re-reads anything in full depth.
 
 If no preloaded block exists (server was still warming up), load explicitly:
 ```
@@ -158,7 +166,7 @@ after spawning subagents that write to the graph.
 System archives lowest-scored nodes when a graph level exceeds its size budget.
 Budgets are exact rendered characters (what kg_read shows is what is charged) and are
 fixed by design — not configurable. kg_read output therefore always lands inline.
-Score = 0.33×recency + 0.66×connectedness (percentile ranks).
+Score = 0.25×recency + 0.40×connectedness + 0.35×usefulness (percentile ranks).
 Recency = max(last write, last read). Connectedness = weighted in/out edges (in×0.66 + out×0.33), full weight to active neighbours, reduced to archived.
 Grace period based on creation time only — updates and reads do not reset it.
 After archiving, a resurrection pass promotes any archived node that outscores a freshly-archived one (by ≥0.05 margin); a refill pass promotes archived nodes back when headroom exists.
@@ -175,7 +183,11 @@ Archived nodes remain on disk; edges stay visible as memory traces.
 
 ## Agents
 
-Calibrate memory use to agent scope:
-- Codebase exploration / history mining → instruct agent to actively read and write memory
-- General task work → leave at agent discretion; write when something important surfaces
+Subagents never receive the session-start preload — SessionStart fires only for the
+main session. The dispatching session guides each agent's memory explicitly, sized
+to its task:
+- Codebase exploration / history mining → instruct agent to actively read and write
+  memory (pass the session_id and the kg_* usage in its prompt)
+- General task work → paste the few relevant gists into the dispatch prompt; leave
+  further reads at agent discretion
 - Narrow well-defined task → skip memory to avoid wasted tokens

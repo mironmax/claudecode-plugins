@@ -353,8 +353,12 @@ def create_mcp_server() -> Server:
                 # Full graph read — rendering + inline-guarantee degradation
                 # ladder live in mcp_http.read_format (shared line rendering
                 # with the estimator: render == charge, exact characters).
+                # Gists the session-start preload already put in context render
+                # as id-only anchors — the budget goes to what the compact
+                # preload had to drop.
                 graphs = store.read_graphs(session_id)
                 scores = store.scores_for_read(session_id)
+                preloaded = session_manager.get_preloaded(session_id)
                 # Every active gist is now in the session's context — searches
                 # won't re-dump notes for them without an explicit node read.
                 shown = [
@@ -366,7 +370,7 @@ def create_mcp_server() -> Server:
                 session_manager.mark_seen(session_id, shown)
                 return [TextContent(
                     type="text",
-                    text=build_full_read(graphs, scores, session_id),
+                    text=build_full_read(graphs, scores, session_id, preloaded=preloaded),
                 )]
 
             elif name == "kg_search":

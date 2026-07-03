@@ -17,7 +17,7 @@ together, hubs first, each edge cited once at its first-encountered endpoint)
 — the same plan the estimator measures, so render == charge exactly.
 """
 
-from core.constants import READ_CHAR_BUDGET, SEARCH_CHAR_BUDGET
+from core.constants import BOOTSTRAP_CHAR_BUDGET, READ_CHAR_BUDGET, SEARCH_CHAR_BUDGET
 from core.render import plan_level, render_edge_line
 
 
@@ -38,8 +38,16 @@ def _health_line(plan: dict) -> str:
     return f"HEALTH: {n_count} nodes, {e_count} edges, {o_count} orphans ({o_pct}%), avg {avg_edges} edges/node"
 
 
-def _level_parts(label: str, nodes: list, edges: list, scores: dict) -> dict:
-    """Build one level's render state: fixed node lines + droppable pools."""
+def _level_parts(label: str, nodes: list, edges: list, scores: dict, preloaded: set | None = None) -> dict:
+    """Build one level's render state: fixed node lines + droppable pools.
+
+    preloaded: node ids whose gist the session already holds from the
+    session-start preload — they render as id-only "(preloaded)" anchors, so
+    the read budget goes to content the session does NOT yet have. Their edge
+    citations still render: the preload's own ladder drops citations early, so
+    the loud read is where a node's strings become fully visible.
+    """
+    preloaded = preloaded or set()
     node_map = {n["id"]: n for n in nodes}
     edge_map = {i: e for i, e in enumerate(edges)}
     plan = plan_level(node_map, edge_map)
@@ -49,17 +57,22 @@ def _level_parts(label: str, nodes: list, edges: list, scores: dict) -> dict:
         # 0.5 — pullable, but not evidence of local importance either way.
         return scores.get(ref, 0.5)
 
-    active_entries = [
-        {
+    active_entries = []
+    preloaded_count = 0
+    for nid, node_line, citations in plan["active"]:
+        if nid in preloaded:
+            node_line = f"  {nid} (preloaded)"
+            preloaded_count += 1
+        active_entries.append({
+            "nid": nid,
+            "score": scores.get(nid, 0.5),
             "line": node_line,
             # (value, citation_line) — droppable, lowest value first
             "citations": [
                 (endpoint_score(e["from"]) + endpoint_score(e["to"]), cline)
                 for e, cline in citations
             ],
-        }
-        for _nid, node_line, citations in plan["active"]
-    ]
+        })
     return {
         "label": label,
         "header": f"=== {label.upper()} — {len(plan['active'])} active, {len(plan['archived'])} archived ===",
@@ -69,21 +82,31 @@ def _level_parts(label: str, nodes: list, edges: list, scores: dict) -> dict:
         # defensive fallback.
         "archived_pool": [(scores.get(nid, 0.0), anchor) for nid, anchor in plan["archived"]],
         "health": _health_line(plan),
+        "preloaded_count": preloaded_count,
         "hidden_archived": 0,
         "hidden_edges": 0,
+        "hidden_active": 0,
     }
 
 
-def _assemble(levels: list[dict], session_line: str) -> str:
-    """Render the level parts (post-ladder) into the final output text."""
+def _assemble(levels: list[dict], session_line: str, degradation_note: bool = True) -> str:
+    """Render the level parts (post-ladder) into the final output text.
+
+    degradation_note=False suppresses the trailing maintenance advice — the
+    bootstrap is compact BY DESIGN, so "restore headroom" guidance would
+    mislead there; its per-section count lines already say what is hidden."""
     out_lines = []
     for part in levels:
         out_lines.append(part["header"])
-        if part["active"]:
+        if part["active"] or part["hidden_active"]:
             out_lines.append("ACTIVE:")
             for entry in part["active"]:
                 out_lines.append(entry["line"])
                 out_lines.extend(cline for _v, cline in entry["citations"])
+            if part["hidden_active"]:
+                out_lines.append(
+                    f"  …{part['hidden_active']} more active gist(s) not shown (lowest-scored) — kg_read(session_id) renders the full graph"
+                )
             if part["hidden_edges"]:
                 out_lines.append(f"  …{part['hidden_edges']} edge(s) hidden (lowest-value)")
         if part["archived_pool"] or part["hidden_archived"]:
@@ -98,7 +121,7 @@ def _assemble(levels: list[dict], session_line: str) -> str:
     text = "\n".join(out_lines)
     total_hidden_archived = sum(p["hidden_archived"] for p in levels)
     total_hidden_edges = sum(p["hidden_edges"] for p in levels)
-    if total_hidden_archived or total_hidden_edges:
+    if degradation_note and (total_hidden_archived or total_hidden_edges):
         text += (
             f"\n\nNote: output degraded to fit the inline budget — "
             f"{total_hidden_archived} archived anchor(s) and {total_hidden_edges} edge(s) hidden. "
@@ -107,34 +130,33 @@ def _assemble(levels: list[dict], session_line: str) -> str:
     return text + session_line
 
 
-def build_full_read(graphs: dict, scores: dict, session_id: str | None) -> str:
-    """Render the two-level kg_read output, degraded if needed to fit the budget.
-
-    graphs: store.read_graphs() result. scores: store.scores_for_read() result.
-    Active gists are never dropped — if active lines alone exceed the budget
-    (possible only on a graph the compactor has never run on), the output may
-    exceed it until the next write triggers compaction.
-    """
-    session_line = f"\n\nSession: {session_id}" if session_id else ""
-
+def _build_levels(graphs: dict, scores: dict, preloaded: set | None = None) -> list[dict]:
+    """Level parts for both graphs, droppable pools sorted for the ladder
+    (ascending by value so .pop(0) removes the least valuable item first)."""
     levels = [
-        _level_parts("User Graph", graphs["user"]["nodes"], graphs["user"]["edges"], scores.get("user", {})),
-        _level_parts("Project Graph", graphs["project"]["nodes"], graphs["project"]["edges"], scores.get("project", {})),
+        _level_parts("User Graph", graphs["user"]["nodes"], graphs["user"]["edges"], scores.get("user", {}), preloaded),
+        _level_parts("Project Graph", graphs["project"]["nodes"], graphs["project"]["edges"], scores.get("project", {}), preloaded),
     ]
-    # Sort droppable pools ascending by value so .pop(0) removes the least
-    # valuable item first.
     for part in levels:
         part["archived_pool"].sort(key=lambda t: t[0])
         for entry in part["active"]:
             entry["citations"].sort(key=lambda t: t[0])
+    return levels
 
+
+def _fit_to_budget(levels: list[dict], session_line: str, budget: int, prefix: str = "", drop_active: bool = False, degradation_note: bool = True) -> None:
+    """Degrade the level parts in place until the assembled text fits budget.
+
+    One item per iteration — the summary/count lines change length as counts
+    grow, so re-measuring the assembled text keeps the accounting exact.
+    Ladder: archived anchors (lowest-scored first, both levels as one pool) →
+    edge citations (lowest endpoint-score sum first) → active gists (lowest-
+    scored first; bootstrap only — kg_read never drops active gists).
+    """
     def over_budget() -> int:
-        return len(_assemble(levels, session_line)) - READ_CHAR_BUDGET
+        return len(prefix) + len(_assemble(levels, session_line, degradation_note)) - budget
 
-    # Ladder step 1: drop archived anchors, lowest-scored first, across BOTH
-    # levels as one pool. One item per iteration — the summary/count lines
-    # change length as counts grow, so re-measuring the assembled text keeps
-    # the accounting exact.
+    # Ladder step 1: drop archived anchors.
     while over_budget() > 0:
         candidates = [p for p in levels if p["archived_pool"]]
         if not candidates:
@@ -143,7 +165,7 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None) -> str:
         victim["archived_pool"].pop(0)
         victim["hidden_archived"] += 1
 
-    # Ladder step 2: drop edge citations, lowest endpoint-score sum first.
+    # Ladder step 2: drop edge citations.
     while over_budget() > 0:
         best = None  # (value, part, entry)
         for part in levels:
@@ -156,6 +178,20 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None) -> str:
         entry["citations"].pop(0)
         part["hidden_edges"] += 1
 
+    # Ladder step 3 (bootstrap only): drop whole active entries, lowest score
+    # first. The compact core keeps the hubs; the loud read shows the rest.
+    while drop_active and over_budget() > 0:
+        best = None  # (score, part, index)
+        for part in levels:
+            for i, entry in enumerate(part["active"]):
+                if best is None or entry["score"] < best[0]:
+                    best = (entry["score"], part, i)
+        if best is None:
+            break
+        _score, part, i = best
+        part["active"].pop(i)
+        part["hidden_active"] += 1
+
     # Restore reading order: anchors by descending score; citations keep their
     # plan order semantics well enough sorted by descending value.
     for part in levels:
@@ -163,7 +199,72 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None) -> str:
         for entry in part["active"]:
             entry["citations"].sort(key=lambda t: t[0], reverse=True)
 
-    return _assemble(levels, session_line)
+
+def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloaded: set | None = None) -> str:
+    """Render the two-level kg_read output, degraded if needed to fit the budget.
+
+    graphs: store.read_graphs() result. scores: store.scores_for_read() result.
+    preloaded: node ids served by the session-start preload — their gists are
+    already in the session's context, so they render as id-only anchors and the
+    freed budget keeps more archived anchors and edges visible.
+    Active gists are never dropped — if active lines alone exceed the budget
+    (possible only on a graph the compactor has never run on), the output may
+    exceed it until the next write triggers compaction.
+    """
+    session_line = f"\n\nSession: {session_id}" if session_id else ""
+    levels = _build_levels(graphs, scores, preloaded)
+
+    prefix = ""
+    total_preloaded = sum(p["preloaded_count"] for p in levels)
+    if total_preloaded:
+        prefix = (
+            f"{total_preloaded} gist(s) already shown by the session-start preload render as "
+            f"id-only '(preloaded)' anchors below — kg_read(session_id, ids=[...]) re-reads any in full.\n\n"
+        )
+
+    _fit_to_budget(levels, session_line, READ_CHAR_BUDGET, prefix=prefix)
+    return prefix + _assemble(levels, session_line)
+
+
+def build_bootstrap(graphs: dict, scores: dict, session_id: str) -> dict:
+    """Render the session-start preload: a compact core under BOOTSTRAP_CHAR_BUDGET.
+
+    Hook additionalContext rides a much smaller inline window than tool results
+    (~10K chars vs ~50K), so this render may drop what kg_read never would:
+    whole active gists, lowest-scored first — the hubs stay, and the loud
+    kg_read renders everything the preload dropped without repeating what it
+    kept. Returns the final injectable text (instruction header included, so
+    render == charge covers every character the hook emits), the graph body
+    alone (for older hooks that compose their own header), the ids actually
+    shown (they seed the session's preload/seen sets), and counts for the
+    hook's user-visible one-liner.
+    """
+    header = (
+        "KG MEMORY PRELOADED — compact core: the top-scored nodes of both graphs, already "
+        f"in context. session_id: {session_id} (pass it to every kg_* call). "
+        "kg_read(session_id) renders the FULL graph without repeating these gists; "
+        "kg_read(session_id, ids=[...]) reads nodes in depth; kg_search looks anything up. "
+        "Subagents never receive this preload — when dispatching one, put the relevant gists "
+        "or kg_* instructions in its prompt. "
+        'Announce "I have recalled KG Memories" after scanning both sections.\n\n'
+    )
+    session_line = f"\n\nSession: {session_id}"
+    levels = _build_levels(graphs, scores)
+    totals = {
+        "user_active": len(levels[0]["active"]),
+        "project_active": len(levels[1]["active"]),
+    }
+
+    _fit_to_budget(levels, session_line, BOOTSTRAP_CHAR_BUDGET, prefix=header, drop_active=True, degradation_note=False)
+
+    body = _assemble(levels, session_line, degradation_note=False)
+    shown = [entry["nid"] for part in levels for entry in part["active"]]
+    return {
+        "context": header + body,
+        "text": body,
+        "shown_ids": shown,
+        "stats": {**totals, "shown_gists": len(shown)},
+    }
 
 
 def format_search(query: str, result: dict, session_note: str = "") -> str:

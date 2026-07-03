@@ -30,6 +30,14 @@ READ_CHAR_BUDGET = 40000
 # kg_search output ceiling — same inline philosophy as READ_CHAR_BUDGET, sized
 # for a focused answer: top hits with notes, connections, a page of one-liners.
 SEARCH_CHAR_BUDGET = 10000
+# Session-start preload ceiling. Hook additionalContext rides a much smaller
+# inline window than tool results: measured on Claude Code 2.1.199, hook output
+# stays inline up to ~10,100 chars and spills to a persisted file (2KB preview)
+# at ~10,150. 10,000 keeps the whole preload — instruction header included —
+# safely inline. The bootstrap ladder degrades to fit: archived anchors first,
+# then edge citations, then lowest-scored active gists (the loud kg_read
+# renders whatever the preload had to drop, without repeating what it showed).
+BOOTSTRAP_CHAR_BUDGET = 10000
 COMPACTION_TARGET_RATIO = 0.8
 # Refill (reverse compaction): when the active graph sits below the fill ceiling
 # (COMPACTION_TARGET_RATIO × max), the highest-scored archived nodes are promoted

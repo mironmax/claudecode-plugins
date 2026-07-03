@@ -2,12 +2,15 @@
 # SessionStart hook: make sure the KG memory server is up — and when it is,
 # preload the session's memory.
 #
-# If the server answers /health, fetch the rendered knowledge graph from
-# /api/session_bootstrap and inject it as additionalContext: memory is in
-# context at turn 1, zero tool calls, one full model round-trip saved. The
-# endpoint uses the same renderer and inline guarantee as kg_read — one
-# format, two delivery channels. If anything about the fetch fails, stay
-# silent; the kg-core skill's classic kg_read path is the fallback.
+# If the server answers /health, fetch the compact-core preload from
+# /api/session_bootstrap and inject it as additionalContext: the top-scored
+# gists are in context at turn 1, zero tool calls. Hook context stays inline
+# only up to ~10K chars (measured — beyond that the harness persists it to a
+# file the model sees a 2KB preview of), so the preload is a capped core and
+# the loud kg_read renders the rest without repeating it. A systemMessage
+# one-liner makes the preload visible to the user — memory loading should
+# never be silent. If anything about the fetch fails, stay quiet; the
+# kg-core skill's classic kg_read path is the fallback.
 #
 # If the server is down, kick off manage_server.sh start IN THE BACKGROUND
 # (first run builds the Python venv, ~1 min — session start must not block on
@@ -29,7 +32,10 @@ try:
     url = f"{base}/api/session_bootstrap?project_path={urllib.parse.quote(cwd)}"
     with urllib.request.urlopen(url, timeout=4) as resp:
         data = json.loads(resp.read())
-    context = (
+    # New servers return the final injectable text (header included, budgeted
+    # as one piece). Older servers return only the graph body — compose the
+    # legacy header so a version-skewed pair still preloads.
+    context = data.get("context") or (
         "KG MEMORY PRELOADED — the knowledge graph below is already in context; "
         "do NOT call kg_read for the full graph. session_id: "
         + data["session_id"]
@@ -38,10 +44,22 @@ try:
         'Announce "I have recalled KG Memories" after scanning both sections.\n\n'
         + data["text"]
     )
-    print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "SessionStart",
-        "additionalContext": context,
-    }}))
+    stats = data.get("stats") or {}
+    if stats:
+        message = (
+            f"KG memory preloaded (session {data['session_id']}): "
+            f"{stats.get('user_active', '?')} user + {stats.get('project_active', '?')} project "
+            f"active nodes, {stats.get('shown_gists', '?')} gists inline — kg_read renders the rest."
+        )
+    else:
+        message = f"KG memory preloaded (session {data['session_id']})."
+    print(json.dumps({
+        "systemMessage": message,
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": context,
+        },
+    }))
 except Exception:
     pass  # silent miss — kg_read remains the fallback path
 PYEOF
