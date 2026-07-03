@@ -135,7 +135,7 @@ def create_mcp_server() -> Server:
                         },
                         "gist": {
                             "type": "string",
-                            "description": "Compressed headline — what this node captures"
+                            "description": "Compressed headline — what this node captures. Scans best ≤300 chars; detail belongs in notes"
                         },
                         "notes": {
                             "type": "array",
@@ -415,7 +415,12 @@ def create_mcp_server() -> Server:
                     touches=arguments.get("touches"),
                     session_id=sid
                 )
-                return [TextContent(type="text", text=f"Node '{arguments['id']}' saved to {arguments['level']} graph")]
+                from core.utils import gist_length_warning
+                return [TextContent(
+                    type="text",
+                    text=f"Node '{arguments['id']}' saved to {arguments['level']} graph"
+                         + gist_length_warning(arguments["gist"]),
+                )]
 
             elif name == "kg_put_edge":
                 sid = arguments["session_id"]

@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.20] - 2026-07-03
+
+### Changed
+Two readability tweaks from first-person reading experience of the node-centric format:
+- **The archived list renders alphabetically.** It is id-only, so score ordering was invisible to the reader anyway — alphabetical clusters related name prefixes (`kg-*`, `night-ops-*`) and makes a long list scannable. Score still governs what the degradation ladder *drops*; only the display order changed.
+- **Write-time nudge for oversized gists.** Gists past 300 chars read as walls in the full-graph render and break the scan rhythm. `kg_put_node` now appends a note to its response when a gist exceeds the limit — the write is never rejected (long gists are sometimes right), but the writer is nudged at the moment the fix is cheapest. The maintain skill's oversized-gist pass handles existing stock; this stems the inflow.
+
 ## [0.9.19] - 2026-07-03
 
 ### Changed

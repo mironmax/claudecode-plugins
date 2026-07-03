@@ -192,10 +192,13 @@ def _fit_to_budget(levels: list[dict], session_line: str, budget: int, prefix: s
         part["active"].pop(i)
         part["hidden_active"] += 1
 
-    # Restore reading order: anchors by descending score; citations keep their
-    # plan order semantics well enough sorted by descending value.
+    # Restore reading order. Anchors sort ALPHABETICALLY: the archived list is
+    # id-only, so score order is invisible to the reader anyway — alphabetical
+    # clusters related name prefixes (kg-*, night-ops-*) and makes a long list
+    # scannable. Score still governs what gets DROPPED (the ladder above).
+    # Citations read well enough sorted by descending value.
     for part in levels:
-        part["archived_pool"].sort(key=lambda t: t[0], reverse=True)
+        part["archived_pool"].sort(key=lambda t: t[1])
         for entry in part["active"]:
             entry["citations"].sort(key=lambda t: t[0], reverse=True)
 

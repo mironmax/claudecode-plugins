@@ -113,3 +113,20 @@ def validate_level(level: str):
     """Validate level parameter. Raises KGError if invalid."""
     if level not in LEVELS:
         raise KGError(f"Invalid level '{level}', must be one of {LEVELS}")
+
+
+# Gists past this length read as walls in the full-graph render and break the
+# scan rhythm (the format's working currency is one-line headlines). The write
+# is never rejected — long gists are sometimes right — but the writer gets
+# nudged at the moment the fix is cheapest.
+GIST_SCAN_LIMIT = 300
+
+
+def gist_length_warning(gist: str) -> str:
+    """A nudge string when a gist exceeds scan-friendly length, else ''."""
+    if len(gist) <= GIST_SCAN_LIMIT:
+        return ""
+    return (
+        f" — note: gist is {len(gist)} chars; gists scan best ≤{GIST_SCAN_LIMIT}. "
+        "Consider keeping the headline and moving detail to notes."
+    )

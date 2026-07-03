@@ -173,10 +173,32 @@ def test_session_preloaded():
         del os.environ["KG_STORAGE_ROOT"]
 
 
+# --- 4. v0.9.20 readability tweaks ---------------------------------------------
+def test_archived_alphabetical():
+    print("archived list alphabetical:")
+    graphs, scores = _big_graphs(n_active=3, n_archived=15, gist_chars=20)
+    text = build_full_read(graphs, scores, "s2")
+    for level_tag in ("u", "p"):
+        ids = [f"{level_tag}-arch{i}" for i in range(15)]
+        positions = [text.index(f"\n  {nid}\n") if f"\n  {nid}\n" in text else text.index(f"\n  {nid}") for nid in sorted(ids)]
+        check(f"{level_tag}: anchors render in alphabetical order",
+              positions == sorted(positions), positions)
+
+
+def test_gist_nudge():
+    print("gist length nudge:")
+    from core.utils import GIST_SCAN_LIMIT, gist_length_warning
+    check("short gist -> no nudge", gist_length_warning("x" * GIST_SCAN_LIMIT) == "")
+    long_warn = gist_length_warning("x" * (GIST_SCAN_LIMIT + 50))
+    check("long gist -> nudge", "scan best" in long_warn and str(GIST_SCAN_LIMIT + 50) in long_warn, long_warn)
+
+
 if __name__ == "__main__":
     test_bootstrap_budget()
     test_bootstrap_small_graph()
     test_read_dedup()
     test_session_preloaded()
+    test_archived_alphabetical()
+    test_gist_nudge()
     print(f"\n{_PASS} passed, {_FAIL} failed")
     sys.exit(1 if _FAIL else 0)
