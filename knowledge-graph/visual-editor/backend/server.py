@@ -47,7 +47,7 @@ app = FastAPI(title="Knowledge Graph Visual Editor", version=EDITOR_VERSION)
 # CORS configuration (allow browser access)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["http://localhost:8766", "http://127.0.0.1:8766"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -372,7 +372,7 @@ async def websocket_proxy(websocket: WebSocket, session_id: str | None = None):
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.getenv("EDITOR_PORT", "3000"))
+    port = int(os.getenv("EDITOR_PORT", "8766"))
     host = os.getenv("EDITOR_HOST", "127.0.0.1")
 
     logger.info(f"Starting Visual Editor on http://{host}:{port}")

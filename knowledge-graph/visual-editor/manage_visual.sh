@@ -13,7 +13,7 @@ PID_FILE="$SCRIPT_DIR/.visual_editor.pid"
 # Log lives in the user's state dir, not world-writable /tmp (and not in
 # ~/.knowledge-graph, which is a git repo with auto-commit).
 LOG_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph/visual_editor.log"
-PORT="${EDITOR_PORT:-3000}"
+PORT="${EDITOR_PORT:-8766}"
 
 # Create the Python venv on first run (or after a plugin update wiped it —
 # every update installs into a fresh version-stamped cache dir).

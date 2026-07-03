@@ -14,7 +14,7 @@
    kg-visual start
    ```
 
-3. **Open in Browser**: `http://localhost:3000`
+3. **Open in Browser**: `http://localhost:8766`
 
 ### Management Commands
 

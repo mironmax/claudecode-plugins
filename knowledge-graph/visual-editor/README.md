@@ -11,7 +11,7 @@ This README covers the codebase only.
 ## Architecture
 
 ```
-Browser ─HTTP─► Visual Editor (FastAPI, port 3000)
+Browser ─HTTP─► Visual Editor (FastAPI, port 8766)
                     │
                     ├─HTTP──► MCP Server REST API  (localhost:8765/api/*)
                     └─WS────► MCP Server WebSocket (localhost:8765/ws)
@@ -53,7 +53,7 @@ Requires the MCP server (`kg-memory start`) to be up.
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `EDITOR_PORT` | `3000` | Frontend + API port |
+| `EDITOR_PORT` | `8766` | Frontend + API port |
 | `EDITOR_HOST` | `127.0.0.1` | Bind address |
 | `MCP_SERVER_URL` | `http://127.0.0.1:8765` | Where to proxy |
 

@@ -69,7 +69,7 @@ def main():
         print("security:")
         check("host_allowed local", host_allowed("127.0.0.1:8765") and host_allowed("localhost"))
         check("host_allowed rejects foreign", not host_allowed("evil.com:8765") and not host_allowed(""))
-        check("origin_allowed absent + local", origin_allowed(None) and origin_allowed("http://localhost:3000"))
+        check("origin_allowed absent + local", origin_allowed(None) and origin_allowed("http://localhost:8766"))
         check("origin_allowed rejects foreign", not origin_allowed("https://evil.com") and not origin_allowed("file://x"))
 
         # --- health + session -------------------------------------------------
@@ -180,7 +180,7 @@ def main():
             msg = ws.receive_json()
             check("ws connects without Origin (non-browser)", msg.get("type") == "connected", msg)
 
-        with client.websocket_connect("/ws", headers={"origin": "http://localhost:3000"}) as ws:
+        with client.websocket_connect("/ws", headers={"origin": "http://localhost:8766"}) as ws:
             msg = ws.receive_json()
             check("ws connects from local Origin", msg.get("type") == "connected", msg)
 
