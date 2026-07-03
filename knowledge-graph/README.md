@@ -2,6 +2,8 @@
 
 Gives Claude a persistent memory that survives across sessions — not flat notes, but a graph of distilled insights connected by typed relationships. Claude captures patterns and decisions as you work; next session it recalls them automatically.
 
+The design puts the intelligence at **capture time**: knowledge is compressed by the model in the moment of insight, stored as headline + relationships, and read back natively — no embeddings, no retrieval engine, just structured text a language model is built to consume. That makes the memory compound with model capability: sharper models write denser nodes and extract more from the same graph. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design thesis.
+
 ## Prerequisites
 
 - **Claude Code** — CLI or desktop app
@@ -151,7 +153,6 @@ The server reads tunables from environment variables. Set them in your shell rc 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KG_MAX_TOKENS` | `5000` | Token limit before compaction triggers, per graph level (overrides `MAX_TOKENS` in `core/constants.py`) |
 | `KG_GRACE_PERIOD_DAYS` | see `constants.py` | Days a node is protected from archival after last update |
 | `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
@@ -159,6 +160,8 @@ The server reads tunables from environment variables. Set them in your shell rc 
 | `KG_AUTOCOMMIT_INTERVAL` | `900` | Git auto-commit interval for the storage root (seconds); `0` disables. Only acts when `~/.knowledge-graph` is a git repository |
 
 > Don't edit the plugin's bundled `.mcp.json` — that file just declares the HTTP endpoint Claude Code connects to (`http://127.0.0.1:8765/`), and it gets overwritten on every plugin update.
+
+> **The size budget is fixed by design.** Budgets are exact rendered characters — 17,500 per graph level, 40,000 for a whole `kg_read` result — chosen so the output always fits inline in Claude's context instead of spilling to a persisted file. That guarantee is arithmetic over the fixed constants; a knob would break it. If output ever needs trimming (e.g. a graph maintained by an older server), the server hides the lowest-scored archived anchors and edges and says so in the output — never active knowledge.
 
 ---
 
@@ -181,9 +184,9 @@ cp ~/.knowledge-graph/projects/<slug>/graph.json.prev \
    ~/.knowledge-graph/projects/<slug>/graph.json
 ```
 
-### Self-healing on load (0.9.12+)
+### Self-healing on load
 
-If a node ever lands with its `gist`, `notes`, and tool-call markup mashed into one oversized string (an occasional client glitch that bloated the token budget), the server repairs it automatically — sanitizing on write and healing any existing damage when a graph is loaded, then writing the fix back. It's idempotent and never overwrites data you supplied. The first 0.9.12 run logs `Healed N corrupt node(s) on load`; that's expected and one-time. See [Data and Backup](https://github.com/mironmax/claudecode-plugins/wiki/Data-and-Backup#self-healing-on-load) for details.
+If a node ever lands with its `gist`, `notes`, and tool-call markup mashed into one oversized string (an occasional client glitch), the server repairs it automatically — sanitizing on write and healing any existing damage when a graph is loaded, then writing the fix back. It's idempotent and never overwrites data you supplied. A `Healed N corrupt node(s) on load` log line means it did its job. See [Data and Backup](https://github.com/mironmax/claudecode-plugins/wiki/Data-and-Backup#self-healing-on-load) for details.
 
 ### Versioned history and external backups
 

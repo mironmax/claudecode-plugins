@@ -3,11 +3,12 @@
 from .types import Node, Edge, Graph
 from .constants import *
 from .exceptions import *
-from .estimator import TokenEstimator
+from .estimator import CharEstimator
 from .scorer import NodeScorer
 from .compactor import Compactor
 from .persistence import GraphPersistence
 from .healer import heal_node_fields, gist_is_malformed
+from .render import render_active_line, render_archived_line, render_edge_line
 from .utils import (
     is_archived,
     is_orphaned,
@@ -29,11 +30,8 @@ __all__ = [
     "Edge",
     "Graph",
     # Constants
-    "BASE_NODE_TOKENS",
-    "CHARS_PER_TOKEN",
-    "TOKENS_PER_EDGE",
-    "ARCHIVED_ID_TOKENS",
-    "MAX_TOKENS",
+    "MAX_CHARS_PER_LEVEL",
+    "READ_CHAR_BUDGET",
     "COMPACTION_TARGET_RATIO",
     "ARCHIVED_BUDGET_RATIO",
     "RESURRECTION_MARGIN",
@@ -59,13 +57,17 @@ __all__ = [
     "SessionNotFoundError",
     "NodeNotArchivedError",
     # Classes
-    "TokenEstimator",
+    "CharEstimator",
     "NodeScorer",
     "Compactor",
     "GraphPersistence",
     # Healer
     "heal_node_fields",
     "gist_is_malformed",
+    # Render (single source of truth for kg_read lines; estimator measures these)
+    "render_active_line",
+    "render_archived_line",
+    "render_edge_line",
     # Utils
     "is_archived",
     "is_orphaned",

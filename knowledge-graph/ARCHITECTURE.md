@@ -1,132 +1,37 @@
 # Knowledge Graph - Architecture Documentation
 
-## Origin & Evolution
+## Design Thesis
 
-### The Problem Space
+An agent's memory problem is not a retrieval problem — it is a **compression and
+curation** problem. Every session an agent re-derives context it already earned:
+project architecture, past decisions, user preferences, hard-won debugging
+conclusions. The knowledge graph makes that context durable and cheap: captured
+compressed at the moment of insight, connected by explicit relationships, and
+loaded whole at the start of every session.
 
-Daily work with Claude Code revealed recurring patterns:
-- **Repetitive prompting** - Same context repeated across sessions  
-- **Token waste** - Re-explaining established patterns and preferences
-- **Brittle solutions** - Hardcoded CLAUDE.md files couldn't evolve
-- **Missing continuity** - No learning from past sessions
+The design rests on one paradigm choice: **move the intelligence to entry, not
+retrieval.** An LLM is at its best distilling an insight in the moment it is
+understood — full context in the window, nuance still live. Knowledge stored
+that way (a telegraphic gist, edges naming how it relates, notes carrying the
+why) needs no retrieval machinery at all: the whole active graph fits in
+context, and the model scans it natively. No embeddings, no vector store, no
+query language — reading structured text is precisely what a language model is
+built to do.
 
-**Need identified:** A self-improving, evolving knowledge structure that captures patterns, preferences, and insights automatically.
+**Why this compounds with model capability.** The format is a bet on the reader.
+A compressed gist plus its edges is decoded by the model consuming it — so every
+generation of sharper models extracts more meaning from the same characters,
+follows crumb trails with more initiative, and writes better-compressed nodes
+back. Retrieval-engineering approaches age as models improve (their machinery
+becomes the bottleneck); a compression-first graph gets *more* valuable, because
+both its writer and its reader keep getting smarter. The architecture's job is
+only to keep the loop fast, bounded, and lossless — the intelligence is
+delegated to the models on either end.
 
-### Iteration 1: ByteRover Cipher
-
-**System:** ByteRover Cipher - a fully-local, Docker-based AI agent framework with dual-memory architecture
-
-**Actual Architecture:**
-```
-Entry Layer (TypeScript)
-  ↓
-MemAgent Core Orchestrator
-  ↓
-Dual-Memory System:
-├─ System 1 (Fast): Qdrant vector DB (3072-dim Gemini embeddings)
-└─ System 2 (Deep): Neo4j knowledge graph (relationship traversal)
-  ↓
-External Services (API calls only):
-├─ Gemini API (embeddings: gemini-embedding-001)
-└─ Groq/OpenAI API (LLM inference)
-  ↓
-Docker Containers (all local):
-├─ cipher-postgres (session storage)
-├─ cipher-qdrant (vector store)
-└─ cipher-neo4j (knowledge graph)
-```
-
-**What it actually offered:**
-- Dual cognitive system (fast pattern matching + deep reasoning)
-- Multi-backend support (12+ vector stores, multiple graph DBs)
-- Full local deployment (only LLM/embedding API calls external)
-- MCP integration via SSE transport
-- 4 operating modes: MCP, API, CLI, UI
-
-**Why it was rejected:**
-
-1. **Cost & Latency**
-   - External embedding API (Gemini) for every memory write
-   - LLM API calls for reasoning operations
-   - Docker container overhead for 4 services
-   - Operational complexity (service orchestration, health checks)
-
-2. **Embeddings Not Useful Enough**
-   - Semantic similarity not necessarily captured patterns, nor critical facts
-   - No guarantee "always relevant" knowledge surfaced
-
-3. **Over-Engineered for Use Case**
-   - Three databases (PostgreSQL + Qdrant + Neo4j) for single-user scenario
-   - Complex service topology (4 Docker containers + network)
-   - Graph queries provided marginal value over simpler approaches
-   - Maintenance burden >> benefits
-
-4. **Practical Issues**
-   - Docker resource usage (containers, volumes, networks)
-   - Container coordination and startup ordering
-   - Need for multiple API keys (Gemini + LLM provider)
-
-**Conclusion:** Sophisticated architecture with production-grade features, but too complex for the actual need. The dual-memory cognitive model seemed elegant, but simpler approaches proved more effective.
-
----
-
-### Iteration 2: MCP Memory Server with Advanced Retrieval
-
-**System:** TypeScript-based MCP server with inverted index and Steiner tree path-finding
-
-**Actual Architecture:**
-```
-Claude Code (multiple agents)
-  ↓
-Docker Container (stdio MCP server)
-  ↓
-KnowledgeGraphManager (in-memory + file-backed)
-├─ Inverted Index (token → entities mapping)
-├─ Steiner Tree Path-Finding (minimal connecting subgraph)
-└─ Scoring: TF × Importance × Recency
-  ↓
-./data/memory.jsonl (JSONL format, atomic writes)
-```
-
-**Key innovations:**
-
-1. **File Format: JSONL** ✅
-   - Line-oriented JSON (one object per line)
-   - Atomic appends for concurrent safety
-   - Human-readable and editable
-   - Efficient partial reads
-
-2. **Concurrency Safety** ✅
-   - File locking via `proper-lockfile` (5 retries, exponential backoff)
-   - Lock-free reads (eventual consistency)
-   - Atomic writes (temp file + rename)
-
-3. **Advanced Retrieval** ✅
-   - Inverted index: O(t×log m) search complexity
-   - Per-token semantic matching ensures diversity
-   - Steiner Tree finds "surprising connections"
-   - Tunable thresholds (top-per-token, min score, max results)
-
-4. **Sophisticated Scoring** ✅
-   - TF (sublinear: 1 + log frequency)
-   - Importance (content + graph degree)
-   - Recency (exponential decay)
-
-**Problems identified:**
-
-- ❌ **No archival system** → Grows indefinitely
-- ❌ **Hub monopolization** → High-centrality nodes dominate searches (rich-get-richer)
-- ❌ **Token matching limitations** → "docker-compose" ≠ "docker", no synonym support
-- ❌ **Single graph** → No separation of user-level vs project-level knowledge
-- ❌ **Complexity** → Inverted index + Steiner tree still didn't solve core issue
-
-**Key realization:** Even sophisticated retrieval algorithms (TF-IDF, Steiner trees, centrality avoidance) didn't solve the fundamental problem of surfacing truly important knowledge reliably.
-
----
-
-### Current Design: Compression-First Architecture
-
-**Paradigm shift:** Move complexity from **retrieval** to **entry** and **curation**.
+Two graph levels carry the memory: **user** (cross-project wisdom — who the
+agent works for) and **project** (codebase knowledge — what it works on). The
+working currency of a session is **gists + edges**; notes are depth on demand,
+one targeted read away.
 
 #### Core Principles
 
@@ -138,7 +43,7 @@ KnowledgeGraphManager (in-memory + file-backed)
 
 2. **Automatic Pruning & Evolution**  
    - Archival system based on usage, connectivity, recency
-   - Auto-compaction when token limits reached
+   - Auto-compaction when the size budget is reached
    - Self-cleaning (orphan node removal after grace period)
    - Knowledge graph evolves like living memory
 
@@ -149,42 +54,43 @@ KnowledgeGraphManager (in-memory + file-backed)
    - Simple beats clever
 
 4. **Dual-Mode Access**
-   - **Always loaded**: Core knowledge in every session (~3000 tokens)
-   - **Read on demand**: `kg_read(cwd, id)` retrieves any node's full content (promotes archived nodes)
+   - **Always loaded**: Core knowledge in every session (guaranteed to fit inline)
+   - **Read on demand**: `kg_read(id)` / `kg_read(ids=[...])` retrieves full content (promotes archived nodes)
    - **Memory traces**: Edges to archived nodes guide discovery
    - Sequential reading surfaces "hidden" knowledge
 
 #### Why This Works
 
 **Load everything by default:**
-- ~5000 token budget for active knowledge per level (`KG_MAX_TOKENS`, configurable; single source of truth in `core/constants.py`)
-- LLM scans entire graph in milliseconds
-- No query language or retrieval algorithms
-- Simple `kg_read()` → full context
+- Budgets are **exact rendered characters**, fixed by design (no env overrides): `MAX_CHARS_PER_LEVEL` (17,500) per level, `READ_CHAR_BUDGET` (40,000) for the combined kg_read output — single source of truth in `core/constants.py`, line rendering in `core/render.py`
+- The arithmetic guarantees kg_read always lands inline in context (never spills to a persisted file): two levels + wrapper < 40K < the MCP client's ~50K persistence threshold
+- For graphs the compactor hasn't maintained yet, a render-time degradation ladder enforces the ceiling: lowest-scored archived anchors are hidden first (with a count + kg_search pointer), then lowest-value edges — active gists never
+- LLM scans entire graph in milliseconds; no query language or retrieval algorithms — simple `kg_read()` → full context
 
 **When memory grows beyond limit:**
-- Archival scores nodes by: 0.33×recency + 0.66×connectedness (weighted sum of percentiles; richness was dropped in 0.9.9 — see scorer.py)
+- Archival scores nodes by: 0.33×recency + 0.66×connectedness (weighted sum of percentiles — see scorer.py)
 - Connectedness weights edges by neighbour state: an edge to an active node counts full (1.0), to an archived node `ARCHIVED_EDGE_WEIGHT` (0.2), to an orphaned node 0 — then `in × 0.66 + out × 0.33`. The reduced-but-nonzero archived weight lets a cluster that archived together still be resurfaced by refill (a member isn't scored as fully disconnected just because its neighbours archived too)
-- Archive nodes until graph is under `COMPACTION_TARGET_RATIO` (0.8) of the token limit
+- Archive nodes until graph is under `COMPACTION_TARGET_RATIO` (0.8) of the char budget
 - Run a resurrection pass: any pre-existing archived node that outscores a just-archived node by ≥0.05 is restored to active
-- `kg_read(cwd, id)` retrieves full content and promotes archived nodes
+- `kg_read(session_id, id)` retrieves full content and promotes archived nodes
 
 **When memory sits *under* the fill ceiling (reverse refill):**
 - Compaction only moves nodes down; a separate refill pass (`refill_if_room`) moves them back up so headroom isn't wasted
-- A single threshold governs refill: it acts whenever active tokens are below `COMPACTION_TARGET_RATIO` (0.8 × limit) and fills up to that same ceiling. (An earlier separate 0.6 trigger created a dead band where graphs settled permanently with unused headroom and most knowledge stranded archived.)
+- A single threshold governs refill: it acts whenever the rendered size is below `COMPACTION_TARGET_RATIO` (0.8 × budget) and fills up to that same ceiling — one number is both trigger and target, so headroom can never sit unused between two thresholds.
 - No-thrash comes from the ceiling (0.8) sitting below the archive threshold (1.0) — a refill can never push the graph into an immediate archive — plus the store skipping refill on any tick that just archived
 - A top-scored candidate too large for the remaining headroom is *skipped*, not allowed to block smaller candidates behind it (the fit check uses an exact O(degree) promotion delta, so walking past blockers is cheap)
 
 **Edges as resurfacing "strings" (render == charge):**
 - An edge is a *string* you pull to resurface a connected node: holding an active node, you see its edges and know what is worth reading next, without reading it first.
-- A string is only useful if you hold at least one end. So `kg_read` renders — and the token budget charges — an edge **only when at least one endpoint is active** (or is a file/artifact reference, which is always present). See `core/utils.edge_is_live`.
+- A string is only useful if you hold at least one end. So `kg_read` renders — and the char budget charges — an edge **only when at least one endpoint is active** (or is a file/artifact reference, which is always present). See `core/utils.edge_is_live`.
 - An edge between two archived nodes is a dangling thread between things you are not holding: it adds output mass and budget cost with zero resurfacing value. These are suppressed from `kg_read` and not charged. They reappear automatically the moment either end is promoted — nothing is lost.
-- A single predicate (`edge_is_live`) drives **both** rendering and charging, so the visible output and the compaction budget can never drift apart. The token estimator therefore charges *exactly* what `kg_read` shows: active gists + archived ID anchors + live edges.
+- A single predicate (`edge_is_live`) drives **both** rendering and charging, and the estimator measures the *exact strings* kg_read renders (`core/render.py`), so the visible output and the compaction budget can never drift apart: active gist lines + archived anchor lines + live edge lines, character for character.
+- Cross-level edges (a project node pointing up to a user-level node) and artifact edges (a node pointing at a file path) are legitimate: the far endpoint renders as-is and counts as "present". They live in the **project** graph.
 
 **Memory traces enable graph traversal:**
 - See a live edge to an archived node → know something related exists, ready to pull
-- Traverse via `kg_read(cwd, id)` → surface hidden knowledge (and its now-live neighbours)
-- Sequential reading reconstructs context
+- Traverse via `kg_read(session_id, id)` — or several hops in one call with `ids=[...]` — to surface hidden knowledge (and its now-live neighbours)
+- Node reads return the node's own edges, so every read hands back the next crumbs
 
 **Result:** Simplicity + reliability >> algorithmic complexity
 
@@ -219,7 +125,7 @@ KnowledgeGraphManager (in-memory + file-backed)
              │  - User graph (singleton)    │
              │  - Project graphs (N)        │
              │  - Write-through persistence │
-             │  - Auto-compact (~5000 tok.) │
+             │  - Auto-compact (17.5K chars)│
              │  - Self-heal on load/write   │
              └──────────┬───────────────────┘
                         │
@@ -234,139 +140,27 @@ KnowledgeGraphManager (in-memory + file-backed)
 
 ---
 
-### Transport Layer: Why Stateless HTTP?
+### Transport Layer
 
-**Decision: Stateless HTTP + Manual Sync (Polling)**
+Two transports, each matched to its client:
 
-This requires explanation because it seems suboptimal at first glance.
+- **Stateless HTTP (MCP protocol)** for Claude Code agents. Each request is
+  independent; graph sessions are application-level (the `session_id` returned
+  by `kg_read`), not transport-level. This matches how the Claude Code MCP
+  client actually speaks, keeps the mental model simple, and makes every
+  interaction visible in logs.
+- **WebSocket** for the visual editor, where we control the client and a live
+  view genuinely needs push: the store broadcasts every mutation to connected
+  browsers in real time.
 
-#### The Stateful vs Stateless Question
+Cross-session awareness for agents is **explicit**: `kg_sync(session_id)`
+returns a diff of what other sessions changed since the last sync. Explicit
+sync fits the workload — a handful of concurrent agents, on-demand
+coordination points, small JSON diffs — and keeps agent behavior predictable
+and debuggable: sync happens exactly when the agent decides its next move
+depends on shared knowledge.
 
-We have internal "session" mechanism for sync (`kg_sync()`) that seems similar to what push notifications could provide. Multiple agents working in parallel, or even different projects sharing user-level graph—sounds perfect for server-push architecture, right?
-
-**Evaluated options:**
-
-1. **Stateful Streamable HTTP with Push**
-   - Server maintains session IDs
-   - Pushes updates via Server-Sent Events (SSE)
-   - Real-time notification when other agents modify graph
-
-2. **Stateless HTTP with Polling**
-   - Each request independent (no session tracking)
-   - Agents call `kg_sync()` explicitly to check for updates
-   - Manual, not automatic
-
-**Why we chose stateless despite having "session-like" needs:**
-
-#### Claude Code MCP Client Constraints
-
-**From official documentation (verified 2025-12-26):**
-
-Claude Code's MCP client implementation:
-- ✅ Supports: HTTP (stateless request/response)
-- ❌ Does NOT support: Stateful session ID tracking
-- ❌ Does NOT support: Server-sent event (SSE) handling for push notifications
-- ⚠️ SSE transport: Deprecated in MCP spec (March 2025)
-
-**Empirical evidence:**
-```
-With stateless=False (stateful mode):
-  Client → POST / (initialize)
-  Server → Response with mcp-session-id: abc123
-  
-  Client → POST / (tools/call kg_read)
-  ❌ No mcp-session-id header sent!
-  Server → ERROR: "No valid session ID provided"
-
-With stateless=True:
-  Client → POST / (initialize)
-  Server → Creates transport, responds ✅
-
-  Client → POST / (tools/call kg_read)
-  Server → Creates new transport, responds ✅
-```
-
-**Conclusion:** Claude Code client doesn't preserve session IDs between requests. Stateful mode incompatible with actual client implementation.
-
-#### Why Not Implement Our Own Push?
-
-**WebSocket for push exists** (`mcp_http/websocket.py`) but it's **separate from MCP protocol**.
-
-**Problem:** Can't modify Claude Code's MCP client
-- We don't control how Claude Code spawns/manages MCP connections
-- Client is part of Claude Code core, not extensible
-- MCP SDK client doesn't expose WebSocket hooks
-
-**If we added WebSocket to MCP layer:**
-- Claude Code client wouldn't connect to it
-- Would require forking/patching Claude Code
-- Breaks with updates
-
-**Separation of concerns is cleaner:**
-```
-MCP Protocol (HTTP) ← Claude Code agents (read-only from our perspective)
-WebSocket          ← Visual editor (we control the client)
-```
-
-#### Implementation Complexity Analysis
-
-**Stateless HTTP + Polling:**
-- Complexity: ⭐ (current state)
-- Works with Claude Code client ✅
-- Simple mental model ✅
-- No connection management ✅
-- Debuggable ✅
-
-**Stateful HTTP + Push:**
-- Complexity: ⭐⭐⭐
-- Requires client support ❌
-- Connection management overhead ❌
-- Doesn't work with actual client ❌
-
-**WebSocket (for visual editor):**
-- Complexity: ⭐⭐ (already implemented!)
-- Perfect for browser clients ✅
-- Real-time updates ✅
-- Separate concern from MCP ✅
-
-#### Why Polling is Acceptable
-
-**"But multiple agents need sync!"** — Yes, and polling handles this fine:
-
-**Low overhead in practice:**
-- Few concurrent sessions (typically 1-3 agents)
-- Infrequent sync calls (on-demand, not continuous polling)
-- Small payloads (JSON diffs, only changed nodes/edges)
-- No persistent connection overhead
-
-**Explicit is better than implicit:**
-- Agent explicitly calls `kg_sync()` when it needs updates
-- Clear in logs when sync happens
-- No "ghost" behavior from background push
-- Predictable, debuggable
-
-**When polling would be insufficient:**
-- 10+ concurrent agents on same project (high contention)
-- Sub-second update requirements (we don't have this)
-- Thousands of sync calls per minute (we have ~1-10)
-
-#### Future: When to Reconsider
-
-**Revisit push-based MCP if:**
-- Claude Code SDK officially supports stateful Streamable HTTP
-- MCP spec adds WebSocket transport
-- We build custom agent client (not using Claude Code)
-- Usage patterns show high sync frequency (>100/min)
-
-**For visual editor (Phase 5): Use WebSocket** ✅
-- Browser clients handle WebSocket natively
-- Real-time graph visualization needs push
-- Already implemented (`ConnectionManager`)
-- Clean separation: MCP (polling) + WebSocket (push)
-
----
-
-### Final Transport Architecture
+### Transport Architecture
 
 ```
 ┌─────────────────┐         ┌──────────────┐
@@ -390,8 +184,6 @@ WebSocket          ← Visual editor (we control the client)
 - Visual editor: Implicit updates via WebSocket (push)
 - Same underlying store, different transport needs
 
-**Result:** Best of both worlds, no compromises.
-
 ---
 
 ## Storage Layer
@@ -407,17 +199,15 @@ WebSocket          ← Visual editor (we control the client)
           └── graph.json                 # Project-specific knowledge
 ```
 
-**Design decision: Centralized storage.** Previous iterations stored project graphs inside project directories (`.claude/knowledge/graph.json`). This created issues with discovery, backup, and git tracking across multiple projects. Centralizing under `~/.knowledge-graph/` simplifies management while keeping project isolation via slug-based subdirectories.
+**Centralized storage.** All graphs live under `~/.knowledge-graph/` — one place to inspect, back up, and version everything, with project isolation via slug-based subdirectories. A single directory holding all accumulated knowledge is also what makes the whole memory portable: copy it and every project's context moves with it.
 
-**Write-through persistence.** Every mutation (node/edge create, update, delete) is immediately persisted to disk. The previous periodic auto-save approach (30s interval) risked data loss on crashes. Write-through eliminates this at negligible performance cost for the typical write frequency.
+**Write-through persistence.** Every mutation (node/edge create, update, delete) is immediately persisted to disk, so a crash can never cost more than the mutation in flight. The cost is negligible at knowledge-capture write rates.
 
-**Periodic git auto-commit (0.9.15+).** When the storage root is a git repository, the server itself commits pending changes on a timer (`core/autocommit.py`, `AutoCommitter` daemon thread — same Event-wait pattern as the store's saver thread). Every `KG_AUTOCOMMIT_INTERVAL` seconds (default 900; `0` disables) it checks the working tree and, only if something changed, commits with the `Auto-save YYYY-MM-DD HH:MM` message; a final best-effort commit runs on graceful shutdown *after* the store flushes. Doing this inside the server matters: `manage_server.sh` only committed on managed stop/restart, but in real operation the server is launched by the SessionStart hook and dies with the machine — a managed stop never runs, so commits never happened. No `.git` directory means silent no-op, and git failures are logged, never fatal.
+**Periodic git auto-commit.** When the storage root is a git repository, the server itself commits pending changes on a timer (`core/autocommit.py`, `AutoCommitter` daemon thread). Every `KG_AUTOCOMMIT_INTERVAL` seconds (default 900; `0` disables) it commits only when the tree actually changed, using the `Auto-save YYYY-MM-DD HH:MM` message; a final best-effort commit runs on graceful shutdown *after* the store flushes. Committing from inside the server means history accumulates no matter how the process is started or killed — including the normal case where the SessionStart hook launches it and it dies with the machine. No `.git` directory means silent no-op, and git failures are logged, never fatal.
 
 **Self-healing on load and write.** A node should be stored as discrete fields (`gist`, `notes`, `touches`). A client can occasionally serialize the whole node — including tool-call markup — into the `gist` string, leaving `notes` empty; the oversized gist then inflates the active-token budget on every `kg_read`. Rather than trust every writer to be well-formed, the store sanitizes defensively: `core.healer.heal_node_fields` is applied both on write (`put_node`) and on load (each graph is healed the first time it is read from disk, then rewritten). The same function powers both paths, so rendering and storage cannot drift, and it is idempotent — already-clean graphs pass through untouched. This is a third robustness layer alongside atomic writes and the `.prev` rolling backup: those guard against bad *I/O*; healing guards against bad *data*.
 
 ### Why JSON Files?
-
-**Decision rationale** (learned from Iteration 1 failure):
 
 1. **Human-readable** — Inspect/edit with any text editor
 2. **Version controllable** — Git tracks changes, diffs meaningful  
@@ -447,38 +237,32 @@ WebSocket          ← Visual editor (we control the client)
 
 ---
 
-## Design Philosophy Summary
+## Design Principles
 
-### Lessons Learned Through Iteration
+1. **Compress on entry, read natively.** The LLM distills knowledge at the moment
+   of insight; what's stored is already in the form the next session consumes.
+   With storage right, retrieval is just reading — the model's home ground.
 
-1. **Simplicity > Algorithmic Sophistication**
-   - Complex retrieval (Steiner trees, centrality avoidance) didn't solve core problem
-   - Simple loading + good compression >> complex search + poor storage
+2. **The format bets on the reader.** Gists + edges carry meaning the consuming
+   model decodes. Sharper models extract more from the same characters, follow
+   crumbs with more initiative, and compress better on capture — the graph
+   appreciates with every model generation.
 
-2. **Compression on Entry > Transformation on Retrieval**
-   - LLM best at distillation during creation
-   - Store insights, not raw data
-   - No retrieval algorithms if storage is right
+3. **Bounded and lossless.** Fixed character budgets keep the always-loaded core
+   small and guaranteed inline; tiered archival (active → archived → orphaned)
+   means growth never costs knowledge — everything stays reachable, and use
+   promotes what matters back up.
 
-3. **LLM-Native Formats > Specialized Representations**
-   - JSON beats embeddings for our use case
-   - Direct context loading beats semantic search
-   - Human-readable beats optimized-for-machines
+4. **Explicit over implicit.** Sync happens when the agent asks; every
+   interaction is a visible tool call. Predictable, debuggable, log-readable.
 
-4. **Explicit > Implicit**
-   - `kg_sync()` polling beats hidden push notifications
-   - Clear when sync happens, visible in logs
-   - Debuggable, predictable
+5. **Local, plain, portable.** JSON files under one directory, no services, no
+   external APIs. The entire memory can be read with a text editor, versioned
+   with git, and moved with `cp`.
 
-5. **Local > External Services**
-   - JSON files beat graph databases
-   - In-process beats containers/APIs
-   - Simple operations, simple debugging
-
-6. **Evolution > Perfection**
-   - Archival allows growth while staying focused
-   - Memory traces enable discovery without loading everything
-   - Self-cleaning via usage patterns
+6. **Evolution over perfection.** The graph is a garden: capture continuously,
+   maintain lightly, let scoring and refill adapt what's active to how the
+   knowledge is actually used.
 
 ---
 

@@ -61,6 +61,20 @@ The skip signal comes from knowing what's *not* here, not just what is.
 Bad gist: `"Authentication module"` — tells you nothing about whether to open the file.
 Good gist: `"JWT issue/verify only — stateless, no DB calls, no session state"` — skip decision made.
 
+## Touches as Precise Pointers
+
+A touch that names a whole file saves a search; a touch that names a line range saves the
+read itself. When a specific block is what matters, point at it — with a short semantic
+anchor so the pointer survives line drift:
+
+```
+touches=["src/auth/jwt.ts:88-120 (rotation schedule)", "config/prod.yaml:30-40 (upstream block)"]
+```
+
+Whole-file touches are right for component nodes (the cluster is the unit); ranged
+pointers are right for knowledge nodes about one specific spot. Never point *edges* at
+file paths — edges relate concepts; touches locate them.
+
 ## Edge Types
 
 | Edge | Meaning |

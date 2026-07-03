@@ -80,7 +80,7 @@ def edge_is_live(edge: dict, nodes: dict, active_ids: set) -> bool:
     neither rendered in kg_read nor charged against the active budget.
 
     This single predicate is the source of truth for BOTH rendering
-    (format_graph_compact) and charging (TokenEstimator), so the two can never
+    (format_graph_compact) and charging (CharEstimator), so the two can never
     drift apart. When an archived node is later promoted, its edges become live
     again automatically — nothing is lost.
     """

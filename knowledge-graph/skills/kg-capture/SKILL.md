@@ -24,7 +24,8 @@ description: |
 
   Gist = subject + key fact, ≤120 chars. Notes = rationale and steps.
   When something is a relationship between two existing things, an edge is better than a new node.
-  Levels: user = preferences/principles/meta-patterns · project = codebase/decisions/ops
+  Touches = precise pointers into files: path:line-range (+ short anchor) — a
+  pointed touch saves a whole-file read next session.
 ---
 
 # Capture Reference (Detailed)
@@ -95,9 +96,9 @@ Same information, one-third the tokens, and `session-handler` is now reusable.
 kg_put_node(
   level="project",
   id="kebab-case-id",
-  gist="the insight itself",   # terse but complete
-  touches=["file.py"],         # optional: related artifacts
-  notes=["caveat or context"]  # optional: rationale, constraints
+  gist="the insight itself",           # terse but complete
+  touches=["src/api/auth.py:42-60 (validate flow)"],  # optional: precise pointers
+  notes=["caveat or context"]          # optional: rationale, constraints
 )
 ```
 
@@ -105,15 +106,31 @@ kg_put_node(
 ```
 kg_put_edge(
   level="project",
-  from="source-node-or-path",
-  to="target-node-or-path",
+  from="source-node",
+  to="target-node",
   rel="relationship-type",
   notes=["optional context"]
 )
 ```
 
-Direct artifact references work without wrapping in nodes:
+## Touches vs Edges — where does a file reference go?
+
+- **Edges relate concepts** (node→node). **Touches locate concepts in files.**
+- A touch is best as a precise pointer: `path:start-end` plus a short semantic anchor
+  (`"config/prod.yaml:30-40 (upstream block)"`). Line numbers drift — the anchor keeps
+  the pointer recoverable. A pointed touch lets the next session read 10 lines instead
+  of the whole file.
+- Don't create edges to file paths. If a file matters enough to relate to several
+  concepts, **graduate it to a component node** (gist = what it handles + what it
+  does NOT), then use normal edges.
+
+## Cross-Level Edges
+
+A project node may point up to a user-level node — this is how project work hooks into
+cross-project doctrine:
 ```
-kg_put_edge(level="project", from="src/api/auth.py", to="src/session/handler.py",
-            rel="requires-init", notes=["auth.validate() assumes session.current exists"])
+kg_put_edge(level="project", from="this-projects-decision",
+            to="user-level-principle", rel="applies")
 ```
+Always store cross-level edges in the **project** graph (the user graph is always loaded,
+so the reference resolves; the reverse direction does not).

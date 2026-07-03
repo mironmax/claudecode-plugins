@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.16] - 2026-07-03
+
+### Changed
+- **Budgets are now exact rendered characters — kg_read is guaranteed to land inline.** The old budget was estimated tokens with flat per-item charges (`BASE_NODE_TOKENS`, `TOKENS_PER_EDGE`, `ARCHIVED_ID_TOKENS`, …) that drifted from real rendered sizes — long kebab ids and long relationship names rendered far past their charge, so on some projects the combined kg_read output overflowed the MCP client's inline tool-result limit and landed in a persisted file the model only sees a 2KB preview of (the root cause behind "read the overflow file before working"). The estimator now measures the *exact strings* kg_read renders (`core/render.py` is the single source of truth for line rendering; the estimator charges `len(line)+1`), the per-level budget is `MAX_CHARS_PER_LEVEL` (17,500), and a render-time **degradation ladder** enforces a hard `READ_CHAR_BUDGET` (40,000) on the combined output for graphs the compactor hasn't maintained yet: lowest-scored archived anchors are hidden first (with a count and a kg_search pointer), then lowest-value live edges — active gists are never dropped. The budget is deliberately **not configurable**: the `KG_MAX_TOKENS` env override is gone; the inline guarantee is an invariant, not a tuning exercise.
+- **Node reads are compact text, not raw JSON.** `kg_read(id)` used to dump the node as indented JSON including internal fields (`_last_read_ts`, …). It now renders gist / notes / touches plus — new — the node's own edges, giving crumb-following its next hops for free.
+
+### Added
+- **Batch node reads:** `kg_read` accepts `ids: [...]` to read several nodes in one call — sequential crumb-following round-trips collapse into one.
+- **Session reuse:** `kg_read` accepts `session_id`; a valid one is reused instead of registering a fresh session. Previously *every* read carrying `cwd` (which the schema required) minted a new session and fsynced `sessions.json` — four crumb reads = four sessions. `cwd` is now only required on the true first call.
+- Tests: `tests/test_v0916.py` (33 assertions: exact-char render==charge, ladder ordering/floor/guarantee, compact node format, session reuse, edge-cleanup preservation).
+
+### Fixed
+- **Cross-level and artifact edges were silently deleted on every server restart.** `_clean_orphaned_edges` removed any edge whose endpoint wasn't a node in the same graph — which is exactly what a project→user cross-level edge or a file-path (artifact) edge looks like locally. Cleanup now keeps endpoints that are artifact paths (`/` or `~`) or resolvable in another loaded level; only true dangling references (deleted nodes) are removed. Doctrine settled alongside: cross-level edges belong in the *project* graph pointing up to user-level nodes.
+
 ## [0.9.15] - 2026-07-02
 
 ### Fixed

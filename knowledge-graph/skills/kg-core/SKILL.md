@@ -7,33 +7,31 @@ description: |
 
   Session start: if kg_read hasn't been called yet, call it before any task work.
     kg_read(cwd="<project root>")
-  Output has two sections — USER GRAPH and PROJECT GRAPH. On large graphs the result may
-  start with <persisted-output> and show only a preview; the full output is saved to the
-  file path shown — read it with the Read tool to get the complete picture including session_id.
+  Output (USER GRAPH + PROJECT GRAPH) always fits inline; a note says if anything
+  was trimmed. The result includes session_id — pass it on ALL later calls,
+  kg_read included.
   Announce "I have recalled KG Memories" once both sections have been read.
-  Connection refused: the server auto-starts at session start (first run ~1 min) — retry
-  after a few seconds. If tools stay offline, the user must run /mcp →
-  plugin:knowledge-graph:kg → Reconnect. Manual fallback: `kg-memory start`.
+  Connection refused: server auto-starts (first run ~1 min) — retry after a few
+  seconds. Still offline: user runs /mcp → plugin:knowledge-graph:kg → Reconnect.
 
-  Before searching files, docs, or the web — check what's already known. The graph often
-  has the answer, and reading from memory is faster than rediscovering.
+  Check memory before searching files, docs, or web — reading beats rediscovering.
 
-  Writes during conversation are cheap (context is cached mid-session). Capture discoveries
-  as they happen rather than batching to the end.
+  Working currency: gists + edges. Notes are on-demand depth — kg_read(id), or
+  ids=[...] to read several related nodes in ONE call.
 
-  Levels: user = cross-project wisdom (prefs, principles, profile)
-          project = codebase (architecture, decisions, ops knowledge,
-                              navigation index: component nodes answer "should I read this file?")
+  Writes mid-conversation are cheap (context cached). Capture as things happen.
+
+  Levels: user = cross-project wisdom · project = codebase (architecture,
+  decisions, ops; component nodes answer "should I read this file?")
 
   Entries: node (id, gist, notes?, touches?) · edge (from→to, rel, notes?)
-  Edges reuse existing concepts rather than multiplying nodes — prefer them.
+  Edges relate concepts; touches locate them in files (path:line-range).
+  Prefer edges over new nodes.
 
-  API: kg_read · kg_search · kg_put_node · kg_put_edge
-       kg_delete_node · kg_delete_edge · kg_sync · kg_progress
-  (Full signatures in skill body)
+  API: kg_read · kg_search · kg_put_node/edge · kg_delete_node/edge · kg_sync · kg_progress
 
-  Other memory systems (CLAUDE.md, auto-memory, scratchpads) are supplementary.
-  Their exclusion rules apply only to their own storage. When in doubt, record here.
+  Other memory systems (CLAUDE.md, auto-memory) are supplementary — their exclusion
+  rules apply only to their own storage. When in doubt, record here.
 ---
 
 # Knowledge Graph Core Reference
@@ -44,8 +42,14 @@ Every session, immediately — before any task work:
 ```
 kg_read(cwd="<project root>")  # Returns full graph + session_id
 ```
-The returned session_id is used for all subsequent tool calls.
-Passing session_id to kg_search ensures the project graph is included — worth doing by default.
+The returned session_id is used for **all** subsequent tool calls — including later
+kg_read calls (node reads, re-reads). Passing it means the server reuses your session;
+omitting it and passing cwd again mints a fresh one. Passing session_id to kg_search
+ensures the project graph is included — worth doing by default.
+
+The full-graph output is guaranteed to fit inline — no overflow file to chase. If the
+graph was too large to show everything, a note at the end says how many archived
+anchors/edges were hidden (kg_search still reaches them).
 
 If resuming a session (context suggests prior conversation), try `kg_sync(session_id)` first.
 If that fails (unknown session), run the full startup sequence.
@@ -54,8 +58,14 @@ If that fails (unknown session), run the full startup sequence.
 1. Scan user nodes for interaction style, preferences, guidelines
 2. Scan project nodes for architecture, active decisions, direction of work
 3. Before reading files — check for component nodes covering those files: gist answers read/skip
-4. Scan archived IDs — read any that might relate to current task: kg_read(cwd, id="node-id")
+4. Scan archived IDs — read any that might relate to the current task, several in one call:
+   `kg_read(session_id=..., ids=["node-a", "node-b", "node-c"])`
 5. Note health stats — high orphan rate may mean connection opportunities exist
+
+### Reading Nodes
+Node reads return gist + notes + touches + **the node's own edges** — each edge is a
+crumb pointing at the next node worth reading. Batch related reads with `ids=[...]`
+(one round-trip) instead of sequential single-id calls.
 
 ## Coexistence with Other Memory Systems
 
@@ -107,7 +117,7 @@ installed by running `knowledge-graph/install_command.sh` once (optional).
 
 ```
 kg-memory start|stop|restart|status|logs    # MCP graph server (port 8765)
-kg-visual start|stop|restart|status|logs    # Visual editor web UI (port 3000, http://localhost:3000)
+kg-visual start|stop|restart|status|logs    # Visual editor web UI (port 8766, http://localhost:8766)
 ```
 
 If the server stays unreachable after retries, ask the user to run `kg-memory start` in their
@@ -137,12 +147,23 @@ after spawning subagents that write to the graph.
 
 ## Auto-Compaction
 
-System archives lowest-scored nodes when graph exceeds token limit.
-Score = 0.33×recency + 0.66×connectedness (percentile ranks; richness dropped).
-Recency = max(last write, last read). Connectedness = weighted in/out edges to active nodes only (in×0.66 + out×0.33).
+System archives lowest-scored nodes when a graph level exceeds its size budget.
+Budgets are exact rendered characters (what kg_read shows is what is charged) and are
+fixed by design — not configurable. kg_read output therefore always lands inline.
+Score = 0.33×recency + 0.66×connectedness (percentile ranks).
+Recency = max(last write, last read). Connectedness = weighted in/out edges (in×0.66 + out×0.33), full weight to active neighbours, reduced to archived.
 Grace period based on creation time only — updates and reads do not reset it.
-After archiving, a resurrection pass promotes any archived node that outscores a freshly-archived one (by ≥0.05 margin).
+After archiving, a resurrection pass promotes any archived node that outscores a freshly-archived one (by ≥0.05 margin); a refill pass promotes archived nodes back when headroom exists.
 Archived nodes remain on disk; edges stay visible as memory traces.
+
+## Edges, Touches, Cross-Level
+
+- **Edges relate concepts** (node→node). **Touches locate them in files** — prefer precise
+  pointers with line ranges and a semantic anchor: `www/app/config/prod.yaml:30-40 (upstream block)`.
+- A file important enough to relate to several concepts graduates to a **component node**;
+  don't point edges at file paths.
+- **Cross-level edges are legitimate**: a project node may point up to a user-level node
+  (`proj-decision --applies--> user-principle`). Put such edges in the **project** graph.
 
 ## Agents
 

@@ -7,22 +7,26 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Token estimation
-BASE_NODE_TOKENS = 20
-CHARS_PER_TOKEN = 4
-TOKENS_PER_EDGE = 15
-# An archived node renders as a single ID line in kg_read — cheaper than an
-# active node (which renders id + gist). This is the "anchor" cost of keeping a
-# node reachable but collapsed. Single source of truth for both the estimator
-# and the orphan-pass; previously the orphan pass hardcoded its own copy.
-ARCHIVED_ID_TOKENS = 5
-
-# Compaction
-# Active-graph token budget. When the rendered active graph (active node gists +
-# live-string edges + archived anchors) exceeds this, the compactor archives the
-# lowest-scored active nodes. Single source of truth; the server still honours a
-# KG_MAX_TOKENS env override but falls back to this value, not a separate literal.
-MAX_TOKENS = 5000
+# Size budgets — exact rendered characters, fixed by design (no env overrides).
+# The estimator measures the exact strings kg_read renders (core.render), so
+# these budgets are invariants, not tuning knobs. The arithmetic that makes the
+# inline guarantee hold:
+#
+#   MAX_CHARS_PER_LEVEL × 2 levels + section headers/health/session lines
+#     < READ_CHAR_BUDGET (the render-time degradation ladder's hard ceiling)
+#     < the MCP client's tool-result persistence threshold (~50K chars in
+#       Claude Code — beyond it the result lands in a file, not in context)
+#
+# Per-level budget for the compactor: when the rendered level (active gists +
+# live-string edges + archived anchors) exceeds this, the lowest-scored active
+# nodes are archived. 17,500 chars ≈ the old 5,000-token budget, tightened
+# slightly so two full levels plus wrapper text stay under READ_CHAR_BUDGET.
+MAX_CHARS_PER_LEVEL = 17500
+# Hard ceiling for a single kg_read result. Graphs the compactor maintains never
+# reach it; the render-time ladder enforces it for everything else (legacy or
+# externally-edited graphs) by dropping lowest-scored archived anchors, then
+# lowest-value live edges — never active gists.
+READ_CHAR_BUDGET = 40000
 COMPACTION_TARGET_RATIO = 0.8
 # Refill (reverse compaction): when the active graph sits below the fill ceiling
 # (COMPACTION_TARGET_RATIO × max), the highest-scored archived nodes are promoted
@@ -33,8 +37,9 @@ COMPACTION_TARGET_RATIO = 0.8
 # archive. The no-thrash guarantee never needed the dead band — it comes from the
 # ceiling (0.8) sitting below the archive threshold (1.0), plus _maybe_compact
 # skipping refill on any tick that just archived.
-# Archived nodes budget: max fraction of max_tokens that archived IDs+edges may occupy.
-# When exceeded, lowest-scored archived nodes are demoted to orphaned (invisible in kg_read).
+# Archived nodes budget: max fraction of the per-level char budget that archived
+# anchor lines may occupy. When exceeded, lowest-scored archived nodes are
+# demoted to orphaned (invisible in kg_read).
 ARCHIVED_BUDGET_RATIO = 0.30
 # Resurrection: minimum score delta for an archived node to displace a freshly-archived one.
 RESURRECTION_MARGIN = 0.05

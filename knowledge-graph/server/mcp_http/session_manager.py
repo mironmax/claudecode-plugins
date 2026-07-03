@@ -48,6 +48,15 @@ class HTTPSessionManager:
         self.save_sessions()  # Persist immediately so project_path survives restarts
         return {"session_id": session_id, "start_ts": ts}
 
+    def lookup(self, session_id: str) -> dict | None:
+        """Return the session record if it exists — no auto-recovery, no mutation.
+
+        kg_read uses this to decide whether a caller-supplied session_id can be
+        reused (it must exist AND carry a project_path). ensure_session would
+        silently create a path-less session here, which breaks project reads.
+        """
+        return self._sessions.get(session_id)
+
     def ensure_session(self, session_id: str) -> None:
         """
         Re-register a session if it was lost (e.g. server restart).

@@ -7,14 +7,14 @@ from pathlib import Path
 from dataclasses import dataclass, field
 
 from core import (
-    TokenEstimator,
+    CharEstimator,
     NodeScorer,
     Compactor,
     GraphPersistence,
     Graph,
     GRACE_PERIOD_DAYS,
     ORPHAN_GRACE_DAYS,
-    MAX_TOKENS,
+    MAX_CHARS_PER_LEVEL,
     heal_node_fields,
     gist_is_malformed,
     is_archived,
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GraphConfig:
     """Configuration for knowledge graph."""
-    max_tokens: int = MAX_TOKENS
+    max_chars: int = MAX_CHARS_PER_LEVEL
     orphan_grace_days: int = ORPHAN_GRACE_DAYS
     grace_period_days: int = GRACE_PERIOD_DAYS
     save_interval: int = 30
@@ -65,9 +65,9 @@ class MultiProjectGraphStore:
         self.broadcast_callback = broadcast_callback
 
         # Initialize components
-        self.estimator = TokenEstimator()
+        self.estimator = CharEstimator()
         self.scorer = NodeScorer(config.grace_period_days)
-        self.compactor = Compactor(self.scorer, self.estimator, config.max_tokens)
+        self.compactor = Compactor(self.scorer, self.estimator, config.max_chars)
 
         # Graph storage: key = "user" or "project:<project_root>"
         self.graphs: dict[str, Graph] = {}
@@ -322,6 +322,33 @@ class MultiProjectGraphStore:
                 except Exception as e:
                     logger.warning(f"Could not load project graph for {project_root}: {e}")
 
+            return result
+
+    def scores_for_read(self, session_id: str | None = None) -> dict:
+        """Node scores per level for kg_read's degradation ladder.
+
+        Returns {"user": {node_id: score}, "project": {node_id: score}} scored
+        with archived nodes included (one comparable pool). Nodes inside the
+        grace period are absent — the ladder treats missing as "keep" for active
+        nodes and can't encounter it for archived ones (archiving only happens
+        past grace).
+        """
+        with self.lock:
+            result = {"user": {}, "project": {}}
+            keys = [("user", "user")]
+            if session_id:
+                project_root = self.session_manager.get_project_path(session_id)
+                if project_root:
+                    keys.append(("project", f"project:{project_root}"))
+            for label, graph_key in keys:
+                graph = self.graphs.get(graph_key)
+                if not graph:
+                    continue
+                result[label] = self.scorer.score_all(
+                    graph["nodes"], graph["edges"],
+                    self._versions.get(graph_key, {}),
+                    include_archived=True,
+                )
             return result
 
     def put_node(
@@ -670,7 +697,19 @@ class MultiProjectGraphStore:
                 logger.info(f"Recalled archived node '{node_id}' in {resolved_level} graph"
                             + (f"; rescued {len(rescued)} orphaned neighbor(s)" if rescued else ""))
 
-            return {"node": node, "level": resolved_level, "was_archived": was_archived}
+            # The node's own edges — crumbs for follow-up reads. Snapshot dicts:
+            # the caller renders after the lock is released.
+            node_edges = [
+                dict(e) for e in edges.values()
+                if e["from"] == node_id or e["to"] == node_id
+            ]
+
+            return {
+                "node": dict(node),
+                "level": resolved_level,
+                "was_archived": was_archived,
+                "edges": node_edges,
+            }
 
     def get_sync_diff(self, session_id: str, start_ts: float) -> dict:
         """
@@ -864,15 +903,32 @@ class MultiProjectGraphStore:
         Remove edges pointing to non-existent nodes.
         Called when loading graphs to clean up broken references.
         Modifies graph in-place.
+
+        An endpoint that is not a node in THIS graph is still legitimate when it
+        is (a) an artifact/file path (contains "/" or "~" — node ids can't), or
+        (b) a cross-level reference: a node id that lives in another loaded
+        level. Doctrine: cross-level edges belong in the PROJECT graph and point
+        up to user-level nodes — the user graph loads at startup, so it is
+        always available by the time a project graph is cleaned. Deleting these
+        used to silently garbage-collect real knowledge on every restart.
         """
         nodes = graph["nodes"]
         edges = graph["edges"]
-        node_ids = set(nodes.keys())
+
+        def endpoint_known(ref: str) -> bool:
+            if ref in nodes:
+                return True
+            if "/" in ref or "~" in ref:
+                return True  # artifact/file path — always "present"
+            # Cross-level reference resolvable in another loaded graph level
+            return any(
+                ref in other["nodes"] for other in self.graphs.values() if other is not graph
+            )
 
         # Find orphaned edges
         orphaned_keys = []
         for edge_key, edge in edges.items():
-            if edge["from"] not in node_ids or edge["to"] not in node_ids:
+            if not endpoint_known(edge["from"]) or not endpoint_known(edge["to"]):
                 orphaned_keys.append(edge_key)
                 logger.warning(
                     f"Removing orphaned edge: {edge['from']} -> {edge['to']} "

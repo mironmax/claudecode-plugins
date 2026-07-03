@@ -3,11 +3,12 @@ name: kg-maintain
 user-invocable: true
 description: |
   Knowledge graph maintenance. Tend the garden — regular, light care keeps it healthy.
-  Not a separate task: woven into every session, every capture.
+  Woven into every session, every capture.
 
   GARDEN RHYTHM — three modes, applied as needed:
     Water   (routine): after each task, glance at 2–3 recently-touched nodes.
-                       Are their gists still accurate? Any note worth adding?
+                       Gists still accurate? Notes worth adding? Do touches
+                       still point where they claim (files drift)?
     Prune   (when dense): merge duplicate nodes, shorten verbose gists (→ notes),
                        split oversized nodes, remove stale touches, delete edges to removed concepts.
     Fertilize (on use): when a node proves valuable, connect it to newly-discovered
@@ -25,8 +26,8 @@ description: |
     Node just proved useful → add one edge to current context.
     Gist feels vague after using it → sharpen while context is live.
 
-  Archival is reversible — leave archived nodes alone unless content is factually wrong
-  and can't be fixed by updating. Deletion is a last resort, not routine cleanup.
+  Archival is reversible — leave archived nodes alone unless factually wrong and
+  unfixable by update. Deletion is a last resort, not routine cleanup.
 ---
 
 # Maintenance Reference (Detailed)
@@ -34,7 +35,7 @@ description: |
 ## When Invoked Directly (/kg-maintain)
 
 Run a focused maintenance pass in this order:
-1. `kg_read(cwd)` — check health stats: orphan %, avg edges/node, size warning
+1. `kg_read(cwd)` — check health stats: orphan %, avg edges/node, any degradation note
 2. **Always**: scan all gists against the current kg-capture standard — tighten any that exceed it, regardless of graph size
 3. **Always**: spot-check notes on recently-touched nodes — rewrite any that have grown chaotic or redundant (see "Notes Hygiene" below)
 4. If graph is large or has size warning → **Prune**: merge duplicates, split oversized nodes, remove stale touches
@@ -66,6 +67,9 @@ When auditing the graph with kg_read:
 - **Verbose gists** — if a gist exceeds the current kg-capture standard, tighten it. Move procedure/details to notes. Gist = headline only. See "Gist Hygiene" below.
 - **Bloated notes** — notes that have grown into a changelog or contain contradictions. Rewrite to current truth only. See "Notes Hygiene" below.
 - **Oversized nodes** — single node spanning multiple responsibilities. Split and link. See "Oversized Node Detection" below.
+- **Stale pointers** — touches with line ranges (`path:30-40`) drift as files change. On
+  recently-touched nodes, spot-check that the range still contains what the anchor names;
+  fix the range or re-anchor.
 
 ## Gist Hygiene
 
@@ -121,12 +125,12 @@ This pass is independent of graph size — a small graph can have a bloated node
 
 ## Operational Safety
 
-### Tool result size limit
-Claude Code persists tool results over ~50K chars to disk — model sees only a 2KB preview.
-kg_read output is the full graph as text. If kg_read shows a size warning (>40K chars):
-1. Review nodes for staleness, duplicates, disconnected entries
-2. Delete or merge low-value nodes
-3. KG_MAX_TOKENS default is 5000 per graph level — two graphs ≈ 40K chars, safe under 50K limit
+### Output size
+kg_read output is guaranteed to fit inline — budgets are exact rendered characters,
+fixed in `core/constants.py` (17,500 per level; 40,000 hard ceiling for the combined
+output). If the output ends with a "degraded to fit the inline budget" note, the graph
+is carrying more archived anchors/edges than the ceiling allows — a good cue to run a
+prune/merge pass so nothing needs hiding.
 
 ### Project renames
 When project folder renamed, graph slug changes. Server handles via alias detection.

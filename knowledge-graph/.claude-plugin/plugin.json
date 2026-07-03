@@ -1,12 +1,21 @@
 {
   "name": "knowledge-graph",
-  "version": "0.9.15",
+  "version": "0.9.16",
   "description": "Extract and remember patterns, insights, and relationships worth preserving across sessions. Unlike flat-file memory, knowledge is a graph — nodes gain meaning through edges. Auto-compaction, multi-session sync, visual editor.",
   "author": {
     "name": "Maxim",
     "url": "https://github.com/mironmax"
   },
   "license": "MIT",
-  "keywords": ["knowledge", "graph", "memory", "documentation", "mcp", "collaboration", "http", "sse"],
+  "keywords": [
+    "knowledge",
+    "graph",
+    "memory",
+    "documentation",
+    "mcp",
+    "collaboration",
+    "http",
+    "sse"
+  ],
   "mcpServers": "./.mcp.json"
 }

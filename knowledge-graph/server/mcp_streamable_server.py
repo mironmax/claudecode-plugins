@@ -27,6 +27,7 @@ from mcp_http.session_manager import HTTPSessionManager
 from mcp_http.store import MultiProjectGraphStore, GraphConfig
 from mcp_http.websocket import ConnectionManager
 from mcp_http.rest import create_rest_api
+from mcp_http.read_format import build_full_read, format_node_full
 from mcp_http.security import host_allowed
 from core.autocommit import AutoCommitter
 from core.exceptions import (
@@ -34,7 +35,6 @@ from core.exceptions import (
     NodeNotFoundError,
     SessionNotFoundError,
 )
-from core.utils import is_active, edge_is_live
 
 # Configure logging
 log_level = os.getenv("KG_LOG_LEVEL", "INFO").upper()
@@ -66,17 +66,26 @@ def create_mcp_server() -> Server:
         return [
             Tool(
                 name="kg_read",
-                description="Read the knowledge graph. First call must include cwd to initialize session — returns session_id for subsequent use. Without id: returns all nodes (gist only) and edges from both user and project levels. With id: returns a single node's full content (gist + notes + touches). If the node is archived, it gets promoted to active.",
+                description="Read the knowledge graph. First call: pass cwd to initialize the session — the result includes session_id; pass that session_id on every later call (cwd then optional). Without id/ids: full graph — active nodes (gist), archived anchors (id only), live edges — always fits inline. With id or ids: full node content (gist + notes + touches + the node's edges); archived nodes get promoted to active. Reading several related nodes via ids in ONE call is cheaper than sequential single reads.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "cwd": {
                             "type": "string",
-                            "description": "Project root directory. Required on first call to initialize session and load project graph."
+                            "description": "Project root directory. Required on the FIRST call (initializes session, loads project graph). Optional afterwards when session_id is passed."
+                        },
+                        "session_id": {
+                            "type": "string",
+                            "description": "Session ID from the first kg_read. Pass on every subsequent call — reuses the session instead of registering a new one per read."
                         },
                         "id": {
                             "type": "string",
-                            "description": "Node ID to read in full. Returns gist + notes + touches. Promotes archived nodes to active."
+                            "description": "Node ID to read in full. Returns gist + notes + touches + edges. Promotes archived nodes to active."
+                        },
+                        "ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Several node IDs to read in full in one call (batch crumb-following). Prefer over sequential single-id reads."
                         },
                         "level": {
                             "type": "string",
@@ -84,7 +93,7 @@ def create_mcp_server() -> Server:
                             "description": "Hint which graph the node is in. If omitted, searches both."
                         }
                     },
-                    "required": ["cwd"]
+                    "required": []
                 }
             ),
             Tool(
@@ -278,115 +287,56 @@ def create_mcp_server() -> Server:
             if name == "kg_read":
                 cwd = arguments.get("cwd")
                 node_id = arguments.get("id")
+                node_ids = arguments.get("ids")
                 level = arguments.get("level")
+                sid_arg = arguments.get("session_id")
 
-                # First call with cwd: register session
+                # Resolve the session. A valid caller-supplied session_id is
+                # reused as-is — no re-registration, no sessions.json fsync per
+                # crumb read. Only the true first call (cwd, no session) mints a
+                # session. lookup() is deliberately non-mutating: an unknown or
+                # path-less session_id falls through to cwd registration rather
+                # than being silently auto-created without a project path.
                 session_id = None
-                if cwd:
+                if sid_arg:
+                    info = session_manager.lookup(sid_arg)
+                    if info and info.get("project_path"):
+                        session_id = sid_arg
+                        session_manager.increment_ops(session_id)
+                if not session_id:
+                    if not cwd:
+                        return [TextContent(
+                            type="text",
+                            text="Error: pass cwd on the first kg_read call (or a valid session_id from it)."
+                        )]
                     project_root = str(Path(cwd).resolve())
                     result = session_manager.register(project_root)
                     session_id = result["session_id"]
 
-                # Single node read
-                if node_id:
-                    if not session_id:
-                        # Find session from recent registrations (cwd should have been passed)
-                        return [TextContent(type="text", text="Error: cwd required on first kg_read call to initialize session")]
-                    result = store.read_node(node_id, level=level, session_id=session_id)
-                    node = result["node"]
-                    node_level = result["level"]
-                    was_archived = "promoted from archive" if result.get("was_archived") else "active"
+                # Single or batch node read — full content, compact text.
+                ids = list(node_ids) if node_ids else ([node_id] if node_id else None)
+                if ids:
+                    blocks = []
+                    for nid in ids:
+                        try:
+                            result = store.read_node(nid, level=level, session_id=session_id)
+                            blocks.append(format_node_full(nid, result))
+                        except NodeNotFoundError:
+                            blocks.append(f"▸ {nid}: NOT FOUND (try kg_search — it reaches all tiers)")
                     return [TextContent(
                         type="text",
-                        text=f"Node '{node_id}' ({node_level}, {was_archived}):\n\n{json.dumps(node, indent=2)}\n\nSession: {session_id}"
+                        text="\n\n".join(blocks) + f"\n\nSession: {session_id}"
                     )]
 
-                # Full graph read
+                # Full graph read — rendering + inline-guarantee degradation
+                # ladder live in mcp_http.read_format (shared line rendering
+                # with the estimator: render == charge, exact characters).
                 graphs = store.read_graphs(session_id)
-
-                def format_graph_compact(level_label: str, nodes: list, edges: list) -> str:
-                    """Compact text format: active nodes as id:gist, archived as id only, edges as triples.
-
-                    Only *live* edges are shown — those with at least one active (or
-                    artifact) endpoint, per core.utils.edge_is_live. An edge between two
-                    archived nodes is a dangling string you cannot pull, so it is
-                    suppressed; it reappears automatically once either end is promoted.
-                    The SAME predicate drives token charging in TokenEstimator, so what
-                    is rendered here is exactly what the compaction budget pays for.
-
-                    Orphaned nodes (_orphaned_ts set) are invisible. Edge notes are
-                    omitted — they appear only in kg_read(cwd, id) single-node output.
-                    """
-                    # edge_is_live keys off node dicts; build an id->node map for it.
-                    node_map = {n["id"]: n for n in nodes}
-                    active_ids = {nid for nid, n in node_map.items() if is_active(n)}
-                    active = [n for n in nodes if not n.get("_archived")]
-                    # Archived = archived but NOT orphaned
-                    archived = [n for n in nodes if n.get("_archived") and "_orphaned_ts" not in n]
-
-                    lines = [f"=== {level_label.upper()} — {len(active)} active, {len(archived)} archived ==="]
-
-                    if active:
-                        lines.append("ACTIVE:")
-                        for n in active:
-                            lines.append(f"  {n['id']}: {n.get('gist', '')}")
-
-                    if archived:
-                        lines.append("ARCHIVED (use kg_read with id to view full content):")
-                        for n in archived:
-                            lines.append(f"  {n['id']}")
-
-                    live = [e for e in edges if edge_is_live(e, node_map, active_ids)]
-                    if live:
-                        lines.append("EDGES:")
-                        for e in live:
-                            # Notes omitted in full-graph view (see single-node read for details)
-                            lines.append(f"  {e['from']} --{e['rel']}--> {e['to']}")
-
-                    return "\n".join(lines)
-
-                user_text = format_graph_compact("User Graph", graphs["user"]["nodes"], graphs["user"]["edges"])
-                proj_text = format_graph_compact("Project Graph", graphs["project"]["nodes"], graphs["project"]["edges"])
-
-                # Append health stats. Counts reflect what kg_read actually shows:
-                # active nodes and live edges (the same edges rendered above), so the
-                # numbers match the visible sections rather than raw on-disk totals.
-                def health_line(nodes: list, edges: list) -> str:
-                    node_map = {n["id"]: n for n in nodes}
-                    active_ids = {nid for nid, n in node_map.items() if is_active(n)}
-                    active = [n for n in nodes if not n.get("_archived")]
-                    live = [e for e in edges if edge_is_live(e, node_map, active_ids)]
-                    connected_ids = set()
-                    for e in live:
-                        connected_ids.add(e["from"])
-                        connected_ids.add(e["to"])
-                    orphans = [n for n in active if n["id"] not in connected_ids]
-                    n_count = len(active)
-                    e_count = len(live)
-                    o_count = len(orphans)
-                    o_pct = round(100 * o_count / n_count) if n_count else 0
-                    avg_edges = round(e_count / n_count, 1) if n_count else 0
-                    return f"HEALTH: {n_count} nodes, {e_count} edges, {o_count} orphans ({o_pct}%), avg {avg_edges} edges/node"
-
-                user_health = health_line(graphs["user"]["nodes"], graphs["user"]["edges"])
-                proj_health = health_line(graphs["project"]["nodes"], graphs["project"]["edges"])
-
-                full_user = user_text + "\n" + user_health
-                full_proj = proj_text + "\n" + proj_health
-                total_chars = len(full_user) + len(full_proj)
-
-                size_warning = ""
-                if total_chars > 45000:
-                    size_warning = (
-                        f"\n\nNote: graph output is {total_chars} chars — getting large. "
-                        f"A maintenance pass (/kg-maintain) would help keep it readable."
-                    )
-
-                session_line = f"\n\nSession: {session_id}" if session_id else ""
-
-                return [
-                    TextContent(type="text", text=full_user + "\n" + full_proj + size_warning + session_line),
-                ]
+                scores = store.scores_for_read(session_id)
+                return [TextContent(
+                    type="text",
+                    text=build_full_read(graphs, scores, session_id),
+                )]
 
             elif name == "kg_search":
                 query_raw = arguments["query"]
@@ -539,10 +489,12 @@ async def main():
     # Load configuration
     from core.constants import (
         get_storage_root, user_graph_path,
-        GRACE_PERIOD_DAYS, ORPHAN_GRACE_DAYS, MAX_TOKENS,
+        GRACE_PERIOD_DAYS, ORPHAN_GRACE_DAYS,
     )
+    # The size budget is a fixed invariant (MAX_CHARS_PER_LEVEL), deliberately
+    # NOT env-configurable: the inline guarantee's arithmetic depends on it.
+    # The old KG_MAX_TOKENS override is gone.
     config = GraphConfig(
-        max_tokens=int(os.getenv("KG_MAX_TOKENS", str(MAX_TOKENS))),
         orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", str(ORPHAN_GRACE_DAYS))),
         grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", str(GRACE_PERIOD_DAYS))),
         save_interval=int(os.getenv("KG_SAVE_INTERVAL", "30")),

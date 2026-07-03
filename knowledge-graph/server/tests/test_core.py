@@ -31,11 +31,11 @@ from core.utils import (
     validate_node_id, validate_rel, validate_edge_ref,
 )
 from core.exceptions import KGError
-from core.estimator import TokenEstimator
+from core.estimator import CharEstimator
+from core.render import render_active_line, render_archived_line, render_edge_line
 from core.scorer import NodeScorer
 from core.compactor import Compactor
 from core.constants import (
-    ARCHIVED_ID_TOKENS,
     ARCHIVED_EDGE_WEIGHT,
     COMPACTION_TARGET_RATIO,
     GRACE_PERIOD_DAYS,
@@ -164,21 +164,21 @@ def test_edges():
     check("artifact-endpoint edge is live", edge_is_live(e("A", "some/file.py"), nodes, active))
     check("archived-to-artifact edge is live", edge_is_live(e("B", "some/file.py"), nodes, active))
 
-    # estimator: render == charge. active=id+gist, archived=anchor, orphaned=0,
-    # only live edges charged.
-    est = TokenEstimator()
+    # estimator: render == charge in EXACT characters. active=id+gist line,
+    # archived=anchor line, orphaned=0, only live edges charged — each cost is
+    # the length of the very string kg_read renders, plus its newline.
+    est = CharEstimator()
     edges = {
         "A->B:r": e("A", "B"),   # live (charged)
         "B->C:r": e("B", "C"),   # dead (not charged)
         "A->O:r": e("A", "O"),   # dead (orphaned, not charged)
     }
-    from core.constants import BASE_NODE_TOKENS, CHARS_PER_TOKEN, TOKENS_PER_EDGE
     expected = (
-        BASE_NODE_TOKENS + len("a") // CHARS_PER_TOKEN  # A active
-        + ARCHIVED_ID_TOKENS  # B anchor
-        + ARCHIVED_ID_TOKENS  # C anchor
-        + 0                   # O orphaned, free
-        + TOKENS_PER_EDGE     # only A->B live
+        len(render_active_line("A", "a")) + 1   # A active
+        + len(render_archived_line("B")) + 1    # B anchor
+        + len(render_archived_line("C")) + 1    # C anchor
+        + 0                                     # O orphaned, free
+        + len(render_edge_line("A", "r", "B")) + 1  # only A->B live
     )
     got = est.estimate_graph(nodes, edges, include_archived=False)
     check("estimator charges exactly the rendered set", got == expected, f"got {got} expected {expected}")
@@ -230,8 +230,8 @@ def test_refill():
 
     # iterative refill pulls the cluster back as a unit (hub + all satellites)
     nodes, edges = _cluster_graph()
-    est = TokenEstimator()
-    comp = Compactor(sc, est, max_tokens=5000)
+    est = CharEstimator()
+    comp = Compactor(sc, est, max_chars=5000)
     promoted = comp.refill_if_room(nodes, edges, {})
     cluster = {"hub", "sat1", "sat2", "sat3", "sat4"}
     check("cluster follows into active set", cluster.issubset(set(promoted)), promoted)
@@ -265,7 +265,8 @@ def test_refill():
         "anchor->small1:r": {"from": "anchor", "to": "small1", "rel": "r"},
         "small1->small2:r": {"from": "small1", "to": "small2", "rel": "r"},
     }
-    small_comp = Compactor(sc, est, max_tokens=600)  # ceiling 480; monster alone costs ~520
+    # ceiling 1200 chars; the monster line alone is ~2010 chars — never fits
+    small_comp = Compactor(sc, est, max_chars=1500)
     mpromoted = small_comp.refill_if_room(mnodes, medges, {})
     check("oversized candidate skipped, not promoted", "monster" not in mpromoted, mpromoted)
     check("smaller candidates promoted past the blocker",
@@ -289,7 +290,7 @@ def test_refill():
                 pedges[f"pe{eid}"] = {"from": f"p{i}", "to": f"p{j}", "rel": "r"}
                 eid += 1
     t0 = time.time()
-    Compactor(sc, est, max_tokens=5000).refill_if_room(pnodes, pedges, {})
+    Compactor(sc, est, max_chars=5000).refill_if_room(pnodes, pedges, {})
     elapsed = time.time() - t0
     check(f"refill fast on 400-node/{len(pedges)}-edge dense graph ({elapsed:.2f}s)", elapsed < 5.0, f"{elapsed:.2f}s")
 
