@@ -27,7 +27,7 @@ from mcp_http.session_manager import HTTPSessionManager
 from mcp_http.store import MultiProjectGraphStore, GraphConfig
 from mcp_http.websocket import ConnectionManager
 from mcp_http.rest import create_rest_api
-from mcp_http.read_format import build_full_read, format_node_full
+from mcp_http.read_format import build_full_read, format_node_full, format_search
 from mcp_http.security import host_allowed
 from core.autocommit import AutoCommitter
 from core.exceptions import (
@@ -317,12 +317,15 @@ def create_mcp_server() -> Server:
                 ids = list(node_ids) if node_ids else ([node_id] if node_id else None)
                 if ids:
                     blocks = []
+                    read_ok = []
                     for nid in ids:
                         try:
                             result = store.read_node(nid, level=level, session_id=session_id)
                             blocks.append(format_node_full(nid, result))
+                            read_ok.append(nid)
                         except NodeNotFoundError:
                             blocks.append(f"▸ {nid}: NOT FOUND (try kg_search — it reaches all tiers)")
+                    session_manager.mark_seen(session_id, read_ok)
                     return [TextContent(
                         type="text",
                         text="\n\n".join(blocks) + f"\n\nSession: {session_id}"
@@ -333,6 +336,15 @@ def create_mcp_server() -> Server:
                 # with the estimator: render == charge, exact characters).
                 graphs = store.read_graphs(session_id)
                 scores = store.scores_for_read(session_id)
+                # Every active gist is now in the session's context — searches
+                # won't re-dump notes for them without an explicit node read.
+                shown = [
+                    n["id"]
+                    for lvl in ("user", "project")
+                    for n in graphs[lvl]["nodes"]
+                    if not n.get("_archived") and "_orphaned_ts" not in n
+                ]
+                session_manager.mark_seen(session_id, shown)
                 return [TextContent(
                     type="text",
                     text=build_full_read(graphs, scores, session_id),
@@ -341,22 +353,33 @@ def create_mcp_server() -> Server:
             elif name == "kg_search":
                 query_raw = arguments["query"]
                 sid = arguments.get("session_id")
+                seen = set()
                 if sid:
                     session_manager.increment_ops(sid)
+                    seen = session_manager.get_seen(sid)
 
                 # RRF search lives in the store (which holds the lock during the
                 # scan — the maintenance thread mutates node dicts concurrently).
-                results = store.search(query_raw, session_id=sid)
+                result = store.search(query_raw, session_id=sid, seen=seen)
 
-                if not results:
+                if result["total"] == 0:
                     suffix = "" if sid else " (no session_id — project graph searched best-effort; pass session_id from kg_read for accurate project search)"
                     return [TextContent(type="text", text=f"No nodes found matching '{query_raw}'{suffix}")]
 
-                session_note = "" if sid else "\nNote: no session_id provided — project results are best-effort across all loaded graphs."
-                return [TextContent(
-                    type="text",
-                    text=f"Found {len(results)} node(s) matching '{query_raw}' (ranked by RRF):{session_note}\n\n{json.dumps(results, indent=2)}"
-                )]
+                session_note = "" if sid else " [no session_id — project results best-effort across all loaded graphs]"
+                text = format_search(query_raw, result, session_note)
+
+                # These gists are now in the session's context — future searches
+                # show them as one-line reminders, never re-dump their notes.
+                if sid:
+                    shown = (
+                        [r["id"] for r in result["top"]]
+                        + [m["id"] for m in result["more"]]
+                        + [c["id"] for c in result["connectors"]]
+                    )
+                    session_manager.mark_seen(sid, shown)
+
+                return [TextContent(type="text", text=text)]
 
             elif name == "kg_put_node":
                 sid = arguments["session_id"]

@@ -54,7 +54,8 @@ one targeted read away.
    - Simple beats clever
 
 4. **Dual-Mode Access**
-   - **Always loaded**: Core knowledge in every session (guaranteed to fit inline)
+   - **Preloaded**: the SessionStart hook injects the rendered graph into context
+     before the first turn — zero tool calls (kg_read is the fallback and re-read API)
    - **Read on demand**: `kg_read(id)` / `kg_read(ids=[...])` retrieves full content (promotes archived nodes)
    - **Memory traces**: Edges to archived nodes guide discovery
    - Sequential reading surfaces "hidden" knowledge
@@ -65,7 +66,8 @@ one targeted read away.
 - Budgets are **exact rendered characters**, fixed by design (no env overrides): `MAX_CHARS_PER_LEVEL` (17,500) per level, `READ_CHAR_BUDGET` (40,000) for the combined kg_read output — single source of truth in `core/constants.py`, line rendering in `core/render.py`
 - The arithmetic guarantees kg_read always lands inline in context (never spills to a persisted file): two levels + wrapper < 40K < the MCP client's ~50K persistence threshold
 - For graphs the compactor hasn't maintained yet, a render-time degradation ladder enforces the ceiling: lowest-scored archived anchors are hidden first (with a count + kg_search pointer), then lowest-value edges — active gists never
-- LLM scans entire graph in milliseconds; no query language or retrieval algorithms — simple `kg_read()` → full context
+- LLM scans entire graph in milliseconds; no query language or retrieval algorithms — memory is preloaded at session start (or one `kg_read()` away)
+- The rendering is node-centric: clusters render together (hub first), each node's relationships indented beneath it, every edge cited once at its first-rendered endpoint — the graph reads as connected knowledge paragraphs, not sections to join by id
 
 **When memory grows beyond limit:**
 - Archival scores nodes by: 0.33×recency + 0.66×connectedness (weighted sum of percentiles — see scorer.py)

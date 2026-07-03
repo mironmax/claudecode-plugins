@@ -27,6 +27,9 @@ MAX_CHARS_PER_LEVEL = 17500
 # externally-edited graphs) by dropping lowest-scored archived anchors, then
 # lowest-value live edges — never active gists.
 READ_CHAR_BUDGET = 40000
+# kg_search output ceiling — same inline philosophy as READ_CHAR_BUDGET, sized
+# for a focused answer: top hits with notes, connections, a page of one-liners.
+SEARCH_CHAR_BUDGET = 10000
 COMPACTION_TARGET_RATIO = 0.8
 # Refill (reverse compaction): when the active graph sits below the fill ceiling
 # (COMPACTION_TARGET_RATIO × max), the highest-scored archived nodes are promoted

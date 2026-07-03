@@ -5,11 +5,10 @@ description: |
   Knowledge Graph — persistent memory, your twin across sessions.
   Treat it as primary context before reaching for any other tool.
 
-  Session start: if kg_read hasn't been called yet, call it before any task work.
-    kg_read(cwd="<project root>")
-  Output (USER GRAPH + PROJECT GRAPH) always fits inline; a note says if anything
-  was trimmed. The result includes session_id — pass it on ALL later calls,
-  kg_read included.
+  Session start: memory is usually PRELOADED — a "KG MEMORY PRELOADED" block with
+  session_id already in context. Don't re-read it. If absent, call
+  kg_read(cwd="<project root>") before any task work. Either way the session_id
+  goes on ALL later kg_* calls.
   Announce "I have recalled KG Memories" once both sections have been read.
   Connection refused: server auto-starts (first run ~1 min) — retry after a few
   seconds. Still offline: user runs /mcp → plugin:knowledge-graph:kg → Reconnect.
@@ -38,11 +37,16 @@ description: |
 
 ## Session Protocol (Detailed)
 
-Every session, immediately — before any task work:
+Memory usually arrives **preloaded**: the SessionStart hook injects the full graph as
+a "KG MEMORY PRELOADED" context block, including the session_id — zero tool calls,
+nothing to fetch. When that block is present, do not call kg_read for the full graph;
+scan the block and work.
+
+If no preloaded block exists (server was still warming up), load explicitly:
 ```
 kg_read(cwd="<project root>")  # Returns full graph + session_id
 ```
-The returned session_id is used for **all** subsequent tool calls — including later
+Either way, the session_id is used for **all** subsequent tool calls — including later
 kg_read calls (node reads, re-reads). Passing it means the server reuses your session;
 omitting it and passing cwd again mints a fresh one. Passing session_id to kg_search
 ensures the project graph is included — worth doing by default.
@@ -50,6 +54,10 @@ ensures the project graph is included — worth doing by default.
 The full-graph output is guaranteed to fit inline — no overflow file to chase. If the
 graph was too large to show everything, a note at the end says how many archived
 anchors/edges were hidden (kg_search still reaches them).
+
+Reading the graph: nodes render in cluster order (related nodes adjacent, hubs first),
+each with its relationships indented under it. An edge appears once, under whichever
+endpoint renders first — scan a cluster top-down and its story assembles itself.
 
 If resuming a session (context suggests prior conversation), try `kg_sync(session_id)` first.
 If that fails (unknown session), run the full startup sequence.

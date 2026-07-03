@@ -2,8 +2,8 @@
 name: kg-maintain
 user-invocable: true
 description: |
-  Knowledge graph maintenance. Tend the garden — regular, light care keeps it healthy.
-  Woven into every session, every capture.
+  Knowledge graph maintenance. Tend the garden — regular, light care keeps it
+  healthy. Woven into every session.
 
   GARDEN RHYTHM — three modes, applied as needed:
     Water   (routine): after each task, glance at 2–3 recently-touched nodes.

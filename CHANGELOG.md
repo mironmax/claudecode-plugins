@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.17] - 2026-07-03
+
+### Added
+- **Memory preloaded at turn 1.** The SessionStart hook now injects the rendered knowledge graph as `additionalContext` when the server is healthy (`/api/session_bootstrap`: registers the session, returns the same text kg_read would produce — one renderer, two delivery channels). The session starts with memory already in context: zero tool calls, a full model round-trip saved. Silent miss while the server bootstraps; classic kg_read remains the fallback.
+- **Search v2.** `kg_search` returns a focused, capped answer instead of an unbounded JSON dump: top-5 hits with full treatment, connections *between* the hits (union of pairwise shortest paths — connector nodes as id+gist plus the path edges), and remaining matches as one-liners, all under a 10K-char ceiling with a value-ordered trim ladder. **Session-aware dedup:** the server tracks which gists each session has already been shown (preload, reads, prior searches); a seen hit renders as a one-line gist reminder — notes are never re-dumped, they stay one explicit node read away. Gists + edges are the working currency; notes are on-demand depth.
+
+### Changed
+- **kg_read full-graph format is node-centric.** Nodes render in cluster order (connected communities contiguous, highest-degree hub first) with their relationships indented beneath them — a cluster reads as one coherent knowledge paragraph instead of three flat sections joined by id. Each edge is cited exactly once, under its first-rendered endpoint (`→`/`←` show direction); doubling citations would tax the character budget that gists need. A node's complete neighbourhood is always visible in single-node reads. The estimator measures the actual planned render (headers, node lines, citations, anchors), so render == charge stays exact by construction.
+
 ## [0.9.16] - 2026-07-03
 
 ### Changed

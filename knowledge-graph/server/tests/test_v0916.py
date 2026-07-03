@@ -26,7 +26,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.estimator import CharEstimator
-from core.render import render_active_line, render_archived_line, render_edge_line
+from core.render import render_active_line, render_archived_line, render_edge_citation
 from core.constants import READ_CHAR_BUDGET
 from mcp_http.read_format import build_full_read, format_node_full
 
@@ -66,26 +66,31 @@ def test_exact_chars():
     edge = {"from": "scheduled-agents-share-one-account-quota",
             "rel": "cross-project-contention-refines",
             "to": "overnight-session-loop-doctrine"}
-    eline = render_edge_line(edge["from"], edge["rel"], edge["to"])
-    check("edge charged its real rendered length", est.estimate_edge(edge) == len(eline) + 1)
+    eline = render_edge_citation(edge["rel"], edge["to"], True)
+    check("edge delta approximates its citation line", est.estimate_edge(edge) == len(eline) + 1)
 
-    # graph estimate == sum of exactly the rendered lines
+    # graph estimate == sum of exactly the rendered lines (node-centric plan)
     nodes = {
         "a": {"id": "a", "gist": "alpha"},
         "b": {"id": "b", "gist": "beta", "_archived": True},
         "o": {"id": "o", "gist": "orphan", "_archived": True, "_orphaned_ts": 1.0},
     }
     edges = {
-        "a->b:r": {"from": "a", "to": "b", "rel": "r"},          # live
-        "b->missing/file.py:r": {"from": "b", "to": "missing/file.py", "rel": "r"},  # artifact, live
+        "a->b:r": {"from": "a", "to": "b", "rel": "r"},          # live, cited under a
+        # live via its artifact endpoint, but neither endpoint renders as an
+        # active node -> no citer, not shown, not charged (it reappears the
+        # moment b is promoted)
+        "b->missing/file.py:r": {"from": "b", "to": "missing/file.py", "rel": "r"},
         "a->o:r": {"from": "a", "to": "o", "rel": "r"},          # orphaned endpoint, dead
     }
-    expected = (
-        len(render_active_line("a", "alpha")) + 1
-        + len(render_archived_line("b")) + 1
-        + len(render_edge_line("a", "r", "b")) + 1
-        + len(render_edge_line("b", "r", "missing/file.py")) + 1
-    )
+    expected_lines = [
+        "ACTIVE:",
+        render_active_line("a", "alpha"),
+        render_edge_citation("r", "b", True),
+        "ARCHIVED (use kg_read with id to view full content):",
+        render_archived_line("b"),
+    ]
+    expected = sum(len(line) + 1 for line in expected_lines)
     check("graph estimate is the exact sum of rendered lines",
           est.estimate_graph(nodes, edges) == expected,
           f"{est.estimate_graph(nodes, edges)} != {expected}")
@@ -140,11 +145,12 @@ def test_ladder():
     check("highest-scored anchor survives", "archived-node-with-a-long-kebab-id-02499" in out)
     check("lowest-scored anchor hidden", "archived-node-with-a-long-kebab-id-00000" not in out)
 
-    # all edges survive here (dropping anchors was enough)
-    check("edges kept when anchors suffice", out.count("--relates-to-->") == 30, out.count("--relates-to-->"))
+    # all edge citations survive here (dropping anchors was enough)
+    n_citations = out.count(" relates-to ")
+    check("edge citations kept when anchors suffice", n_citations == 30, n_citations)
 
-    # Step 2: still over budget after ALL anchors dropped -> edges drop too,
-    # lowest endpoint-score first
+    # Step 2: still over budget after ALL anchors dropped -> edge citations
+    # drop too, lowest endpoint-score sum first
     n_active = 400
     nodes = [{"id": f"n{i:03d}", "gist": "g" * 50} for i in range(n_active)]
     edges = []
@@ -155,10 +161,12 @@ def test_ladder():
     scores2 = {"user": {f"n{i:03d}": i / n_active for i in range(n_active)}, "project": {}}
     out2 = build_full_read(graphs2, scores2, None)
     check("edge-drop stage keeps output within budget", len(out2) <= READ_CHAR_BUDGET, len(out2))
-    check("edge hidden count present", "more edges hidden" in out2)
-    # highest-scored endpoints' edge should survive; lowest should not
-    check("high-value edge survives", "n399 --very-long-relationship-name-taking-space--> n001" in out2
-          or "n398 --very-long-relationship-name-taking-space-->" in out2)
+    check("edge hidden count present", "edge(s) hidden" in out2)
+    # drop order: high-endpoint-score citations survive, lowest are hidden
+    citation_lines = [l for l in out2.split("\n") if l.startswith("    ")]
+    check("some citations survive", len(citation_lines) > 0, len(citation_lines))
+    check("high-value citation survives", any("n399" in l or "n398" in l for l in citation_lines))
+    check("lowest-value citations hidden", not any("n000" in l or "n001" in l for l in citation_lines))
 
 
 # --- 3. compact node read ------------------------------------------------------

@@ -105,6 +105,28 @@ class HTTPSessionManager:
 
         return len(expired)
 
+    def mark_seen(self, session_id: str, node_ids) -> None:
+        """Record node ids whose GIST this session has already been shown.
+
+        Feeds search dedup: a hit the session has already seen renders as a
+        one-line gist reminder, never a repeated notes dump. Stored as a list
+        (JSON-serializable), deduped on insert.
+        """
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        seen = session.setdefault("seen_ids", [])
+        seen_set = set(seen)
+        for nid in node_ids:
+            if nid not in seen_set:
+                seen.append(nid)
+                seen_set.add(nid)
+
+    def get_seen(self, session_id: str) -> set:
+        """Set of node ids this session has already seen gists for."""
+        session = self._sessions.get(session_id)
+        return set(session.get("seen_ids", [])) if session else set()
+
     def mark_synced(self, session_id: str) -> None:
         """Update last_synced_ts so kg_sync only returns changes after this point."""
         if session_id in self._sessions:

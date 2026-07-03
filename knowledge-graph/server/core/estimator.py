@@ -1,26 +1,34 @@
 """Exact-character size accounting for knowledge graph nodes and graphs.
 
-The estimator charges exactly what kg_read renders — the same strings, measured
-with len(), plus one newline each. Render and charge share one source of truth
-(core.render), so the compaction budget and the visible output can never
-disagree:
+The estimator charges exactly what kg_read renders — it builds the same render
+plan (core.render) and measures the same lines with len(), plus one newline
+each. Render and charge share one source of truth, so the compaction budget and
+the visible output can never disagree:
 
-  - active node   → id + gist line     → len(render_active_line) + 1
-  - archived node → id-only anchor     → len(render_archived_line) + 1
-  - orphaned node → invisible          → 0
-  - edge          → only if "live"     → len(render_edge_line) + 1, else 0
-
-"Live" is defined once in utils.edge_is_live (≥1 active/artifact endpoint). An
-edge between two archived nodes is a dangling string — not shown, not charged.
+  - active node   → id + gist line          → len(line) + 1
+  - archived node → id-only anchor          → len(line) + 1
+  - orphaned node → invisible               → 0
+  - live edge     → one citation line, cited once at its first-encountered
+                    endpoint               → len(line) + 1
+  - dead edge (both endpoints archived/orphaned) → not shown, not charged
 
 Exactness is the point: any flat per-item approximation drifts from real
 rendered sizes (ids and rels vary widely in length), and drift is what lets a
 "within budget" graph overflow the client's inline tool-result limit. Measuring
-the rendered string itself makes the inline guarantee arithmetic, not luck.
+the rendered lines themselves makes the inline guarantee arithmetic, not luck.
+
+estimate_node / estimate_archived / estimate_edge remain as cheap per-item
+approximations for incremental deltas (refill's fit checks); every consumer of
+those deltas is guarded by an authoritative estimate_graph re-measure.
 """
 
-from .render import render_active_line, render_archived_line, render_edge_line
-from .utils import is_active, is_orphaned, active_node_ids, edge_is_live
+from .render import (
+    plan_level,
+    level_body_lines,
+    render_active_line,
+    render_archived_line,
+    render_edge_citation,
+)
 
 
 class CharEstimator:
@@ -42,35 +50,26 @@ class CharEstimator:
 
     @staticmethod
     def estimate_edge(edge: dict) -> int:
-        """Rendered cost of a live edge line."""
-        return len(render_edge_line(edge["from"], edge["rel"], edge["to"])) + 1
+        """Approximate rendered cost of a live edge's citation line.
+
+        Exact when the edge is cited at its from-side; a to-side citation
+        differs only by len(from_id) - len(to_id). Used for incremental fit
+        deltas only — the authoritative cost always comes from estimate_graph.
+        """
+        return len(render_edge_citation(edge["rel"], edge["to"], True)) + 1
 
     @staticmethod
     def estimate_graph(nodes: dict, edges: dict, include_archived: bool = False) -> int:
-        """Exact character cost of a graph level as kg_read renders it.
+        """Exact character cost of a graph level as kg_read renders its body.
 
-        Active nodes cost their full id+gist line; archived nodes cost their
-        anchor line; orphaned nodes cost nothing. Only *live* edges — those with
-        at least one active/artifact endpoint — are charged.
+        Builds the real render plan (cluster order, first-encounter citations,
+        anchors) and measures the resulting lines. Section headers inside the
+        body (ACTIVE:/ARCHIVED:) are part of the render, so they are charged
+        too — render == charge, character for character.
 
-        include_archived=True charges archived nodes their full id+gist cost
-        (used by the resurrection pass, which scores active and archived nodes in
-        one pool and therefore needs comparable node costs).
+        include_archived=True plans as if archived nodes were active (full
+        id+gist lines, their edges live) — used by scoring passes that need
+        comparable node costs across active and archived pools.
         """
-        active_ids = active_node_ids(nodes)
-
-        node_chars = 0
-        for node_id, node in nodes.items():
-            if is_orphaned(node):
-                continue
-            if is_active(node) or include_archived:
-                node_chars += CharEstimator.estimate_node(node_id, node)
-            else:
-                node_chars += CharEstimator.estimate_archived(node_id)
-
-        edge_chars = sum(
-            CharEstimator.estimate_edge(edge)
-            for edge in edges.values()
-            if edge_is_live(edge, nodes, active_ids)
-        )
-        return node_chars + edge_chars
+        plan = plan_level(nodes, edges, include_archived=include_archived)
+        return sum(len(line) + 1 for line in level_body_lines(plan))

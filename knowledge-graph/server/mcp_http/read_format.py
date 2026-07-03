@@ -8,69 +8,70 @@ sees only a preview of). Two layers make the guarantee:
      two levels plus wrapper text fit the budget by construction.
   2. For graphs the compactor hasn't maintained (legacy, externally edited),
      this module degrades the output at render time: drop the lowest-scored
-     archived anchors first, then the lowest-value live edges — never active
-     gists. Hidden items are summarized with a count and remain reachable via
-     kg_search.
+     archived anchors first, then the lowest-value edge citations — never
+     active gists. Hidden items are summarized with a count and remain
+     reachable via kg_search.
 
-Line rendering is shared with the estimator (core.render), so what is measured
-here is exactly what was charged during compaction — render == charge.
+The render plan comes from core.render (node-centric adjacency: clusters
+together, hubs first, each edge cited once at its first-encountered endpoint)
+— the same plan the estimator measures, so render == charge exactly.
 """
 
-from core.constants import READ_CHAR_BUDGET
-from core.render import render_active_line, render_archived_line, render_edge_line
-from core.utils import is_active, edge_is_live
+from core.constants import READ_CHAR_BUDGET, SEARCH_CHAR_BUDGET
+from core.render import plan_level, render_edge_line
+
+
+def _health_line(plan: dict) -> str:
+    """Graph health summary. Reflects the graph itself, not the (possibly
+    degraded) rendering — hidden anchors/citations still count."""
+    connected_ids = set()
+    e_count = 0
+    for _nid, _line, citations in plan["active"]:
+        for edge, _cline in citations:
+            e_count += 1
+            connected_ids.add(edge["from"])
+            connected_ids.add(edge["to"])
+    n_count = len(plan["active"])
+    o_count = sum(1 for nid, _l, _c in plan["active"] if nid not in connected_ids)
+    o_pct = round(100 * o_count / n_count) if n_count else 0
+    avg_edges = round(e_count / n_count, 1) if n_count else 0
+    return f"HEALTH: {n_count} nodes, {e_count} edges, {o_count} orphans ({o_pct}%), avg {avg_edges} edges/node"
 
 
 def _level_parts(label: str, nodes: list, edges: list, scores: dict) -> dict:
-    """Split one level into fixed lines and droppable, score-annotated lines."""
+    """Build one level's render state: fixed node lines + droppable pools."""
     node_map = {n["id"]: n for n in nodes}
-    active_ids = {nid for nid, n in node_map.items() if is_active(n)}
-    active = [n for n in nodes if not n.get("_archived")]
-    archived = [n for n in nodes if n.get("_archived") and "_orphaned_ts" not in n]
-    live = [e for e in edges if edge_is_live(e, node_map, active_ids)]
+    edge_map = {i: e for i, e in enumerate(edges)}
+    plan = plan_level(node_map, edge_map)
 
     def endpoint_score(ref: str) -> float:
         # Unknown endpoints (artifact paths, cross-level refs) count as neutral
         # 0.5 — pullable, but not evidence of local importance either way.
         return scores.get(ref, 0.5)
 
+    active_entries = [
+        {
+            "line": node_line,
+            # (value, citation_line) — droppable, lowest value first
+            "citations": [
+                (endpoint_score(e["from"]) + endpoint_score(e["to"]), cline)
+                for e, cline in citations
+            ],
+        }
+        for _nid, node_line, citations in plan["active"]
+    ]
     return {
         "label": label,
-        "header": f"=== {label.upper()} — {len(active)} active, {len(archived)} archived ===",
-        "active_lines": [render_active_line(n["id"], n.get("gist", "")) for n in active],
-        # Droppable pools, each entry (score, rendered_line). Missing scores:
-        # an active-but-in-grace node can't appear here (archiving happens past
-        # grace), so 0.0 is only a defensive fallback.
-        "archived_pool": [
-            (scores.get(n["id"], 0.0), render_archived_line(n["id"])) for n in archived
-        ],
-        "edge_pool": [
-            (
-                endpoint_score(e["from"]) + endpoint_score(e["to"]),
-                render_edge_line(e["from"], e["rel"], e["to"]),
-            )
-            for e in live
-        ],
-        "health": _health_line(active, live),
+        "header": f"=== {label.upper()} — {len(plan['active'])} active, {len(plan['archived'])} archived ===",
+        "active": active_entries,
+        # Droppable anchor pool. Missing scores: an active-but-in-grace node
+        # can't appear here (archiving happens past grace), so 0.0 is only a
+        # defensive fallback.
+        "archived_pool": [(scores.get(nid, 0.0), anchor) for nid, anchor in plan["archived"]],
+        "health": _health_line(plan),
         "hidden_archived": 0,
         "hidden_edges": 0,
     }
-
-
-def _health_line(active: list, live_edges: list) -> str:
-    """Graph health summary. Reflects the graph itself, not the (possibly
-    degraded) rendering — hidden anchors/edges still count."""
-    connected_ids = set()
-    for e in live_edges:
-        connected_ids.add(e["from"])
-        connected_ids.add(e["to"])
-    orphans = [n for n in active if n["id"] not in connected_ids]
-    n_count = len(active)
-    e_count = len(live_edges)
-    o_count = len(orphans)
-    o_pct = round(100 * o_count / n_count) if n_count else 0
-    avg_edges = round(e_count / n_count, 1) if n_count else 0
-    return f"HEALTH: {n_count} nodes, {e_count} edges, {o_count} orphans ({o_pct}%), avg {avg_edges} edges/node"
 
 
 def _assemble(levels: list[dict], session_line: str) -> str:
@@ -78,21 +79,20 @@ def _assemble(levels: list[dict], session_line: str) -> str:
     out_lines = []
     for part in levels:
         out_lines.append(part["header"])
-        if part["active_lines"]:
+        if part["active"]:
             out_lines.append("ACTIVE:")
-            out_lines.extend(part["active_lines"])
+            for entry in part["active"]:
+                out_lines.append(entry["line"])
+                out_lines.extend(cline for _v, cline in entry["citations"])
+            if part["hidden_edges"]:
+                out_lines.append(f"  …{part['hidden_edges']} edge(s) hidden (lowest-value)")
         if part["archived_pool"] or part["hidden_archived"]:
             out_lines.append("ARCHIVED (use kg_read with id to view full content):")
-            out_lines.extend(line for _, line in part["archived_pool"])
+            out_lines.extend(anchor for _s, anchor in part["archived_pool"])
             if part["hidden_archived"]:
                 out_lines.append(
                     f"  …{part['hidden_archived']} more archived hidden (lowest-scored) — kg_search reaches them"
                 )
-        if part["edge_pool"] or part["hidden_edges"]:
-            out_lines.append("EDGES:")
-            out_lines.extend(line for _, line in part["edge_pool"])
-            if part["hidden_edges"]:
-                out_lines.append(f"  …{part['hidden_edges']} more edges hidden (lowest-value)")
         out_lines.append(part["health"])
 
     text = "\n".join(out_lines)
@@ -121,11 +121,12 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None) -> str:
         _level_parts("User Graph", graphs["user"]["nodes"], graphs["user"]["edges"], scores.get("user", {})),
         _level_parts("Project Graph", graphs["project"]["nodes"], graphs["project"]["edges"], scores.get("project", {})),
     ]
-    # Sort droppable pools ascending by score so .pop(0) removes the least
-    # valuable item; render order for what survives is by descending value.
+    # Sort droppable pools ascending by value so .pop(0) removes the least
+    # valuable item first.
     for part in levels:
         part["archived_pool"].sort(key=lambda t: t[0])
-        part["edge_pool"].sort(key=lambda t: t[0])
+        for entry in part["active"]:
+            entry["citations"].sort(key=lambda t: t[0])
 
     def over_budget() -> int:
         return len(_assemble(levels, session_line)) - READ_CHAR_BUDGET
@@ -142,29 +143,102 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None) -> str:
         victim["archived_pool"].pop(0)
         victim["hidden_archived"] += 1
 
-    # Ladder step 2: drop live edges, lowest endpoint-score sum first.
+    # Ladder step 2: drop edge citations, lowest endpoint-score sum first.
     while over_budget() > 0:
-        candidates = [p for p in levels if p["edge_pool"]]
-        if not candidates:
+        best = None  # (value, part, entry)
+        for part in levels:
+            for entry in part["active"]:
+                if entry["citations"] and (best is None or entry["citations"][0][0] < best[0]):
+                    best = (entry["citations"][0][0], part, entry)
+        if best is None:
             break
-        victim = min(candidates, key=lambda p: p["edge_pool"][0][0])
-        victim["edge_pool"].pop(0)
-        victim["hidden_edges"] += 1
+        _value, part, entry = best
+        entry["citations"].pop(0)
+        part["hidden_edges"] += 1
 
-    # Restore reading order: archived/edges by descending value (the pools were
-    # ascending for cheap popping).
+    # Restore reading order: anchors by descending score; citations keep their
+    # plan order semantics well enough sorted by descending value.
     for part in levels:
         part["archived_pool"].sort(key=lambda t: t[0], reverse=True)
-        part["edge_pool"].sort(key=lambda t: t[0], reverse=True)
+        for entry in part["active"]:
+            entry["citations"].sort(key=lambda t: t[0], reverse=True)
 
     return _assemble(levels, session_line)
+
+
+def format_search(query: str, result: dict, session_note: str = "") -> str:
+    """Compact text for kg_search results, capped at SEARCH_CHAR_BUDGET.
+
+    Top hits get full treatment — notes included only for nodes the session
+    hasn't seen yet (gists may repeat as reminders; notes never re-dump).
+    Connections show how the hits relate: connector nodes as id+gist, then the
+    path edges. Remaining matches are one-liners. When over budget, trim from
+    the least valuable end: one-liners first, then path edges, then notes of
+    the lowest-ranked hits.
+    """
+    def hit_lines(r):
+        flags = r["level"]
+        if r.get("archived"):
+            flags += ", archived"
+        if r.get("orphaned"):
+            flags += ", orphaned"
+        if r.get("seen"):
+            flags += ", seen"
+        lines = [f"▸ {r['id']} ({flags})", f"  gist: {r['gist']}"]
+        lines.extend(f"    - {n}" for n in r.get("notes", []))
+        return lines
+
+    top_blocks = [hit_lines(r) for r in result["top"]]
+    connector_lines = [f"  {c['id']}: {c['gist']}" for c in result["connectors"]]
+    edge_lines = [
+        f"  {e['from']} --{e['rel']}--> {e['to']}" for e in result["path_edges"]
+    ]
+    more_lines = [f"  {m['id']}: {m['gist']}" for m in result["more"]]
+
+    def assemble() -> str:
+        lines = [f"Found {result['total']} match(es) for '{query}' — top {len(top_blocks)}:{session_note}"]
+        for block in top_blocks:
+            lines.append("")
+            lines.extend(block)
+        if connector_lines or edge_lines:
+            lines.append("")
+            lines.append("CONNECTIONS between hits:")
+            lines.extend(connector_lines)
+            lines.extend(edge_lines)
+        if more_lines:
+            lines.append("")
+            lines.append("MORE MATCHES:")
+            lines.extend(more_lines)
+        return "\n".join(lines)
+
+    # Trim ladder: one-liners → path edges (with their connectors) → notes of
+    # lowest-ranked hits. Gists of the top hits are never dropped.
+    while len(assemble()) > SEARCH_CHAR_BUDGET and more_lines:
+        more_lines.pop()
+    while len(assemble()) > SEARCH_CHAR_BUDGET and (edge_lines or connector_lines):
+        if edge_lines:
+            edge_lines.pop()
+        else:
+            connector_lines.pop()
+    while len(assemble()) > SEARCH_CHAR_BUDGET:
+        trimmed = False
+        for block in reversed(top_blocks):
+            if len(block) > 2:  # has note lines beyond header+gist
+                block.pop()
+                trimmed = True
+                break
+        if not trimmed:
+            break
+    return assemble()
 
 
 def format_node_full(node_id: str, result: dict) -> str:
     """Compact text for a single full node read (replaces raw JSON dumps).
 
-    Shows gist, notes, touches, and the node's own edges — the crumbs for the
-    next read — without internal fields like _last_read_ts.
+    Shows gist, notes, touches, and ALL of the node's own edges — the crumbs
+    for the next read. The full-graph view cites each edge only once (at its
+    first-rendered endpoint); this is where a node's complete neighbourhood is
+    always visible.
     """
     node = result["node"]
     status = "promoted from archive" if result.get("was_archived") else "active"

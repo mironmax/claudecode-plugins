@@ -79,6 +79,40 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         """Register a new session. Used by visual editor."""
         return session_manager.register(project_path)
 
+    @rest_api.get("/api/session_bootstrap")
+    async def rest_session_bootstrap(project_path: str):
+        """Session-start memory preload, used by the SessionStart hook.
+
+        Registers a session and returns the exact text kg_read would produce
+        (same renderer, same inline guarantee) plus the session_id — so the
+        hook can inject memory as additionalContext before the first model
+        turn, saving the model call + tool round-trip that an explicit
+        kg_read would cost. Rendered gists are marked seen for the session,
+        exactly as a tool-based read would.
+        """
+        from .read_format import build_full_read
+        try:
+            reg = session_manager.register(project_path)
+            session_id = reg["session_id"]
+            graphs = store.read_graphs(session_id)
+            scores = store.scores_for_read(session_id)
+            shown = [
+                n["id"]
+                for lvl in ("user", "project")
+                for n in graphs[lvl]["nodes"]
+                if not n.get("_archived") and "_orphaned_ts" not in n
+            ]
+            session_manager.mark_seen(session_id, shown)
+            return {
+                "session_id": session_id,
+                "text": build_full_read(graphs, scores, session_id),
+            }
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            logger.error(f"session_bootstrap failed: {e}")
+            raise HTTPException(status_code=500, detail="bootstrap failed")
+
     # ========================================================================
     # Write API Endpoints
     # ========================================================================

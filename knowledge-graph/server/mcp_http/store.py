@@ -759,7 +759,8 @@ class MultiProjectGraphStore:
 
             return result
 
-    def search(self, query: str, session_id: str | None = None) -> list[dict]:
+    def search(self, query: str, session_id: str | None = None, seen: set | None = None,
+               top_k: int = 5, more_k: int = 10) -> dict:
         """Full-text search across node IDs, gists, notes and touches.
 
         Reciprocal Rank Fusion across per-term ranked lists: the query is split
@@ -769,10 +770,24 @@ class MultiProjectGraphStore:
         registered path, or — without a session — best-effort across all loaded
         project graphs.
 
-        Returns records sorted by RRF score descending. Holds the store lock for
-        the whole scan (the background maintenance thread mutates node dicts).
+        Returns a structured result built for compact rendering:
+          {
+            "top":        up to top_k full records (notes included only when
+                          the session hasn't already seen the node's gist —
+                          gists + edges are the working currency, notes are
+                          re-dumped never, on-demand depth via kg_read),
+            "more":       up to more_k one-line records (id + gist),
+            "connectors": nodes on shortest paths BETWEEN the top hits that
+                          aren't hits themselves (id + gist),
+            "path_edges": the edges forming those paths,
+            "total":      total match count,
+          }
+
+        Holds the store lock for the whole scan (the background maintenance
+        thread mutates node dicts concurrently).
         """
         RRF_K = 60
+        seen = seen or set()
         terms = list(dict.fromkeys(t for t in query.lower().split() if t))
 
         def search_graph_rrf(graph_key: str) -> dict[str, float]:
@@ -804,25 +819,22 @@ class MultiProjectGraphStore:
 
         def build_record(graph_key: str, node_id: str, label: str, score: float) -> dict:
             node = self.graphs.get(graph_key, {}).get("nodes", {}).get(node_id, {})
-            return {
+            node_seen = node_id in seen
+            record = {
                 "level": label,
                 "id": node_id,
                 "gist": node.get("gist", ""),
                 "archived": node.get("_archived", False),
                 "orphaned": "_orphaned_ts" in node,
-                "notes": list(node.get("notes", [])),
+                "seen": node_seen,
                 "score": round(score, 4),
             }
+            if not node_seen:
+                record["notes"] = list(node.get("notes", []))
+            return record
 
         with self.lock:
-            records = [
-                build_record("user", node_id, "user", score)
-                for node_id, score in search_graph_rrf("user").items()
-            ]
-
-            # Project graph(s): via session when available, else all loaded graphs.
-            proj_scores: dict[str, float] = {}
-            proj_key_map: dict[str, str] = {}
+            # Which graphs participate (user always; project via session or all loaded)
             project_keys: list[str] = []
             if session_id:
                 project_path = self.session_manager.get_project_path(session_id)
@@ -830,20 +842,115 @@ class MultiProjectGraphStore:
                     project_keys = [f"project:{project_path}"]
             else:
                 project_keys = [k for k in self.graphs if k.startswith("project:")]
+            graph_keys = ["user"] + [k for k in project_keys if k in self.graphs]
 
+            records = [
+                build_record("user", node_id, "user", score)
+                for node_id, score in search_graph_rrf("user").items()
+            ]
+            proj_scores: dict[str, float] = {}
+            proj_key_map: dict[str, str] = {}
             for graph_key in project_keys:
                 for node_id, score in search_graph_rrf(graph_key).items():
                     if node_id not in proj_scores or score > proj_scores[node_id]:
                         proj_scores[node_id] = score
                         proj_key_map[node_id] = graph_key
-
             records.extend(
                 build_record(proj_key_map[node_id], node_id, "project", score)
                 for node_id, score in proj_scores.items()
             )
 
-        records.sort(key=lambda r: r["score"], reverse=True)
-        return records
+            records.sort(key=lambda r: r["score"], reverse=True)
+            top = records[:top_k]
+            more = [
+                {"level": r["level"], "id": r["id"], "gist": r["gist"], "seen": r["seen"]}
+                for r in records[top_k:top_k + more_k]
+            ]
+
+            # Connections between the top hits: union of pairwise shortest
+            # paths (cheap Steiner approximation — exact Steiner is NP-hard
+            # and irrelevant at this scale). Adjacency spans all participating
+            # graphs, so cross-level edges connect hits across levels.
+            top_ids = [r["id"] for r in top]
+            path_edges = self._connection_paths(top_ids, graph_keys)
+
+            def find_gist(nid: str):
+                for gk in graph_keys:
+                    node = self.graphs[gk]["nodes"].get(nid)
+                    if node is not None:
+                        level = "user" if gk == "user" else "project"
+                        return node.get("gist", ""), level
+                return None, None
+
+            hit_ids = set(top_ids) | {m["id"] for m in more}
+            connectors = []
+            for e in path_edges:
+                for nid in (e["from"], e["to"]):
+                    if nid in hit_ids or any(c["id"] == nid for c in connectors):
+                        continue
+                    gist, level = find_gist(nid)
+                    if gist is not None:
+                        connectors.append({"id": nid, "gist": gist, "level": level, "seen": nid in seen})
+
+            return {
+                "top": top,
+                "more": more,
+                "connectors": connectors,
+                "path_edges": path_edges,
+                "total": len(records),
+            }
+
+    def _connection_paths(self, top_ids: list, graph_keys: list) -> list[dict]:
+        """Edges forming pairwise shortest paths (≤4 hops) between top hits.
+
+        Caller must hold the lock. Adjacency is undirected over node-node
+        edges in the participating graphs; artifact endpoints don't route.
+        """
+        MAX_HOPS = 4
+        node_ids = set()
+        for gk in graph_keys:
+            node_ids.update(self.graphs[gk]["nodes"].keys())
+
+        adj: dict[str, list] = {}
+        for gk in graph_keys:
+            for e in self.graphs[gk]["edges"].values():
+                f, t = e["from"], e["to"]
+                if f in node_ids and t in node_ids and f != t:
+                    adj.setdefault(f, []).append((t, e))
+                    adj.setdefault(t, []).append((f, e))
+
+        path_edges: dict[int, dict] = {}
+        for i, src in enumerate(top_ids):
+            for dst in top_ids[i + 1:]:
+                if src not in adj or dst not in adj:
+                    continue
+                # BFS with parent tracking
+                parents = {src: None}
+                frontier = [src]
+                depth = 0
+                found = False
+                while frontier and depth < MAX_HOPS and not found:
+                    next_frontier = []
+                    for nid in frontier:
+                        for other, edge in adj.get(nid, []):
+                            if other in parents:
+                                continue
+                            parents[other] = (nid, edge)
+                            if other == dst:
+                                found = True
+                                break
+                            next_frontier.append(other)
+                        if found:
+                            break
+                    frontier = next_frontier
+                    depth += 1
+                if found:
+                    cur = dst
+                    while parents[cur] is not None:
+                        prev, edge = parents[cur]
+                        path_edges[id(edge)] = edge
+                        cur = prev
+        return list(path_edges.values())
 
     # ========================================================================
     # Progress Tracking

@@ -32,7 +32,7 @@ from core.utils import (
 )
 from core.exceptions import KGError
 from core.estimator import CharEstimator
-from core.render import render_active_line, render_archived_line, render_edge_line
+from core.render import render_active_line, render_archived_line, render_edge_citation
 from core.scorer import NodeScorer
 from core.compactor import Compactor
 from core.constants import (
@@ -164,22 +164,26 @@ def test_edges():
     check("artifact-endpoint edge is live", edge_is_live(e("A", "some/file.py"), nodes, active))
     check("archived-to-artifact edge is live", edge_is_live(e("B", "some/file.py"), nodes, active))
 
-    # estimator: render == charge in EXACT characters. active=id+gist line,
-    # archived=anchor line, orphaned=0, only live edges charged — each cost is
-    # the length of the very string kg_read renders, plus its newline.
+    # estimator: render == charge in EXACT characters. The estimator builds the
+    # same node-centric render plan kg_read shows (section headers, node lines,
+    # one citation per live edge at its first-encountered endpoint, anchors)
+    # and measures those lines. Hand-assemble the expected render:
     est = CharEstimator()
     edges = {
-        "A->B:r": e("A", "B"),   # live (charged)
+        "A->B:r": e("A", "B"),   # live, cited under A (charged)
         "B->C:r": e("B", "C"),   # dead (not charged)
         "A->O:r": e("A", "O"),   # dead (orphaned, not charged)
     }
-    expected = (
-        len(render_active_line("A", "a")) + 1   # A active
-        + len(render_archived_line("B")) + 1    # B anchor
-        + len(render_archived_line("C")) + 1    # C anchor
-        + 0                                     # O orphaned, free
-        + len(render_edge_line("A", "r", "B")) + 1  # only A->B live
-    )
+    expected_lines = [
+        "ACTIVE:",
+        render_active_line("A", "a"),
+        render_edge_citation("r", "B", True),   # A → r → B
+        "ARCHIVED (use kg_read with id to view full content):",
+        render_archived_line("B"),
+        render_archived_line("C"),
+        # O orphaned: invisible, free
+    ]
+    expected = sum(len(line) + 1 for line in expected_lines)
     got = est.estimate_graph(nodes, edges, include_archived=False)
     check("estimator charges exactly the rendered set", got == expected, f"got {got} expected {expected}")
 
