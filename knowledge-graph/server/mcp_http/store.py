@@ -1048,7 +1048,7 @@ class MultiProjectGraphStore:
         edges = self.graphs[graph_key]["edges"]
         versions = self._versions[graph_key]
 
-        archived = self.compactor.compact_if_needed(nodes, edges, versions)
+        archived = self.compactor.compact_if_needed(nodes, edges, versions, label=graph_key)
         # Never refill on a tick that just archived: compaction lands at the same
         # ceiling refill fills to, so running both would partially undo the archive
         # in the same call. Skipping keeps "one of compact/refill acts per tick".

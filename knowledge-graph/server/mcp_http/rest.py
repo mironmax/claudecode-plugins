@@ -114,6 +114,32 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             logger.error(f"session_bootstrap failed: {e}")
             raise HTTPException(status_code=500, detail="bootstrap failed")
 
+    @rest_api.get("/api/session_state")
+    async def rest_session_state(project_path: str):
+        """Lightweight session state for the kg-remind hook.
+
+        The hook keys its deterministic nudge on full_read_done: until the
+        session has made the loud full-graph kg_read, every prompt carries the
+        reminder that the preload is partial. Resolves the newest live session
+        for the project path (the hook always runs inside the newest one).
+        Returns found=False rather than 404 so the bash caller can branch on
+        JSON alone without inspecting HTTP status.
+        """
+        try:
+            hit = session_manager.find_by_project_path(project_path)
+            if not hit:
+                return {"found": False}
+            sid, data = hit
+            return {
+                "found": True,
+                "session_id": sid,
+                "full_read_done": bool(data.get("full_read_ts")),
+                "preloaded_count": len(data.get("preloaded_ids", [])),
+            }
+        except Exception as e:
+            logger.error(f"session_state failed: {e}")
+            raise HTTPException(status_code=500, detail="session_state failed")
+
     # ========================================================================
     # Write API Endpoints
     # ========================================================================

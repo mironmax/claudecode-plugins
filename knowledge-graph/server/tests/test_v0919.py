@@ -112,7 +112,9 @@ def test_bootstrap_small_graph():
     result = build_bootstrap(graphs, scores, "smallsess")
     check("everything shown", set(result["shown_ids"]) == {"u-a", "u-b", "p-a"},
           result["shown_ids"])
-    check("no hidden-count line", "not shown" not in result["context"])
+    # the v0.9.21 header mentions "'…N more not shown' lines" as literal text,
+    # so probe the graph body, not the full context
+    check("no hidden-count line", "not shown" not in result["text"])
     check("well under budget", len(result["context"]) < 2500, len(result["context"]))
 
 

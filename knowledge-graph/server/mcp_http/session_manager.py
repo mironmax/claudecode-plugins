@@ -144,6 +144,39 @@ class HTTPSessionManager:
         session = self._sessions.get(session_id)
         return set(session.get("preloaded_ids", [])) if session else set()
 
+    def mark_full_read(self, session_id: str) -> None:
+        """Record that this session has made the loud full-graph kg_read.
+
+        The kg-remind hook keys its deterministic nudge on this flag: until it
+        flips, every prompt reminds the model that the preload is a partial
+        view. Stored as a timestamp for observability, read as a boolean.
+        """
+        self.ensure_session(session_id)
+        self._sessions[session_id]["full_read_ts"] = time.time()
+
+    def has_full_read(self, session_id: str) -> bool:
+        """Has this session rendered the full graph at least once?"""
+        session = self._sessions.get(session_id)
+        return bool(session and session.get("full_read_ts"))
+
+    def find_by_project_path(self, project_path: str) -> tuple[str, dict] | None:
+        """Most recently started live session for a project path, or None.
+
+        Concurrent sessions in one project resolve to the newest — the remind
+        hook that calls this runs inside the newest session by construction.
+        """
+        try:
+            resolved = str(safe_project_path(project_path))
+        except ValueError:
+            return None
+        best = None
+        for sid, data in self._sessions.items():
+            if data.get("project_path") != resolved:
+                continue
+            if best is None or data.get("start_ts", 0) > best[1].get("start_ts", 0):
+                best = (sid, data)
+        return best
+
     def mark_synced(self, session_id: str) -> None:
         """Update last_synced_ts so kg_sync only returns changes after this point."""
         if session_id in self._sessions:

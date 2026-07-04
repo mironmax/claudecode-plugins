@@ -243,13 +243,15 @@ def build_bootstrap(graphs: dict, scores: dict, session_id: str) -> dict:
     hook's user-visible one-liner.
     """
     header = (
-        "KG MEMORY PRELOADED — compact core: the top-scored nodes of both graphs, already "
-        f"in context. session_id: {session_id} (pass it to every kg_* call). "
-        "kg_read(session_id) renders the FULL graph without repeating these gists; "
+        "KG MEMORY PRELOADED — compact core ONLY: a PARTIAL view holding the top-scored "
+        "nodes of both graphs ('…N more not shown' lines below count what was dropped). "
+        f"session_id: {session_id} (pass it to every kg_* call). "
+        "REQUIRED before any substantive work: call kg_read(session_id) ONCE — it renders "
+        "everything this preload dropped without repeating what is shown here, and only "
+        'AFTER that full read announce "I have recalled KG Memories". '
         "kg_read(session_id, ids=[...]) reads nodes in depth; kg_search looks anything up. "
         "Subagents never receive this preload — when dispatching one, put the relevant gists "
-        "or kg_* instructions in its prompt. "
-        'Announce "I have recalled KG Memories" after scanning both sections.\n\n'
+        "or kg_* instructions in its prompt.\n\n"
     )
     session_line = f"\n\nSession: {session_id}"
     levels = _build_levels(graphs, scores)

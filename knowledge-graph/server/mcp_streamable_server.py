@@ -368,9 +368,18 @@ def create_mcp_server() -> Server:
                     if not n.get("_archived") and "_orphaned_ts" not in n
                 ]
                 session_manager.mark_seen(session_id, shown)
+                # The announce ritual belongs to the FULL read, not the preload:
+                # a session that only scanned the compact core has not recalled
+                # its memories yet. First full read carries the instruction;
+                # later re-reads (crumb refreshes, kg_sync follow-ups) don't.
+                first_full = not session_manager.has_full_read(session_id)
+                session_manager.mark_full_read(session_id)
+                text = build_full_read(graphs, scores, session_id, preloaded=preloaded)
+                if first_full:
+                    text += '\n\nFull graph now in context — announce "I have recalled KG Memories".'
                 return [TextContent(
                     type="text",
-                    text=build_full_read(graphs, scores, session_id, preloaded=preloaded),
+                    text=text,
                 )]
 
             elif name == "kg_search":

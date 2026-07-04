@@ -23,8 +23,12 @@ class Compactor:
         self.scorer = scorer
         self.estimator = estimator
         self.max_chars = max_chars
+        # Graphs whose over-budget stall (nothing eligible — all active nodes
+        # within grace) has already been logged. The maintenance tick retries
+        # every save_interval; without this the same stall logs twice a minute.
+        self._stall_logged: set[str] = set()
 
-    def compact_if_needed(self, nodes: dict, edges: dict, versions: dict) -> list[str]:
+    def compact_if_needed(self, nodes: dict, edges: dict, versions: dict, label: str = "") -> list[str]:
         """
         Archive nodes if graph exceeds its char budget, then run resurrection pass.
 
@@ -32,21 +36,38 @@ class Compactor:
         Pass 2: score all (active + archived) together; if any archived node
                 outscores a just-archived node by RESURRECTION_MARGIN, swap them.
 
+        label names the graph in logs and keys the once-per-stall suppression.
         Returns list of net-newly-archived node IDs (after swaps).
         """
         estimated_chars = self.estimator.estimate_graph(nodes, edges, include_archived=False)
 
         if estimated_chars <= self.max_chars:
+            self._stall_logged.discard(label)
             return []
 
-        logger.info(f"Compacting graph: {estimated_chars} chars > {self.max_chars} limit")
-
-        # Pass 1: archive lowest-scored active nodes
+        # Score BEFORE announcing work: a sprint-week graph can sit over budget
+        # with every active node inside the grace period — that is a stall to
+        # report once, not a compaction to log every tick.
         active_scores = self.scorer.score_all(nodes, edges, versions, include_archived=False)
 
         if not active_scores:
-            logger.debug("No nodes eligible for archiving (all within grace period)")
+            if label not in self._stall_logged:
+                self._stall_logged.add(label)
+                active_count = sum(
+                    1 for n in nodes.values()
+                    if not n.get("_archived") and "_orphaned_ts" not in n
+                )
+                logger.info(
+                    f"Graph {label or '?'} over budget ({estimated_chars} chars > {self.max_chars}) "
+                    f"but all {active_count} active nodes are within the grace period — "
+                    f"compaction deferred until one exits grace (further ticks logged at debug)"
+                )
+            else:
+                logger.debug(f"Graph {label or '?'} still over budget, still nothing past grace")
             return []
+
+        self._stall_logged.discard(label)
+        logger.info(f"Compacting graph {label or '?'}: {estimated_chars} chars > {self.max_chars} limit")
 
         sorted_active = sorted(active_scores.items(), key=lambda x: x[1])
         target = int(self.max_chars * COMPACTION_TARGET_RATIO)

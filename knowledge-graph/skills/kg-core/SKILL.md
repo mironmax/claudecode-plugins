@@ -6,11 +6,11 @@ description: |
   Primary context before reaching for any other tool.
 
   Session start: memory usually arrives PRELOADED — a "KG MEMORY PRELOADED" block
-  with session_id already in context. It is a compact core (top-scored nodes);
-  before substantive work, kg_read(session_id) renders the FULL graph without
-  repeating it. If no block: kg_read(cwd="<project root>") first. The session_id
-  goes on ALL later kg_* calls.
-  Announce "I have recalled KG Memories" once both sections are read.
+  with session_id already in context. It is a compact core: a PARTIAL view, not
+  the graph. REQUIRED before any substantive work: kg_read(session_id) once —
+  it renders everything the preload dropped without repeating it. If no block:
+  kg_read(cwd="<project root>") first. The session_id goes on ALL later kg_* calls.
+  Announce "I have recalled KG Memories" only AFTER that full read.
   Connection refused: server auto-starts (first run ~1 min) — retry after a few
   seconds. Still offline: user runs /mcp → plugin:knowledge-graph:kg → Reconnect.
 
@@ -43,12 +43,15 @@ Memory usually arrives **preloaded**: the SessionStart hook injects a "KG MEMORY
 PRELOADED" context block, including the session_id — zero tool calls, orientation
 before the first decision. The block is a **compact core**: the top-scored nodes of
 both graphs, capped so it always lands inline (hook context tolerates far less than
-tool results). For a quick session it may be all the memory needed.
+tool results). It is a partial view — the preload routinely drops whole levels
+(the user graph often loses every gist to the project graph's higher-scored nodes).
 
-Before substantive work, make the **loud read**: `kg_read(session_id)` renders the
-full graph — preloaded gists collapse to id-only `(preloaded)` anchors, so the
-budget goes to everything the compact core had to drop. Nothing is shown twice;
-`kg_read(session_id, ids=[...])` re-reads anything in full depth.
+That is why the **loud read is required, not optional**: before any substantive
+work, call `kg_read(session_id)` once. It renders the full graph — preloaded gists
+collapse to id-only `(preloaded)` anchors, so the budget goes to everything the
+compact core had to drop. Nothing is shown twice; `kg_read(session_id, ids=[...])`
+re-reads anything in full depth. Announce "I have recalled KG Memories" after this
+full read — the preload alone is orientation, not recall.
 
 If no preloaded block exists (server was still warming up), load explicitly:
 ```

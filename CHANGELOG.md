@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.21] - 2026-07-04
+
+### Changed
+- **The loud `kg_read` is now enforced, not hoped for.** Field evidence from a real session: the preload fired, the model announced recall, and the full-graph read never happened — the session ran on 14 of 45 project gists and 0 of 48 user gists (the bootstrap ladder routinely drops the whole user level to higher-scored project nodes). Three mechanisms close the gap. (1) The preload header is now directive: it names itself a PARTIAL view and requires one `kg_read(session_id)` before substantive work. (2) The "I have recalled KG Memories" announce moved to where it belongs — the first full read appends the instruction to its own output, so the ritual can no longer complete on the preload alone. (3) The reminder hook is deterministic while it matters: the server tracks `full_read_ts` per session (new `GET /api/session_state?project_path=` endpoint), and `kg-remind.sh` emits the full-read nudge on *every* prompt until the flag flips — previously that nudge was one random pick out of seven, so a short session had good odds of never seeing it. Any hook-side failure (server down, no session) falls back to the staged random pools.
+- **Compactor grace-period stall logs once, not twice a minute.** A sprint-week graph can sit over its char budget with every active node inside the 5-day grace period — nothing is eligible, and the compactor used to log "Compacting graph" at INFO on every 30s tick before silently giving up. It now logs the stall once, with the reason and the graph's namespace ("over budget but all N active nodes within grace — compaction deferred"), then stays at debug until eligibility can change. Compaction logs now name the graph they act on. The render-time ladder still guarantees `kg_read` fits inline regardless.
+
+### Added
+- Tests: `tests/test_v0921.py` (bootstrap header directive, full-read session tracking, session_state lookup, compactor stall single-log and recovery).
+
 ## [0.9.20] - 2026-07-03
 
 ### Changed
