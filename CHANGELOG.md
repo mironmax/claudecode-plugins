@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.23] - 2026-07-05
+
+### Added
+- **`/kg-ops` — one operations runbook for agents.** The plugin's operational knowledge was scattered across the README, two management scripts, and tribal memory; an agent told "fix the memory server" had to reverse-engineer it. Now it's one skill of recipes (diagnose → act → verify → undo): install/first run, plugin updates (shim refresh, server restart, `/mcp` reconnect), server lifecycle, systemd autostart, Claude Desktop/Cowork connection, configuration, backup/restore, and troubleshooting — including the previously-undocumented ones (`-32000` means the server process died, read the traceback; venv broken by an OS Python upgrade rebuilds on start; `reload=true` after direct disk edits; which log lines are fine). Skill descriptions load into every session, so consolidating ops into one skill also keeps that overhead flat.
+
+### Changed
+- `/kg-desktop` (one day old) folded into `/kg-ops` — same setup script, one entry point fewer.
+
 ## [0.9.22] - 2026-07-05
 
 ### Added

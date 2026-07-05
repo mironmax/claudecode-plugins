@@ -79,6 +79,8 @@ If you already have a `settings.json`, merge these into your existing `permissio
 
 The plugin runs a shared HTTP MCP server on port 8765, used by every Claude Code session simultaneously. **It starts automatically** — a SessionStart hook launches it whenever it's down, and the start script builds its Python environment on first run (and again after plugin updates, which install into a fresh directory). The hook only ever starts the server; it never stops or restarts one you're running.
 
+> Anything operational — updates, autostart, Desktop connection, backups, troubleshooting — is written up as agent-followable recipes in `/kg-ops`. Telling Claude "run /kg-ops and fix the memory server" is a complete instruction.
+
 > If a session connected while the server was still down (e.g. the very first run), the `kg_*` tools stay offline for that session — run `/mcp`, select `plugin:knowledge-graph:kg`, and hit **Reconnect** once the server is up.
 
 For manual control from your terminal, **install the helper commands** (one-time, optional):
@@ -129,10 +131,10 @@ systemctl --user start memory-mcp.service
 Claude Desktop can use the same memory — it becomes another client of the shared server. Desktop's "Add custom connector" dialog won't take a local URL (those connectors are contacted from Anthropic's cloud, so they require a public https address); the local route is Desktop's config file, and the plugin automates it:
 
 ```
-/kg-desktop
+/kg-ops connect Claude Desktop
 ```
 
-The skill registers a stdio bridge (`mcp-remote`, needs Node.js ≥ 18) in `claude_desktop_config.json`, with paths resolved for your machine. The bridge auto-starts the server if Desktop launches first. Fully quit and reopen Desktop afterwards; Cowork sessions receive the server through Desktop's own sandbox bridge. Remove anytime with `setup_desktop.py --remove`.
+The setup registers a stdio bridge (`mcp-remote`, needs Node.js ≥ 18) in `claude_desktop_config.json`, with paths resolved for your machine. The bridge auto-starts the server if Desktop launches first. Fully quit and reopen Desktop afterwards; Cowork sessions receive the server through Desktop's own sandbox bridge. Remove anytime with `setup_desktop.py --remove`.
 
 Note: Desktop sessions get no session-start preload (that's a Claude Code hook) — memory arrives on the first `kg_read` call instead.
 
@@ -158,7 +160,7 @@ Once the server is running, Claude captures insights automatically. A few habits
 | `/skill kg-maintain` | User-invocable | Focused maintenance pass: prune, fertilize, health check |
 | `/skill kg-scout` | User-invocable | Mine conversation history for patterns and insights |
 | `/skill kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
-| `/skill kg-desktop` | User-invocable | Connect Claude Desktop (and Cowork) to the same memory |
+| `/skill kg-ops` | User-invocable | Operations runbook: install, updates, server, Desktop/Cowork, backup, troubleshooting |
 
 ---
 
