@@ -30,6 +30,14 @@ ln -sf "$PLUGIN_DIR/visual-editor/manage_visual.sh" "$BIN_DIR/kg-visual"
 chmod +x "$PLUGIN_DIR/visual-editor/manage_visual.sh"
 echo "✓ kg-visual command installed"
 
+# Refresh the Claude Desktop bridge symlink if /kg-desktop set it up earlier —
+# cache dirs are versioned, so the link must repoint after plugin updates.
+if [ -L "$BIN_DIR/kg-desktop-bridge" ] || [ -e "$BIN_DIR/kg-desktop-bridge" ]; then
+    ln -sf "$PLUGIN_DIR/desktop_bridge.sh" "$BIN_DIR/kg-desktop-bridge"
+    chmod +x "$PLUGIN_DIR/desktop_bridge.sh"
+    echo "✓ kg-desktop-bridge refreshed"
+fi
+
 # ── 2. Migrate from old user-settings hook (idempotent) ──────────────────────
 #
 # Earlier versions of this script wrote the kg-remind hook into

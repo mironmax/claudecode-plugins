@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.22] - 2026-07-05
+
+### Added
+- **Claude Desktop support: `/kg-desktop`.** Desktop's "Add custom connector" dialog rejects local URLs by design — custom connectors are contacted from Anthropic's cloud and can never reach a local server. The correct route is Desktop's own config file, and the new skill automates it: `setup_desktop.py` resolves absolute paths for the machine (Desktop spawns commands without a shell — no `~`, unreliable PATH), backs up `claude_desktop_config.json`, and idempotently registers a stdio bridge. The bridge (`desktop_bridge.sh` → `mcp-remote`, Node.js ≥ 18) health-checks the shared HTTP server and auto-starts it when Desktop launches first, so Desktop — and Cowork, which receives config-file servers through Desktop's sandbox bridge — becomes just another client of the same graph. `--remove` undoes the entry. Desktop sessions get no hook preload; orientation arrives with the first `kg_read`.
+
 ## [0.9.21] - 2026-07-04
 
 ### Changed

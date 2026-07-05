@@ -124,6 +124,20 @@ systemctl --user start memory-mcp.service
 
 ---
 
+## Claude Desktop (Optional)
+
+Claude Desktop can use the same memory — it becomes another client of the shared server. Desktop's "Add custom connector" dialog won't take a local URL (those connectors are contacted from Anthropic's cloud, so they require a public https address); the local route is Desktop's config file, and the plugin automates it:
+
+```
+/kg-desktop
+```
+
+The skill registers a stdio bridge (`mcp-remote`, needs Node.js ≥ 18) in `claude_desktop_config.json`, with paths resolved for your machine. The bridge auto-starts the server if Desktop launches first. Fully quit and reopen Desktop afterwards; Cowork sessions receive the server through Desktop's own sandbox bridge. Remove anytime with `setup_desktop.py --remove`.
+
+Note: Desktop sessions get no session-start preload (that's a Claude Code hook) — memory arrives on the first `kg_read` call instead.
+
+---
+
 ## Usage Tips
 
 Once the server is running, Claude captures insights automatically. A few habits that improve the experience:
@@ -144,6 +158,7 @@ Once the server is running, Claude captures insights automatically. A few habits
 | `/skill kg-maintain` | User-invocable | Focused maintenance pass: prune, fertilize, health check |
 | `/skill kg-scout` | User-invocable | Mine conversation history for patterns and insights |
 | `/skill kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
+| `/skill kg-desktop` | User-invocable | Connect Claude Desktop (and Cowork) to the same memory |
 
 ---
 
