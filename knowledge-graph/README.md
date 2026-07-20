@@ -36,7 +36,7 @@ The design puts the intelligence at **capture time**: knowledge is compressed by
 # 3. Restart Claude Code
 ```
 
-**Done.** The plugin ships a UserPromptSubmit hook in `hooks/hooks.json` that auto-loads on session start — no setup script, no settings.json edits.
+**Done.** The plugin ships its hooks in `hooks/hooks.json` and they auto-load on session start — no setup script, no settings.json edits. Three hooks carry the ambient behavior: SessionStart preloads your memory into context and starts the server if it's down; UserPromptSubmit surfaces memory relevant to each prompt; PostToolUse notices when knowledge is being re-derived and nudges a capture.
 
 > Already in a session? Run `/reload-plugins` instead of restarting.
 
@@ -65,7 +65,8 @@ By default, Claude Code asks permission for each MCP tool call. To skip these pr
       "mcp__plugin_knowledge-graph_kg__kg_delete_node",
       "mcp__plugin_knowledge-graph_kg__kg_delete_edge",
       "mcp__plugin_knowledge-graph_kg__kg_search",
-      "mcp__plugin_knowledge-graph_kg__kg_progress"
+      "mcp__plugin_knowledge-graph_kg__kg_progress",
+      "mcp__plugin_knowledge-graph_kg__kg_useful"
     ]
   }
 }
@@ -140,6 +141,15 @@ Note: Desktop sessions get no session-start preload (that's a Claude Code hook) 
 
 ---
 
+## What the Memory Does on Its Own
+
+The system is designed to work without being asked. Four ambient behaviors, all zero-config:
+
+- **Preloaded at session start** — the top-scored nodes of both graphs are in context before the first word, and one `kg_read` renders the rest.
+- **Recall at the moment of relevance** — each prompt is matched against the graph server-side; when unseen nodes fit, their gists arrive with the prompt. Precision is deliberate: nothing injects twice, and weak matches stay silent rather than train the model to ignore the channel.
+- **Capture when re-derivation is proven** — reading a file a second session in a row (or fetching the same URL twice) with no node covering it earns a one-time nudge to write the bottom line down. First-time reads never nudge; hard throttles keep it rare.
+- **Self-aware maintenance** — every read carries a `DEBT:` line per graph (oversized gists, unconnected nodes, time since last tended, weighted by how actively the graph is used). When it reads HIGH, `/kg-maintain` runs a bounded pass — or Claude spawns a maintenance subagent with the dispatch prompt the skill provides.
+
 ## Usage Tips
 
 Once the server is running, Claude captures insights automatically. A few habits that improve the experience:
@@ -157,7 +167,7 @@ Once the server is running, Claude captures insights automatically. A few habits
 | `kg-core` | Hidden (auto-loaded) | Session protocol, self-awareness, API reference |
 | `kg-capture` | Hidden (auto-loaded) | Capture rules, compression, search-before-put |
 | `kg-recall` | Hidden (auto-loaded) | Proactive recall, memory traces, sync timing |
-| `/skill kg-maintain` | User-invocable | Focused maintenance pass: prune, fertilize, health check |
+| `/skill kg-maintain` | User-invocable | Bounded maintenance pass that pays down the graph's DEBT line; includes the subagent dispatch prompt |
 | `/skill kg-scout` | User-invocable | Mine conversation history for patterns and insights |
 | `/skill kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
 | `/skill kg-ops` | User-invocable | Operations runbook: install, updates, server, Desktop/Cowork, backup, troubleshooting |
@@ -189,6 +199,7 @@ All data lives under `~/.knowledge-graph/`. The files are plain JSON, so any fil
 - **User level:** `~/.knowledge-graph/user.json` — cross-project knowledge
 - **Project level:** `~/.knowledge-graph/projects/<slug>/graph.json` — codebase-specific
 - **Sessions:** `~/.knowledge-graph/sessions.json` — session registry
+- **Tool-event counters:** `~/.knowledge-graph/projects/<slug>/tool_events.json` — per-target read/fetch counts feeding the capture nudges and the activity part of the DEBT score
 
 ### Built-in crash protection
 

@@ -60,6 +60,17 @@ one targeted read away.
    - **Memory traces**: Edges to archived nodes guide discovery
    - Sequential reading surfaces "hidden" knowledge
 
+5. **Ambient Loop** (capture → recall → maintain, none of it asked for)
+   - **Recall at the prompt**: every prompt is matched server-side against both
+     graphs; unseen matching gists ride the hook's context injection — memory
+     arrives exactly when it is relevant, with zero model round-trips
+   - **Capture on proven re-derivation**: tool traffic (Read/WebFetch/WebSearch)
+     is counted per target; an uncovered file read in a second distinct session
+     earns a one-time capture nudge — first reads never do
+   - **Maintenance by declared debt**: every read renders a per-graph `DEBT:`
+     line (wear × staleness × activity); `/kg-maintain` is the bounded pass
+     that pays it down and stamps itself, resetting the clock
+
 #### Why This Works
 
 **Load everything by default:**
@@ -117,7 +128,8 @@ one targeted read away.
              │                              │          │
              │  Endpoints:                  │          │
              │  - / (MCP protocol)          │◄─────────┘
-             │  - /api/* (REST API)         │
+             │  - /api/* (REST: editor,     │
+             │    hook brains, debt survey) │
              │  - /health (status)          │
              └──────────┬───────────────────┘
                         │
@@ -186,6 +198,31 @@ depends on shared knowledge.
 - Visual editor: Implicit updates via WebSocket (push)
 - Same underlying store, different transport needs
 
+### The Ambient Loop (hooks × server)
+
+Three thin bash hooks post their raw stdin JSON to the server and print
+whatever ready-made hook output comes back — every decision lives server-side,
+the hook layer parses nothing and can never break a session:
+
+| Hook | Endpoint | Server decides |
+|------|----------|----------------|
+| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set |
+| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — RRF search over the prompt's terms, seen-deduped, corroboration threshold, ≤3 unseen gists, marked seen so nothing injects twice; `{}` falls back to staged reminder pools |
+| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap) |
+
+Precision is the design constraint on this whole loop: an ambient channel that
+speaks too often trains the model to ignore it. Thresholds make silence the
+default — nothing repeats, weak matches stay quiet, first-time reads never
+nudge.
+
+Maintenance closes the loop. `kg_read` and the preload render a `DEBT:` line
+per graph (`core/debt.py`: staleness since the last stamped pass × active
+days × oversized/unconnected wear, raw factors printed for sanity-checking).
+`GET /api/maintenance_debt` surveys every graph on disk, neediest first — the
+hook for any dispatcher, from an in-session subagent to a cron tick. A pass
+stamps itself via `kg_progress` task `"maintain"`; only stamped passes reset
+staleness.
+
 ---
 
 ## Storage Layer
@@ -198,7 +235,8 @@ depends on shared knowledge.
   ├── sessions.json                      # Session registry
   └── projects/
       └── <slug>/
-          └── graph.json                 # Project-specific knowledge
+          ├── graph.json                 # Project-specific knowledge
+          └── tool_events.json           # Read/fetch counters (capture nudges, DEBT activity)
 ```
 
 **Centralized storage.** All graphs live under `~/.knowledge-graph/` — one place to inspect, back up, and version everything, with project isolation via slug-based subdirectories. A single directory holding all accumulated knowledge is also what makes the whole memory portable: copy it and every project's context moves with it.
@@ -230,12 +268,15 @@ depends on shared knowledge.
 - **Scout Skill** (`/skill kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
 - **Extract Skill** (`/skill kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
 - **Ranked Search** — `kg_search` with Reciprocal Rank Fusion (RRF): query tokenized, each term ranked by occurrence count across all nodes, results merged into a single unified ranking. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent.
+- **Ambient recall & capture** — prompt-matched gist injection per prompt and re-derivation capture nudges on tool traffic; all decisions server-side behind thin hooks (see "The Ambient Loop").
+- **Maintenance debt** — per-graph `DEBT:` line, disk-wide survey endpoint, and `/kg-maintain` as a bounded, resumable, self-stamping pass.
 
 ### Planned Features
 - Collaborative editing (multi-user visual editor)
 - Import/export (share graph snippets)
 - Analytics (graph metrics, usage patterns)
 - Plugin ecosystem (custom archival/scoring algorithms)
+- Team memory (shared pools, role agents — see the KG Teams design direction)
 
 ---
 
