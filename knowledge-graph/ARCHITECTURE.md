@@ -207,7 +207,7 @@ the hook layer parses nothing and can never break a session:
 | Hook | Endpoint | Server decides |
 |------|----------|----------------|
 | SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set |
-| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — RRF search over the prompt's terms, seen-deduped, corroboration threshold, ≤3 unseen gists, marked seen so nothing injects twice; `{}` falls back to staged reminder pools |
+| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — IDF-weighted RRF search over the prompt's terms (ubiquitous words carry no signal), seen-deduped, corroboration threshold, unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
 | PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap) |
 
 Precision is the design constraint on this whole loop: an ambient channel that
