@@ -99,7 +99,11 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             session_id = reg["session_id"]
             graphs = store.read_graphs(session_id)
             scores = store.scores_for_read(session_id)
-            result = build_bootstrap(graphs, scores, session_id)
+            try:
+                debt = store.maintenance_debt(session_id)
+            except Exception:
+                debt = None
+            result = build_bootstrap(graphs, scores, session_id, debt=debt)
             session_manager.set_preloaded(session_id, result["shown_ids"])
             session_manager.mark_seen(session_id, result["shown_ids"])
             return {
@@ -139,6 +143,22 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         except Exception as e:
             logger.error(f"session_state failed: {e}")
             raise HTTPException(status_code=500, detail="session_state failed")
+
+    @rest_api.get("/api/maintenance_debt")
+    async def rest_maintenance_debt():
+        """Debt survey of every graph on disk, neediest first.
+
+        Built for maintenance dispatchers (scheduled tick, ops session): pick
+        the top row, run a /kg-maintain pass against its project_path, and the
+        pass's kg_progress stamp resets its staleness. Reads graph files
+        directly — surveying does not load every graph into server memory."""
+        from core.constants import get_storage_root
+        from core.debt import survey_debt
+        try:
+            return {"graphs": survey_debt(get_storage_root())}
+        except Exception:
+            logger.exception("maintenance_debt survey failed")
+            raise HTTPException(status_code=500, detail="survey failed")
 
     # ========================================================================
     # Ambient memory endpoints (per-event hooks post their raw stdin JSON;

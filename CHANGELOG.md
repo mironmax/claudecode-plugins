@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.25] - 2026-07-20
+
+### Added
+- **Maintenance debt — the graph now says when it needs tending.** Every `kg_read` and session preload renders a `DEBT:` line per level after `HEALTH:`, computed server-side (`core/debt.py`) as staleness × activity × deficit: days since the last stamped maintenance pass (saturating at 14; "never" counts full), distinct active days in the last week (node-read stamps plus the v0.9.24 tool-event traffic), and countable wear — oversized gists (the documented compactor-stall root cause) and unconnected active nodes. The factors print raw next to the verdict, so the score can be sanity-checked at a glance; `HIGH` carries the call to action. A pass records itself via `kg_progress` task `"maintain"` — the stamp is what resets staleness, so only real passes count.
+- **`GET /api/maintenance_debt`** — a debt survey of every graph on disk (user + all projects), neediest first, with each project's path attached. Built for maintenance dispatchers: pick the top row, run a pass there, the stamp re-sorts the list. Reads graph files directly so surveying doesn't pull every project into server memory.
+- **`/kg-maintain` rewritten as a bounded, resumable pass.** The garden philosophy became an executable runbook: orient on the DEBT lines → resume from the `kg_progress` cursor → work capped categories in value order (oversized gists ≤8, unconnected nodes ≤5, duplicate merges ≤3, notes hygiene ≤3) → verify → stamp → report. Hard rules ride along: never invent facts, archived stays untouched, ~25 calls per pass. The skill ships the exact dispatch prompt for running the pass as a subagent — subagents get no preload, so the prompt carries everything.
+- The deep-session reminder pool nudges spawning a maintenance subagent when a DEBT line shows HIGH.
+- Tests: `tests/test_v0925.py` — 29 assertions (debt math and thresholds, line rendering, stamp-resets-staleness, DEBT placement in read/bootstrap within budgets, disk survey ordering and tool-event activity, endpoint shape). Full suite 301 green.
+
 ## [0.9.24] - 2026-07-20
 
 ### Added

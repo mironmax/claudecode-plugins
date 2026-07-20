@@ -18,6 +18,7 @@ together, hubs first, each edge cited once at its first-encountered endpoint)
 """
 
 from core.constants import BOOTSTRAP_CHAR_BUDGET, READ_CHAR_BUDGET, SEARCH_CHAR_BUDGET
+from core.debt import debt_line
 from core.render import plan_level, render_edge_line
 
 
@@ -82,6 +83,7 @@ def _level_parts(label: str, nodes: list, edges: list, scores: dict, preloaded: 
         # defensive fallback.
         "archived_pool": [(scores.get(nid, 0.0), anchor) for nid, anchor in plan["archived"]],
         "health": _health_line(plan),
+        "debt_line": None,
         "preloaded_count": preloaded_count,
         "hidden_archived": 0,
         "hidden_edges": 0,
@@ -117,6 +119,8 @@ def _assemble(levels: list[dict], session_line: str, degradation_note: bool = Tr
                     f"  …{part['hidden_archived']} more archived hidden (lowest-scored) — kg_search reaches them"
                 )
         out_lines.append(part["health"])
+        if part.get("debt_line"):
+            out_lines.append(part["debt_line"])
 
     text = "\n".join(out_lines)
     total_hidden_archived = sum(p["hidden_archived"] for p in levels)
@@ -130,13 +134,21 @@ def _assemble(levels: list[dict], session_line: str, degradation_note: bool = Tr
     return text + session_line
 
 
-def _build_levels(graphs: dict, scores: dict, preloaded: set | None = None) -> list[dict]:
+def _build_levels(graphs: dict, scores: dict, preloaded: set | None = None, debt: dict | None = None) -> list[dict]:
     """Level parts for both graphs, droppable pools sorted for the ladder
-    (ascending by value so .pop(0) removes the least valuable item first)."""
+    (ascending by value so .pop(0) removes the least valuable item first).
+
+    debt: optional {"user": {...}, "project": {...}} from store.maintenance_debt —
+    rendered as a DEBT line after each level's HEALTH (inside the measured
+    text, so the budget accounting stays exact)."""
     levels = [
         _level_parts("User Graph", graphs["user"]["nodes"], graphs["user"]["edges"], scores.get("user", {}), preloaded),
         _level_parts("Project Graph", graphs["project"]["nodes"], graphs["project"]["edges"], scores.get("project", {}), preloaded),
     ]
+    if debt:
+        for part, key in ((levels[0], "user"), (levels[1], "project")):
+            if debt.get(key):
+                part["debt_line"] = debt_line(debt[key])
     for part in levels:
         part["archived_pool"].sort(key=lambda t: t[0])
         for entry in part["active"]:
@@ -203,7 +215,7 @@ def _fit_to_budget(levels: list[dict], session_line: str, budget: int, prefix: s
             entry["citations"].sort(key=lambda t: t[0], reverse=True)
 
 
-def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloaded: set | None = None) -> str:
+def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloaded: set | None = None, debt: dict | None = None) -> str:
     """Render the two-level kg_read output, degraded if needed to fit the budget.
 
     graphs: store.read_graphs() result. scores: store.scores_for_read() result.
@@ -215,7 +227,7 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloade
     exceed it until the next write triggers compaction.
     """
     session_line = f"\n\nSession: {session_id}" if session_id else ""
-    levels = _build_levels(graphs, scores, preloaded)
+    levels = _build_levels(graphs, scores, preloaded, debt)
 
     prefix = ""
     total_preloaded = sum(p["preloaded_count"] for p in levels)
@@ -229,7 +241,7 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloade
     return prefix + _assemble(levels, session_line)
 
 
-def build_bootstrap(graphs: dict, scores: dict, session_id: str) -> dict:
+def build_bootstrap(graphs: dict, scores: dict, session_id: str, debt: dict | None = None) -> dict:
     """Render the session-start preload: a compact core under BOOTSTRAP_CHAR_BUDGET.
 
     Hook additionalContext rides a much smaller inline window than tool results
@@ -254,7 +266,7 @@ def build_bootstrap(graphs: dict, scores: dict, session_id: str) -> dict:
         "or kg_* instructions in its prompt.\n\n"
     )
     session_line = f"\n\nSession: {session_id}"
-    levels = _build_levels(graphs, scores)
+    levels = _build_levels(graphs, scores, debt=debt)
     totals = {
         "user_active": len(levels[0]["active"]),
         "project_active": len(levels[1]["active"]),

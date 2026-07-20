@@ -2,148 +2,119 @@
 name: kg-maintain
 user-invocable: true
 description: |
-  Knowledge graph maintenance. Tend the garden — regular, light care keeps it
-  healthy. Woven into every session.
+  Knowledge graph maintenance — a bounded, resumable pass that pays down the
+  graph's DEBT line (rendered after HEALTH in every kg_read). Run it when
+  invoked, when DEBT shows HIGH, or as a dispatched maintenance subagent.
 
-  GARDEN RHYTHM — three modes, applied as needed:
-    Water   (routine): after each task, glance at 2–3 recently-touched nodes.
-                       Gists still accurate? Notes worth adding? Do touches
-                       still point where they claim (files drift)?
-    Prune   (when dense): merge duplicate nodes, shorten verbose gists (→ notes),
-                       split oversized nodes, remove stale touches, delete edges to removed concepts.
-    Fertilize (on use): when a node proves valuable, connect it to newly-discovered
-                       related nodes. One new edge makes a node far more durable.
-
-  AFTER CAPTURE: when you save a node, immediately ask —
-    - Do any adjacent nodes now need updating?
-    - Is this a duplicate of something existing? Merge if so.
-    - Does this node's gist still fit, or did context shift?
-
-  REACTIVE TRIGGERS (act immediately, mid-conversation):
-    Uncertainty (spinning wheels, deja vu, about to search) → kg_search first.
-    About to assume something → check KG; if missing, capture the assumption.
+  Always-on reactive triggers (no pass needed, act mid-conversation):
     User correction → update the stale node before continuing.
     Node just proved useful → add one edge to current context.
     Gist feels vague after using it → sharpen while context is live.
+    Just saved a node → check: duplicate? adjacent nodes need updating?
 
-  Archival is reversible — leave archived nodes alone unless factually wrong and
-  unfixable by update. Deletion is a last resort, not routine cleanup.
+  Archival is automatic and reversible — leave archived nodes alone.
+  Deletion is a last resort, only for the factually wrong and unfixable.
 ---
 
-# Maintenance Reference (Detailed)
+# The Maintenance Pass
 
-## When Invoked Directly (/kg-maintain)
+One graph per pass, hard-bounded, checkpointed through `kg_progress` so a cut
+session loses nothing. The DEBT line is both the trigger and the scoreboard:
 
-Run a focused maintenance pass in this order:
-1. `kg_read(cwd)` — check health stats: orphan %, avg edges/node, any degradation note
-2. **Always**: scan all gists against the current kg-capture standard — tighten any that exceed it, regardless of graph size
-3. **Always**: spot-check notes on recently-touched nodes — rewrite any that have grown chaotic or redundant (see "Notes Hygiene" below)
-4. If graph is large or has size warning → **Prune**: merge duplicates, split oversized nodes, remove stale touches
-5. After pruning → **Fertilize**: connect nodes clarified during pruning, add missing edges
-6. **Water** throughout: update any gist that feels stale given what you just read
+    DEBT: HIGH (0.72) — 14 oversized gist(s), 7 unconnected, never maintained, active 4/7d
 
-Announce findings: "Graph health: N nodes, E edges, O% orphans. Running [prune|fertilize|water] pass."
-Report what changed: nodes merged, gists tightened, edges added.
+## 0 — Orient
 
-## What a Healthy Graph Looks Like
+`kg_read(session_id)` (dispatched subagent with no preload: `kg_read(cwd)`
+first — the result carries your session_id). Read both DEBT lines; target the
+higher-debt level unless the dispatch said otherwise. Announce:
+"Maintenance pass: <level> graph, debt <score> — <factors>."
 
-A healthy graph is a mesh of connections, not isolated facts. Most nodes participate
-in at least one edge. Health stats show this at a glance:
-- Low orphan rate — most nodes connected
-- Reasonable edge density — linked but not over-connected
-- Mix of levels — user patterns inform project decisions
+## 1 — Resume
 
-## Maintenance Operations
+`kg_progress(session_id, task_id="maintain", level=<target>)` → prior state.
+If a previous pass left a cursor, continue where it stopped.
 
-When auditing the graph with kg_read:
-- **Disconnected nodes** — appear in no edges. Connect them with edges if appropriate. Only delete if truly orphaned AND factually incorrect.
-- **Duplicates** — overlapping gists or IDs. Merge: keep/update richer one, delete the other.
-- **Outdated knowledge** — about removed code or old decisions. Update/improve the node with current state rather than deleting.
-- **Broken edges** — pointing to renamed or removed concepts. Update the edge target, or kg_delete_edge if the relationship no longer exists.
-- **Archived nodes** — automatic process, leave them be. They're memory traces, not clutter.
-- **Orphaned nodes** — invisible in kg_read; searchable via kg_search. Automatically
-  deleted after 365 days without recall. To rescue: read an adjacent archived node —
-  the promotion chain will surface its orphaned neighbors back to archived.
-- **Verbose gists** — if a gist exceeds the current kg-capture standard, tighten it. Move procedure/details to notes. Gist = headline only. See "Gist Hygiene" below.
-- **Bloated notes** — notes that have grown into a changelog or contain contradictions. Rewrite to current truth only. See "Notes Hygiene" below.
-- **Oversized nodes** — single node spanning multiple responsibilities. Split and link. See "Oversized Node Detection" below.
-- **Stale pointers** — touches with line ranges (`path:30-40`) drift as files change. On
-  recently-touched nodes, spot-check that the range still contains what the anchor names;
-  fix the range or re-anchor.
+## 2 — Work the list (bounded per pass)
 
-## Gist Hygiene
+Work in this order — each category caps, so a pass ends instead of sprawling:
 
-No extra tool needed — gists are visible in the main `kg_read` output. Scan them all.
+1. **Oversized gists — up to 8, longest first.** Rewrite the gist as headline
+   ≤300 chars (subject + key fact); move the displaced detail into notes —
+   merge with what's there, discard no facts. Keep the node id stable.
+2. **Unconnected active nodes — up to 5.** Batch-read them
+   (`kg_read(session_id, ids=[...])`), then give each ONE meaningful edge to
+   an existing node. No honest edge exists? Sharpen the gist instead — an
+   unconnected but crisp node beats a fake edge.
+3. **Duplicate merges — up to 3.** Overlap spotted during the scan: merge
+   into the richer node (union of notes/touches), re-point the poorer node's
+   edges (`kg_put_edge` new, `kg_delete_edge` old), then delete the empty
+   shell. Verify overlap before merging — presumed duplicates often aren't.
+4. **Notes hygiene — up to 3 nodes** (the most-revised ones you touched
+   above). Notes that read as a changelog ("actually…", contradictions,
+   repeats of the gist) → rewrite to current truth only: clean standalone
+   bullets, history discarded, conclusions kept.
 
-**Standard:** check the current kg-capture skill for the active gist length target. Any gist exceeding that limit needs tightening — this applies to all nodes regardless of graph size or when the node was created. Old nodes do not get a pass on the current standard.
+Rules that bound every action:
+- Never invent facts — when unsure, tighten wording, not meaning.
+- Archived nodes stay untouched except promotions your edges cause.
+- Roughly 25 kg_* calls is a full pass — stop there, checkpoint, report.
 
-**Signals:**
-- Gist uses "and" to join independent ideas → split the node
-- Gist restates what the ID already says → delete the redundant part
-- Gist contains a procedure step → move to notes
-- Gist longer than the current target → cut; move excess to notes
+## 3 — Verify and stamp
 
-**Action:** rewrite to subject + key fact only. Everything else belongs in notes or an edge.
+Re-run `kg_read(session_id)`: the DEBT factors you worked should have
+dropped. Then stamp — **mandatory, the stamp is what resets staleness; an
+unstamped pass didn't happen**:
 
-## Notes Hygiene
+    kg_progress(session_id, task_id="maintain", level=<target>,
+        state={"last_ts": <unix now>, "gists_tightened": N,
+               "edges_added": N, "merges": N, "notes_rewritten": N})
 
-Notes are hidden by default, so they don't inflate the visible graph — but they accumulate silently. A note added in session 1, amended in session 5, and partially updated in session 20 becomes contradictory and bloated. Periodic rewrite is the fix.
+## 4 — Report
 
-**When to rewrite notes (not just append):**
-- Node has been touched 3+ times and notes feel like a log of changes rather than current truth
-- Notes contain contradictory statements ("X is required" and "X is optional" both present)
-- Notes repeat information already in the gist
-- Notes contain a chain of "actually…" corrections — collapse to the final truth
-- A node covers two separable concerns — split and redistribute notes
+One compact summary: debt before → after, counts per category, anything
+found-but-deferred (it seeds the next pass's cursor).
 
-**How to rewrite:**
-1. Read the full notes block as-is
-2. Extract the current truth: what invariants hold now? What constraints? What rationale?
-3. Discard the history (corrections, "turns out", "actually") — keep only the conclusion
-4. Rewrite as a clean set of bullets, each a standalone fact
+# Dispatching Maintenance as a Subagent
 
-Notes are not a changelog. They're a compressed memo to a future session that has no other context.
+When a session sees DEBT HIGH but is mid-task, spawn a subagent instead of
+context-switching. Subagents get NO preload — the prompt must carry:
 
-**When to do a notes pass:**
-- During any /kg-maintain invocation: spot-check 3–5 nodes with most touches
-- Any time you read a node's notes and feel confused before feeling informed
-- After a long debugging session where the same node was updated repeatedly
+    Run a knowledge-graph maintenance pass in <cwd>.
+    First call kg_read(cwd="<cwd>") — the result includes your session_id
+    and both graphs with DEBT lines. Then follow the /kg-maintain skill's
+    "Maintenance Pass" runbook against the <level> graph: oversized gists
+    (≤8), unconnected nodes (≤5), duplicate merges (≤3), notes hygiene (≤3),
+    then verify, STAMP kg_progress task "maintain", and report counts.
+    Do not invent facts; sharpen wording, not meaning. ~25 kg_* calls max.
 
-## Oversized Node Detection
+# Reference: what the DEBT factors mean
 
-When gist + notes together are very large, or a single node spans multiple distinct responsibilities:
+- **oversized gist(s)** — active gists >300 chars; the documented
+  compactor-stall root cause and the top-value fix.
+- **unconnected** — active nodes in no edge; one honest edge makes a node
+  far more durable (connectedness is 40% of the archival score).
+- **untended Nd / never maintained** — days since the last stamped pass
+  (saturates at 14; "never" counts as fully stale).
+- **active N/7d** — distinct days with graph reads or tracked tool traffic;
+  activity weights debt up (active graphs wear faster and repay sooner).
 
-**Signals:**
-- A single node covering two separable concepts → split into two nodes linked by an edge
-- An edge with a very long notes field → distill to one sentence; create a node for the reasoning if it matters
+Debt formula and thresholds live in `server/core/debt.py` — deliberately
+legible; the line's raw numbers let you sanity-check the verdict.
 
-**Actions:**
-1. **Split node** — when a node covers two separable concepts, split and link with an edge (`relates_to`, `part_of`, `depends_on`).
-2. **Promote to CLAUDE.md** — if notes contain operational procedures or project conventions, they belong in CLAUDE.md rather than the KG. Remove them from the node once moved.
+# Notes Hygiene (how to rewrite)
 
-This pass is independent of graph size — a small graph can have a bloated node.
+1. Read the full notes block; extract what holds NOW — invariants,
+   constraints, rationale.
+2. Discard the history ("turns out", "actually", superseded corrections).
+3. Rewrite as standalone bullets — a compressed memo to a future session
+   with no other context. Notes are not a changelog.
 
-## Operational Safety
+# Operational safety
 
-### Output size
-kg_read output is guaranteed to fit inline — budgets are exact rendered characters,
-fixed in `core/constants.py` (17,500 per level; 40,000 hard ceiling for the combined
-output). If the output ends with a "degraded to fit the inline budget" note, the graph
-is carrying more archived anchors/edges than the ceiling allows — a good cue to run a
-prune/merge pass so nothing needs hiding.
-
-### Project renames
-When project folder renamed, graph slug changes. Server handles via alias detection.
-If project graph is unexpectedly empty, check ~/.knowledge-graph/projects/ for old name.
-
-### Server restart
-Server can be safely restarted (kg-memory restart). Validates PIDs, uses setsid,
-drains connections, write-through persistence means no data loss.
-
-## First Session in a Project
-
-When project graph is empty:
-1. Don't document the whole codebase. Capture what surprises you.
-2. 2-5 foundational nodes for major components, connected by edges.
-3. Add knowledge organically as you work.
-4. Quality over quantity — every node earns its place through reuse.
+- kg_read output is budget-guaranteed inline; a "degraded to fit" note means
+  the graph carries more anchors/edges than the ceiling — a prune-pass cue.
+- Project renamed? The graph slug follows via alias detection; if a project
+  graph looks unexpectedly empty, check ~/.knowledge-graph/projects/ for the
+  old name.
+- Server restarts are safe (PID-validated, setsid, write-through persistence).

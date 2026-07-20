@@ -374,7 +374,11 @@ def create_mcp_server() -> Server:
                 # later re-reads (crumb refreshes, kg_sync follow-ups) don't.
                 first_full = not session_manager.has_full_read(session_id)
                 session_manager.mark_full_read(session_id)
-                text = build_full_read(graphs, scores, session_id, preloaded=preloaded)
+                try:
+                    debt = store.maintenance_debt(session_id)
+                except Exception:
+                    debt = None
+                text = build_full_read(graphs, scores, session_id, preloaded=preloaded, debt=debt)
                 if first_full:
                     text += '\n\nFull graph now in context — announce "I have recalled KG Memories".'
                 return [TextContent(

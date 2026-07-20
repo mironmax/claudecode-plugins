@@ -1,5 +1,6 @@
 """Multi-project knowledge graph store for HTTP MCP server."""
 
+import json
 import logging
 import threading
 import time
@@ -1029,6 +1030,51 @@ class MultiProjectGraphStore:
             self._write_through(graph_key)
 
             return {"task_id": task_id, "stored": True}
+
+    def maintenance_debt(self, session_id: str | None = None) -> dict:
+        """Per-level maintenance debt for a session's graphs.
+
+        Rendered as DEBT lines by kg_read/bootstrap. Activity = distinct days
+        (last 7) with node-read stamps, plus tool_events traffic for the
+        project level. Absent graph → key omitted."""
+        from core.debt import MAINTAIN_TASK_ID, activity_days, compute_debt
+
+        result: dict = {}
+        with self.lock:
+            targets = {"user": "user"}
+            project_path = None
+            try:
+                project_path = self.session_manager.get_project_path(session_id) if session_id else None
+            except Exception:
+                pass
+            if project_path:
+                try:
+                    targets["project"] = self._get_graph_key("project", session_id)
+                except Exception:
+                    pass
+
+            for label, graph_key in targets.items():
+                graph = self.graphs.get(graph_key)
+                if not graph:
+                    continue
+                nodes = list(graph["nodes"].values())
+                edges = list(graph["edges"].values())
+                last_maintain = (
+                    self._progress.get(graph_key, {})
+                    .get(MAINTAIN_TASK_ID, {})
+                    .get("last_ts")
+                )
+                ts_pool = [n.get("_last_read_ts") for n in nodes]
+                if label == "project" and project_path:
+                    try:
+                        ev_path = project_graph_path(project_path).parent / "tool_events.json"
+                        events = json.loads(ev_path.read_text()).get("events", {})
+                        ts_pool.extend(e.get("last_ts") for e in events.values())
+                    except Exception:
+                        pass
+                result[label] = compute_debt(nodes, edges, last_maintain,
+                                             activity_days(ts_pool))
+        return result
 
     # ========================================================================
     # Maintenance

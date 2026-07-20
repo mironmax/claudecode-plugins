@@ -85,6 +85,7 @@ mid=(
 
 deep=(
   "Context window getting deep? Scan for anything unrecorded — this is the highest-value capture moment."
+  "Check the DEBT lines from your last kg_read — HIGH on either graph? Spawn a maintenance subagent per the /kg-maintain skill (it gets no preload — the skill has the dispatch prompt)."
   "Any node gist gone stale or vague after using it? Sharpen it while context is still live."
   "Any edges missing between nodes you've used today? One edge makes both nodes far more durable."
   "Any architectural decision made this session? Node with rationale in notes — not just the conclusion."
