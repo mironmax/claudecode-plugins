@@ -39,6 +39,38 @@ SEARCH_CHAR_BUDGET = 10000
 # renders whatever the preload had to drop, without repeating what it showed).
 BOOTSTRAP_CHAR_BUDGET = 10000
 COMPACTION_TARGET_RATIO = 0.8
+# ---------------------------------------------------------------------------
+# Ambient memory (v0.9.24): per-event hook endpoints.
+#
+# Prompt-relevant recall — the UserPromptSubmit hook posts the prompt; when it
+# matches unseen nodes well enough, their gists ride the hook's
+# additionalContext instead of a generic reminder. Injection must stay small
+# (it repeats every prompt a match fires) and high-precision (habituation is
+# the failure mode: a hook that often injects irrelevant gists trains the
+# model to ignore all of them).
+PROMPT_RECALL_MAX_HITS = 3
+PROMPT_RECALL_CHAR_BUDGET = 1200
+# Search terms shorter than this carry too little signal ("yes", "the", "fix").
+PROMPT_RECALL_MIN_TERM_LEN = 4
+# RRF scores: a single-term match at rank r contributes 1/(60+r), so 0.015
+# means "within the top ~7 for that term". With 2+ terms the bar requires a
+# node to place on more than one term list (max single-term score is 1/60 ≈
+# 0.0167 < 0.028) — multi-term prompts must corroborate before injecting.
+PROMPT_RECALL_SCORE_SINGLE = 0.015
+PROMPT_RECALL_SCORE_MULTI = 0.028
+
+# Tool-event capture nudges — the PostToolUse hook reports Read/WebFetch/
+# WebSearch targets; the server counts them across sessions and nudges capture
+# only on proven re-derivation: an uncovered file read in a 2nd distinct
+# session, or the same URL/query fetched twice. Precision over recall — a
+# first-time read never nudges, and throttles keep nudges rare enough to be
+# heard.
+TOOL_EVENT_FILE_MIN_SESSIONS = 2   # distinct Claude sessions reading a file
+TOOL_EVENT_WEB_MIN_COUNT = 2       # total fetches of a URL / repeats of a query
+NUDGE_COOLDOWN_SECONDS = 600       # min gap between nudges to one session
+NUDGE_MAX_PER_SESSION = 3
+NUDGE_TARGET_COOLDOWN_SECONDS = 86400  # don't re-nudge the same target within a day
+TOOL_EVENTS_MAX_KEYS = 500         # oldest-evicted bound on the counters file
 # Refill (reverse compaction): when the active graph sits below the fill ceiling
 # (COMPACTION_TARGET_RATIO × max), the highest-scored archived nodes are promoted
 # back to active to use the headroom. A single threshold — the ceiling itself —

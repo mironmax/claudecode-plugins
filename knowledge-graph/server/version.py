@@ -1,3 +1,3 @@
 """Version information for Knowledge Graph MCP Server."""
 
-__version__ = "0.9.21"
+__version__ = "0.9.24"

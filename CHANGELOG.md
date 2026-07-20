@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.24] - 2026-07-20
+
+### Added
+- **Prompt-matched recall — memory surfaces itself at the moment of relevance.** The `kg-remind.sh` hook now posts each prompt's payload to a new `POST /api/prompt_context` endpoint and prints whatever ready-made hook output comes back — the bash side parses nothing. Server-side, the deterministic full-read nudge (v0.9.21) answers first while the loud `kg_read` is outstanding; after it, the prompt's terms (stopword-filtered, length-floored) run through the existing search machinery with the session's seen-set, and up to 3 *unseen* matching gists ride the hook's `additionalContext` — capped at 1.2K chars, marked seen so the same node never injects twice. A score threshold keyed to RRF arithmetic makes multi-term prompts corroborate before anything injects: precision guards against habituation, the failure mode of every ambient reminder. No model round-trip, no output tokens spent on retrieval — the memory arrives with the prompt. `{}` from the server (or no server) falls back to the staged random pools unchanged.
+- **Capture nudges on proven re-derivation.** A new PostToolUse hook (`kg-tool-event.sh`, matcher `Read|WebFetch|WebSearch`) reports tool targets to `POST /api/tool_event`; the server counts them per project in `projects/<slug>/tool_events.json` and speaks only when repetition proves a gap: a file read in a **second distinct session**, or the same URL fetched / query searched twice, with **no node referencing the target** (touches, gists, and notes are checked). The nudge names the target, the evidence, and a ready `kg_put_node` call. First-time reads never nudge; noise paths (node_modules, venv, /tmp, .git, …) never count; throttles keep it rare (10-min session gap, 3 per session, one per target per day). This closes the mid-turn gap: prompt-time reminders can't fire during long autonomous stretches — which is exactly when most reads happen and when the distilled bottom line is still in working attention, capturable for the cost of one node write. (PostToolUse `additionalContext` inline delivery was measured on a live throwaway session before building on it.)
+
+### Fixed
+- `server/version.py` had drifted (0.9.21) — `/api/health` under-reported the running version. Synced; the bump script remains the single write path.
+
+### Added (tests)
+- `tests/test_v0924.py` — 35 assertions: term extraction, recall precedence/seen-dedup/budget, tool-event thresholds, coverage suppression, all three throttles, REST wrapper shapes. Full suite green (272 asserts) + live smoke through the actual bash hooks against a scratch server.
+
 ## [0.9.23] - 2026-07-05
 
 ### Added

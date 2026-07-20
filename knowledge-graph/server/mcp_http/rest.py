@@ -141,6 +141,56 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             raise HTTPException(status_code=500, detail="session_state failed")
 
     # ========================================================================
+    # Ambient memory endpoints (per-event hooks post their raw stdin JSON;
+    # responses are ready-to-print hook output — the bash side never parses)
+    # ========================================================================
+
+    @rest_api.post("/api/prompt_context")
+    async def rest_prompt_context(payload: dict):
+        """UserPromptSubmit: full-read nudge or prompt-matched recall.
+
+        {} means "nothing deterministic to say" — the hook falls back to its
+        staged random pools. Any hint of hookSpecificOutput in the body is
+        printed by the hook verbatim.
+        """
+        from .ambient import build_prompt_recall
+        try:
+            text = build_prompt_recall(
+                store, session_manager,
+                payload.get("cwd") or "", payload.get("prompt") or "",
+            )
+        except Exception:
+            logger.exception("prompt_context failed")
+            return {}
+        if not text:
+            return {}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "UserPromptSubmit",
+                "additionalContext": text,
+            }
+        }
+
+    @rest_api.post("/api/tool_event")
+    async def rest_tool_event(payload: dict):
+        """PostToolUse (Read|WebFetch|WebSearch): count the target; nudge
+        capture only on proven re-derivation of an uncovered target."""
+        from .ambient import handle_tool_event
+        try:
+            text = handle_tool_event(store, session_manager, payload)
+        except Exception:
+            logger.exception("tool_event failed")
+            return {}
+        if not text:
+            return {}
+        return {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": text,
+            }
+        }
+
+    # ========================================================================
     # Write API Endpoints
     # ========================================================================
 

@@ -14,24 +14,34 @@
 # Unknown/missing transcript falls back to the mid pool.
 STDIN_JSON=$(cat 2>/dev/null)
 
-# Deterministic override: while the session has a preload but has not yet made
-# the loud full-graph kg_read, every prompt carries THE nudge to make it — the
-# preload is a partial view, and a random pool gives a short session good odds
-# of never seeing the one reminder that matters. The server tracks the flag
-# (full_read_ts, set by the first full kg_read); one quick local query reads
-# it. Any failure — server down, no session, no cwd — falls through to the
-# staged random pools below.
-CWD=$(printf '%s' "$STDIN_JSON" | sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p')
-if [ -n "$CWD" ]; then
-    HOST="${KG_HTTP_HOST:-127.0.0.1}"
-    PORT="${KG_HTTP_PORT:-8765}"
-    STATE=$(curl -sf --max-time 1 --get "http://${HOST}:${PORT}/api/session_state" \
-        --data-urlencode "project_path=${CWD}" 2>/dev/null)
-    if printf '%s' "$STATE" | grep -q '"found":[[:space:]]*true' && \
-       printf '%s' "$STATE" | grep -q '"full_read_done":[[:space:]]*false'; then
-        printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' \
-            "KG preload is a PARTIAL view — the full graph is NOT in context yet. Call kg_read(session_id) once before substantive work; it renders everything the preload dropped without repeating it."
-        exit 0
+# Server-side deterministic pass (v0.9.24+): POST the whole hook payload to
+# /api/prompt_context — the server answers with ready-to-print hook output
+# when it has something deterministic to say (the full-read nudge while the
+# loud kg_read is outstanding, or gists matching this prompt), and {} when
+# the staged random pools below should speak. The bash side never parses.
+HOST="${KG_HTTP_HOST:-127.0.0.1}"
+PORT="${KG_HTTP_PORT:-8765}"
+RESP=$(printf '%s' "$STDIN_JSON" | curl -sf --max-time 1 -X POST \
+    -H 'Content-Type: application/json' --data-binary @- \
+    "http://${HOST}:${PORT}/api/prompt_context" 2>/dev/null)
+case "$RESP" in
+    *hookSpecificOutput*) printf '%s' "$RESP"; exit 0 ;;
+esac
+
+# Legacy fallback for a pre-0.9.24 server (endpoint missing → empty RESP):
+# query /api/session_state and compose the full-read nudge hook-side. A new
+# server answering {} already handled this case — skip straight to the pools.
+if [ -z "$RESP" ]; then
+    CWD=$(printf '%s' "$STDIN_JSON" | sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p')
+    if [ -n "$CWD" ]; then
+        STATE=$(curl -sf --max-time 1 --get "http://${HOST}:${PORT}/api/session_state" \
+            --data-urlencode "project_path=${CWD}" 2>/dev/null)
+        if printf '%s' "$STATE" | grep -q '"found":[[:space:]]*true' && \
+           printf '%s' "$STATE" | grep -q '"full_read_done":[[:space:]]*false'; then
+            printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' \
+                "KG preload is a PARTIAL view — the full graph is NOT in context yet. Call kg_read(session_id) once before substantive work; it renders everything the preload dropped without repeating it."
+            exit 0
+        fi
     fi
 fi
 
