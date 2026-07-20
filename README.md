@@ -1,6 +1,6 @@
 # Knowledge Graph for Claude Code
 
-Persistent memory for Claude Code — Claude remembers across sessions as a graph of nodes and typed relationships, not flat notes. Distills insights as you work, recalls the right context automatically next session.
+Persistent memory for Claude Code — Claude remembers across sessions as a graph of nodes and typed relationships, not flat notes. Distills insights as you work, preloads them next session, and surfaces the right memory at the moment each prompt needs it — the graph even tells Claude when it needs tending.
 
 ![Knowledge Graph in action](docs/knowledge-graph-demo.gif)
 
