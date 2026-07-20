@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.27] - 2026-07-20
+
+### Changed
+- **Search terms are IDF-weighted.** RRF ranks are relative, so a ubiquitous term ("user", "works", "project") produced a confident-looking ranking while carrying no signal — the failure showed up live on the first day of prompt recall, injecting tangential nodes on ordinary conversational vocabulary. Each term now contributes `idf/(60+rank)` with `idf = log(N/df)/log(N)`: a term unique to one node keeps full weight, a term in half the graph drops to ~0.15, a term in every node contributes nothing. This lands in the shared ranking core, so **`kg_search` inherits it identically** — rare terms dominate results, generic terms stop polluting them. Prompt-recall thresholds recalibrated to the weighted arithmetic (0.010 single / 0.020 multi): a stack of generic terms sums below the gate and stays silent, one genuinely rare term still speaks.
+- Tests: `tests/test_v0927.py` (7 assertions — rare-term dominance and separation, generic-prompt silence, all-node terms contribute zero). Full suite 321 green.
+
 ## [0.9.26] - 2026-07-20
 
 ### Changed

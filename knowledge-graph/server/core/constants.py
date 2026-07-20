@@ -56,12 +56,16 @@ PROMPT_RECALL_MAX_HITS = 5
 PROMPT_RECALL_CHAR_BUDGET = 2500
 # Search terms shorter than this carry too little signal ("yes", "the", "fix").
 PROMPT_RECALL_MIN_TERM_LEN = 4
-# RRF scores: a single-term match at rank r contributes 1/(60+r), so 0.015
-# means "within the top ~7 for that term". With 2+ terms the bar requires a
-# node to place on more than one term list (max single-term score is 1/60 ≈
-# 0.0167 < 0.028) — multi-term prompts must corroborate before injecting.
-PROMPT_RECALL_SCORE_SINGLE = 0.015
-PROMPT_RECALL_SCORE_MULTI = 0.028
+# RRF scores are IDF-weighted (see store.search): a term contributes
+# idf/(60+rank) where idf = log(N/df)/log(N) — near 1.0 for a term unique to
+# one node, near 0 for a ubiquitous one. Calibration: a single rare term at a
+# top rank yields ~0.012-0.016, so 0.010 means "one genuinely rare term,
+# ranked well". For multi-term prompts, 0.020 requires either two meaningful
+# terms corroborating or one rare term dominating — while a stack of generic
+# conversational terms (idf ≈ 0.1-0.2 each) sums to ~0.01 and stays silent,
+# which is the point: ubiquitous vocabulary must not trigger injection.
+PROMPT_RECALL_SCORE_SINGLE = 0.010
+PROMPT_RECALL_SCORE_MULTI = 0.020
 
 # Tool-event capture nudges — the PostToolUse hook reports Read/WebFetch/
 # WebSearch targets; the server counts them across sessions and nudges capture

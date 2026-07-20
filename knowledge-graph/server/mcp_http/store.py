@@ -860,6 +860,15 @@ class MultiProjectGraphStore:
                 for node_id, node in nodes.items()
             }
 
+            # IDF-style term weighting: a term's contribution scales with its
+            # rarity in this graph. RRF ranks are relative, so without this a
+            # ubiquitous term ("user", "works", "project") still produces a
+            # confident-looking ranking while carrying no signal — the live
+            # failure mode of prompt recall on conversational prompts. Weight
+            # = log(N/df)/log(N): a term unique to one node ≈ 1.0, a term in
+            # half the graph ≈ 0.15 for N=100, a term in every node = 0.
+            import math
+            n_total = len(searchable)
             rrf_scores: dict[str, float] = {}
             for term in terms:
                 term_scores = [
@@ -867,9 +876,17 @@ class MultiProjectGraphStore:
                     for node_id, text in searchable.items()
                     if term in text
                 ]
+                if not term_scores:
+                    continue
+                if n_total > 1:
+                    idf_w = math.log(n_total / len(term_scores)) / math.log(n_total)
+                else:
+                    idf_w = 1.0
+                if idf_w <= 0:
+                    continue  # term in every node — zero signal
                 term_scores.sort(key=lambda x: x[1], reverse=True)
                 for rank, (node_id, _) in enumerate(term_scores):
-                    rrf_scores[node_id] = rrf_scores.get(node_id, 0.0) + 1.0 / (RRF_K + rank)
+                    rrf_scores[node_id] = rrf_scores.get(node_id, 0.0) + idf_w / (RRF_K + rank)
             return rrf_scores
 
         def build_record(graph_key: str, node_id: str, label: str, score: float) -> dict:
