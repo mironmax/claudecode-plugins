@@ -99,26 +99,96 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str) 
     seen = session_manager.get_seen(sid)
     result = store.search(" ".join(terms), session_id=sid, seen=seen)
     threshold = PROMPT_RECALL_SCORE_MULTI if len(terms) >= 2 else PROMPT_RECALL_SCORE_SINGLE
+
+    # Gate 1 — speak at all: enough match quality among the top hits.
     hits = [
         r for r in result.get("top", [])
-        if not r.get("seen") and r.get("score", 0.0) >= threshold and r.get("gist")
+        if r.get("score", 0.0) >= threshold and r.get("gist")
     ][:PROMPT_RECALL_MAX_HITS]
     if not hits:
+        return None
+
+    # The whole neighbourhood rides along: connector nodes on the paths
+    # between hits, and the path edges themselves (already deduped cite-once
+    # within this result — edges have no cross-session tracking on purpose).
+    # Edge endpoints can also be sub-threshold or lower-ranked matches; every
+    # endpoint must render a node line, so those get pulled in connector-style
+    # from the search records — an edge citing an unrendered id is dropped.
+    hit_ids = {r["id"] for r in hits}
+    node_pool = {r["id"]: r for r in result.get("connectors", [])}
+    node_pool.update({r["id"]: r for r in result.get("more", [])})
+    node_pool.update({r["id"]: r for r in result.get("top", [])})
+
+    connectors = []
+    edges = []
+    for e in result.get("path_edges", []):
+        extra = []
+        resolvable = True
+        for ep in (e["from"], e["to"]):
+            if ep in hit_ids or any(c["id"] == ep for c in connectors):
+                continue
+            rec = node_pool.get(ep)
+            if rec and rec.get("gist"):
+                extra.append(rec)
+            else:
+                resolvable = False
+                break
+        if resolvable:
+            connectors.extend(extra)
+            edges.append(e)
+
+    # Gate 2 — novelty: at least one UNSEEN node, or the injection would be
+    # pure repetition. Seen nodes still render — as bare id anchors that
+    # re-focus attention at near-zero budget — but never justify speaking.
+    def _unseen(records):
+        return [r for r in records if not r.get("seen")]
+    if not _unseen(hits) and not _unseen(connectors):
         return None
 
     header = (
         "KG recall — memory matching this prompt "
         f"(depth: kg_read(session_id='{sid}', ids=[...])):"
     )
-    lines = [f"- [{r['level']}] {r['id']}: {r['gist']}" for r in hits]
-    while hits and len("\n".join([header] + lines)) > PROMPT_RECALL_CHAR_BUDGET:
-        hits.pop()
-        lines.pop()
-    if not hits:
-        return None
 
-    session_manager.mark_seen(sid, [r["id"] for r in hits])
-    return "\n".join([header] + lines)
+    def node_line(rec, indent=""):
+        if rec.get("seen"):
+            return f"{indent}- [{rec['level']}] {rec['id']} (in context)"
+        return f"{indent}- [{rec['level']}] {rec['id']}: {rec['gist']}"
+
+    hit_lines = [node_line(r) for r in hits]
+    conn_lines = [node_line(c, indent="  ") for c in connectors]
+    edge_lines = [f"  {e['from']} --{e['rel']}--> {e['to']}" for e in edges]
+
+    def assemble():
+        parts = [header] + hit_lines
+        if conn_lines or edge_lines:
+            parts.append("  connections:")
+            parts.extend(conn_lines)
+            parts.extend(edge_lines)
+        return "\n".join(parts)
+
+    # Trim ladder, least valuable first: edges, then connectors, then seen
+    # anchors, then excess unseen hits (at least one always survives — gate 2
+    # guaranteed one exists). Edges drop before the nodes they cite, so a
+    # reference can never dangle.
+    while edge_lines and len(assemble()) > PROMPT_RECALL_CHAR_BUDGET:
+        edge_lines.pop()
+    while conn_lines and len(assemble()) > PROMPT_RECALL_CHAR_BUDGET:
+        conn_lines.pop()
+        connectors.pop()
+    while len(assemble()) > PROMPT_RECALL_CHAR_BUDGET and any(r.get("seen") for r in hits):
+        idx = max(i for i, r in enumerate(hits) if r.get("seen"))
+        hits.pop(idx)
+        hit_lines.pop(idx)
+    while len(hits) > 1 and len(assemble()) > PROMPT_RECALL_CHAR_BUDGET:
+        hits.pop()
+        hit_lines.pop()
+
+    shown_unseen = [r["id"] for r in _unseen(hits)] + [c["id"] for c in _unseen(connectors)]
+    if not shown_unseen:
+        return None
+    session_manager.mark_seen(sid, shown_unseen)
+    return assemble()
 
 
 # --------------------------------------------------------------------------

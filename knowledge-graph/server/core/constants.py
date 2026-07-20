@@ -43,13 +43,17 @@ COMPACTION_TARGET_RATIO = 0.8
 # Ambient memory (v0.9.24): per-event hook endpoints.
 #
 # Prompt-relevant recall — the UserPromptSubmit hook posts the prompt; when it
-# matches unseen nodes well enough, their gists ride the hook's
-# additionalContext instead of a generic reminder. Injection must stay small
-# (it repeats every prompt a match fires) and high-precision (habituation is
-# the failure mode: a hook that often injects irrelevant gists trains the
-# model to ignore all of them).
-PROMPT_RECALL_MAX_HITS = 3
-PROMPT_RECALL_CHAR_BUDGET = 1200
+# matches the graph well enough, the search result's whole neighbourhood rides
+# the hook's additionalContext: unseen gists in full, already-seen nodes as
+# bare id anchors (attention re-focus at zero budget), and the connection
+# edges between them (cite-once per injection; edges deliberately have NO
+# cross-session seen-tracking — a small trace refreshing focus is a feature).
+# Two gates keep precision: the score threshold decides whether to speak at
+# all, and at least one UNSEEN node must be present — an all-seen match set
+# injects nothing (habituation is the failure mode: a channel that repeats
+# itself trains the model to ignore it).
+PROMPT_RECALL_MAX_HITS = 5
+PROMPT_RECALL_CHAR_BUDGET = 2500
 # Search terms shorter than this carry too little signal ("yes", "the", "fix").
 PROMPT_RECALL_MIN_TERM_LEN = 4
 # RRF scores: a single-term match at rank r contributes 1/(60+r), so 0.015

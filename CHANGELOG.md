@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.26] - 2026-07-20
+
+### Changed
+- **Prompt recall now injects the neighbourhood, not a list.** The search behind `POST /api/prompt_context` already computes connection paths between its hits; the injection now carries them: unseen nodes with full gists, already-seen nodes as bare `id (in context)` anchors — an attention re-focus at near-zero budget — and the path edges between them, so the recall reads as related knowledge rather than isolated lines. Two gates unchanged in spirit: the score threshold decides whether to speak, and at least one **unseen** node must be present — an all-seen match set injects nothing. Edge lines are deduplicated cite-once *per injection* and deliberately have no cross-session tracking: a repeated edge is a small trace refreshing focus the earlier render may have lost, while node gists never inject twice. Every edge endpoint resolves to a rendered node line (sub-threshold and lower-ranked matches get pulled in connector-style; an unresolvable edge is dropped). Budget 1.2K → 2.5K chars; trim ladder drops edges first, then connectors, then seen anchors — a fresh gist survives everything.
+- Tests: `tests/test_v0926.py` (13 assertions — tree render, anchor rendering, novelty gate, per-blob edge dedup, endpoint resolution). Full suite 314 green.
+
 ## [0.9.25] - 2026-07-20
 
 ### Added
