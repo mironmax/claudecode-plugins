@@ -61,9 +61,11 @@ one targeted read away.
    - Sequential reading surfaces "hidden" knowledge
 
 5. **Ambient Loop** (capture → recall → maintain, none of it asked for)
-   - **Recall at the prompt**: every prompt is matched server-side against both
-     graphs; unseen matching gists ride the hook's context injection — memory
-     arrives exactly when it is relevant, with zero model round-trips
+   - **Recall at the prompt**: every human prompt is matched server-side against
+     both graphs; unseen matching gists ride the hook's context injection —
+     memory arrives exactly when it is relevant, with zero model round-trips.
+     Harness records (task notifications, image-paste placeholders, dragged
+     paths) carry no user intent and stay silent
    - **Capture on proven re-derivation**: tool traffic (Read/WebFetch/WebSearch)
      is counted per target; an uncovered file read in a second distinct session
      earns a one-time capture nudge — first reads never do
@@ -207,7 +209,7 @@ the hook layer parses nothing and can never break a session:
 | Hook | Endpoint | Server decides |
 |------|----------|----------------|
 | SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set |
-| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — IDF-weighted RRF search over the prompt's terms (ubiquitous words carry no signal), seen-deduped, corroboration threshold, unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
+| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), IDF-weighted RRF search over its terms (ubiquitous words carry no signal), seen-deduped, corroboration threshold, unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
 | PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap) |
 
 Precision is the design constraint on this whole loop: an ambient channel that

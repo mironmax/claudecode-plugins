@@ -146,7 +146,7 @@ Note: Desktop sessions get no session-start preload (that's a Claude Code hook) 
 The system is designed to work without being asked. Four ambient behaviors, all zero-config:
 
 - **Preloaded at session start** — the top-scored nodes of both graphs are in context before the first word, and one `kg_read` renders the rest.
-- **Recall at the moment of relevance** — each prompt is matched against the graph server-side; when unseen nodes fit, their gists arrive with the prompt. Precision is deliberate: nothing injects twice, and weak matches stay silent rather than train the model to ignore the channel.
+- **Recall at the moment of relevance** — each prompt you type is matched against the graph server-side; when unseen nodes fit, their gists arrive with the prompt. Precision is deliberate: nothing injects twice, weak matches stay silent, and machine records (notifications, pasted images and paths) never trigger it — the channel only speaks when a human asked something.
 - **Capture when re-derivation is proven** — reading a file a second session in a row (or fetching the same URL twice) with no node covering it earns a one-time nudge to write the bottom line down. First-time reads never nudge; hard throttles keep it rare.
 - **Self-aware maintenance** — every read carries a `DEBT:` line per graph (oversized gists, unconnected nodes, time since last tended, weighted by how actively the graph is used). When it reads HIGH, `/kg-maintain` runs a bounded pass — or Claude spawns a maintenance subagent with the dispatch prompt the skill provides.
 
