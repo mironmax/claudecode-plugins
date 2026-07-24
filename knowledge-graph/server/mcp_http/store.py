@@ -911,6 +911,11 @@ class MultiProjectGraphStore:
             if session_id:
                 project_path = self.session_manager.get_project_path(session_id)
                 if project_path:
+                    # Graphs load lazily; after a server restart the session's
+                    # project graph may not be in memory yet — without this,
+                    # search (and prompt recall riding on it) silently scans
+                    # the user graph only.
+                    self._ensure_project_loaded(project_path)
                     project_keys = [project_namespace(project_path)]
             else:
                 project_keys = [k for k in self.graphs if is_project_namespace(k)]

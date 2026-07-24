@@ -119,6 +119,21 @@ def main():
         check("basename from a path can still drive a touches match",
               text is not None and "zephyr-styles" in text, text)
 
+        # --- 4. search lazy-loads the session's project graph -----------------
+        # Post-restart state: graph on disk but not in memory. Search (and
+        # prompt recall riding on it) must load it, not silently scan the
+        # user graph only.
+        print("lazy-load on search:")
+        from core.constants import project_namespace
+        project_key = project_namespace(project_dir)
+        with store.lock:
+            store._save_to_disk(project_key)
+            store.graphs.pop(project_key, None)
+        result = store.search("xanthic quixotic", session_id=sid)
+        check("search reloads unloaded project graph",
+              any(r["id"] == "xanthic-parser" for r in result["top"]),
+              [r["id"] for r in result["top"]])
+
     finally:
         shutil.rmtree(project_dir, ignore_errors=True)
         shutil.rmtree(_TMP_STORAGE, ignore_errors=True)

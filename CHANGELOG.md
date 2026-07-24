@@ -7,7 +7,9 @@ All notable changes to this project are documented here.
 ### Changed
 - **Prompt recall only answers a human asking something.** The week-1 live audit (46 injections, 33 sessions) found 20% of recall firings triggered by harness records with no user intent — task notifications and image-paste placeholders — where matching necessarily ran on file paths and boilerplate. Recall now gates on the humanly-typed part of the prompt: notifications stay silent outright, image placeholders are dropped, path tokens reduce to their basename (which can still legitimately match a node's touches), and what remains must clear a small floor of real text (8 chars — short directive prompts like "Yes commit all" landed meaningful hits in the audit and still speak).
 - **Recall header trimmed.** The `depth: kg_read(session_id, ids=[...])` invitation was followed 0/46 times in the audit — inline gists suffice. The header is now just `KG recall — memory matching this prompt:` so unused instruction text doesn't water down the payload.
-- Tests: `tests/test_v0928.py` (11 assertions — notification/image/dragged-path silence, basename floor mechanics, real prompts still speak, lean header); one v0.9.24 assert updated to the new header contract. Full suite 331 green.
+### Fixed
+- **Search now loads the session's project graph before scanning.** Graphs load lazily; after a server restart, `kg_search` (and prompt recall, which rides the same core) silently scanned the user graph only until something else happened to load the project graph. Found live during the v0.9.28 smoke test.
+- Tests: `tests/test_v0928.py` (12 assertions — notification/image/dragged-path silence, basename floor mechanics, real prompts still speak, lean header, search lazy-load); one v0.9.24 assert updated to the new header contract. Full suite 333 green.
 
 ## [0.9.27] - 2026-07-20
 
