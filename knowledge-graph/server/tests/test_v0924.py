@@ -108,7 +108,9 @@ def main():
         check("matching prompt injects", text is not None and "compactor-grace-stall" in text,
               text)
         check("injection carries the gist", text and "stalls when all active" in text, text)
-        check("injection cites kg_read depth path", text and "kg_read" in text and sid in text)
+        # v0.9.28: the depth invitation was trimmed (0/46 uptake in week-1
+        # audit) — the header must stay lean.
+        check("header lean, no depth invitation", text and "kg_read" not in text)
         check("unrelated node not injected", text and "unrelated-widget" not in text, text)
         check("fits budget", text and len(text) <= PROMPT_RECALL_CHAR_BUDGET, text and len(text))
 

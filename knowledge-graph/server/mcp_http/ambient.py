@@ -29,6 +29,7 @@ from core.constants import (
     NUDGE_TARGET_COOLDOWN_SECONDS,
     PROMPT_RECALL_CHAR_BUDGET,
     PROMPT_RECALL_MAX_HITS,
+    PROMPT_RECALL_MIN_PROMPT_CHARS,
     PROMPT_RECALL_MIN_TERM_LEN,
     PROMPT_RECALL_SCORE_MULTI,
     PROMPT_RECALL_SCORE_SINGLE,
@@ -65,6 +66,51 @@ _STOPWORDS = frozenset("""
 
 _TERM_RE = re.compile(r"[a-z0-9][a-z0-9_\-./]*")
 
+# Harness-generated records that reach UserPromptSubmit without a human ask.
+_NOTIFICATION_MARKERS = ("<task-notification>", "[SYSTEM NOTIFICATION")
+_IMAGE_PLACEHOLDER_RE = re.compile(r"\[Image:[^\]]*\]")
+# Drag-and-dropped paths with spaces arrive quoted ('/a dir/file.pdf') —
+# one path, several whitespace tokens; swallow the span whole.
+_QUOTED_PATH_RE = re.compile(r"'[^']*/[^']*'|\"[^\"]*/[^\"]*\"")
+
+
+def _prompt_text(prompt: str) -> str | None:
+    """The humanly-typed part of a prompt, or None when there is none.
+
+    Task notifications and image pastes carry no user intent, yet their file
+    paths and boilerplate match nodes well enough to fire recall (20% of
+    week-1 injections). Notifications stay silent outright. Path tokens
+    reduce to their basename — a basename can still legitimately match a
+    node's touches — but only non-path text counts toward the speak-at-all
+    floor.
+    """
+    p = (prompt or "").strip()
+    if not p or any(marker in p for marker in _NOTIFICATION_MARKERS):
+        return None
+    p = _IMAGE_PLACEHOLDER_RE.sub(" ", p)
+    kept: list[str] = []
+
+    def _swallow_quoted(match) -> str:
+        base = match.group(0).strip("'\"").rstrip("/").rsplit("/", 1)[-1]
+        if base:
+            kept.append(base)
+        return " "
+
+    p = _QUOTED_PATH_RE.sub(_swallow_quoted, p)
+    floor_chars = 0
+    for tok in p.split():
+        core = tok.strip("'\"()[]<>,")
+        if "/" in core:
+            base = core.rstrip("/").rsplit("/", 1)[-1]
+            if base:
+                kept.append(base)
+        else:
+            kept.append(tok)
+            floor_chars += len(tok)
+    if floor_chars < PROMPT_RECALL_MIN_PROMPT_CHARS:
+        return None
+    return " ".join(kept)
+
 
 def _terms(prompt: str, cap: int = 24) -> list[str]:
     """Retrieval terms from a prompt: lowercased, deduped in order, filtered."""
@@ -92,7 +138,10 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str) 
     if not data.get("full_read_ts"):
         return FULL_READ_NUDGE
 
-    terms = _terms(prompt or "")
+    text = _prompt_text(prompt)
+    if text is None:
+        return None
+    terms = _terms(text)
     if not terms:
         return None
 
@@ -145,10 +194,10 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str) 
     if not _unseen(hits) and not _unseen(connectors):
         return None
 
-    header = (
-        "KG recall — memory matching this prompt "
-        f"(depth: kg_read(session_id='{sid}', ids=[...])):"
-    )
+    # Week-1 audit: the "depth: kg_read(ids=[...])" invitation that used to
+    # live here was followed 0/46 times — gists inline suffice. Trimmed so
+    # the header doesn't water down the payload.
+    header = "KG recall — memory matching this prompt:"
 
     def node_line(rec, indent=""):
         if rec.get("seen"):

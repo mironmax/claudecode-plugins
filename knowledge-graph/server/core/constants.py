@@ -56,6 +56,15 @@ PROMPT_RECALL_MAX_HITS = 5
 PROMPT_RECALL_CHAR_BUDGET = 2500
 # Search terms shorter than this carry too little signal ("yes", "the", "fix").
 PROMPT_RECALL_MIN_TERM_LEN = 4
+# Recall answers a human asking something. Harness records ride the same
+# UserPromptSubmit event — task notifications, image-paste placeholders
+# ("[Image: source: /path.png]"), bare drag-and-dropped paths — and the
+# week-1 live audit (2026-07-24) found 20% of injections fired on exactly
+# that: file-path fragments and notification boilerplate. After placeholders
+# and path tokens are set aside, at least this many chars of real text must
+# remain or recall stays silent. Low on purpose: short directive prompts
+# ("Yes commit all") are real asks and landed meaningful hits in the audit.
+PROMPT_RECALL_MIN_PROMPT_CHARS = 8
 # RRF scores are IDF-weighted (see store.search): a term contributes
 # idf/(60+rank) where idf = log(N/df)/log(N) — near 1.0 for a term unique to
 # one node, near 0 for a ubiquitous one. Calibration: a single rare term at a
