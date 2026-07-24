@@ -127,6 +127,27 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             if session_id is None:
                 reg = session_manager.register(project_path, claude_sid=claude_session_id)
                 session_id = reg["session_id"]
+            # Re-render only where the context actually lost the preload.
+            # Compact squeezed it into a summary — re-rendering is restoration.
+            # Resume carries the full transcript, original preload included —
+            # re-rendering would be pure duplication, so a continuity note
+            # (session_id + state reassurance) is all that's injected.
+            if reused and source == "resume":
+                context = (
+                    f"KG memory session resumed — session_id: {session_id} "
+                    "(pass it to every kg_* call). The memory preload earlier in "
+                    "this conversation remains in context and already-injected "
+                    "gists stay deduplicated — nothing is re-rendered. If other "
+                    "sessions may have written meanwhile, kg_sync(session_id) "
+                    "fetches the changes."
+                )
+                return {
+                    "session_id": session_id,
+                    "reused": True,
+                    "context": context,
+                    "text": "",
+                    "stats": {},
+                }
             graphs = store.read_graphs(session_id)
             scores = store.scores_for_read(session_id)
             try:

@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.30] - 2026-07-24
+
+### Changed
+- **Re-render only where the context actually lost the preload.** Refines v0.9.29's session reuse by Maxim's rule — re-rendering is fine provided it is not duplication. After *compact* the preload was squeezed into a summary, so the bootstrap re-renders the full core (restoration). After *resume* the forked transcript still contains the original preload verbatim, so re-rendering would duplicate ~10K chars — the bootstrap now injects a one-paragraph continuity note instead (session_id, dedup-state reassurance, `kg_sync` pointer for changes written by other sessions meanwhile). Tests: two new asserts in `tests/test_v0929.py` (16 there); full suite 349 green.
+
 ## [0.9.29] - 2026-07-24
 
 ### Fixed

@@ -122,6 +122,9 @@ def main():
             "source": "compact"}).json()
         check("compact reuses via claude sid",
               r["reused"] is True and r["session_id"] == sid1, r)
+        check("compact re-renders the preload (context lost it)",
+              bool(r["stats"]) and "resumed" not in r["context"][:40],
+              r["context"][:80])
 
         resumed_tf = tf.parent / "resumed.jsonl"
         resumed_tf.write_text(
@@ -133,6 +136,9 @@ def main():
               r["reused"] is True and r["session_id"] == sid1, r)
         check("resume rebinds the new claude sid",
               session_manager.find_by_claude_sid("cc-boot-2")[0] == sid1)
+        check("resume injects a continuity note, not a duplicate preload",
+              r["context"].startswith("KG memory session resumed")
+              and r["text"] == "" and not r["stats"], r["context"][:80])
 
         r = client.get("/api/session_bootstrap", params={
             "project_path": project_dir, "claude_session_id": "cc-boot-3",
