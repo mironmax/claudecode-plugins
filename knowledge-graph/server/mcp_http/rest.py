@@ -15,7 +15,7 @@ import logging
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from core.constants import project_namespace
+from core.constants import project_namespace, safe_project_path
 from core.exceptions import KGError, NodeNotFoundError, SessionNotFoundError
 from .security import origin_allowed
 
@@ -81,7 +81,9 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         return session_manager.register(project_path)
 
     @rest_api.get("/api/session_bootstrap")
-    async def rest_session_bootstrap(project_path: str):
+    async def rest_session_bootstrap(project_path: str, claude_session_id: str | None = None,
+                                     source: str | None = None,
+                                     transcript_path: str | None = None):
         """Session-start memory preload, used by the SessionStart hook.
 
         Registers a session and returns a compact core render capped at
@@ -92,11 +94,39 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         (instruction header included); "text" is the graph body alone for
         older hooks that compose their own header. The rendered ids seed the
         session's preloaded + seen sets — that is what kg_read dedups against.
+
+        Resume-aware: SessionStart also fires on resume/compact, where the
+        model's context (and thus the injected-gist state) carries over — a
+        fresh KG session there would reset the seen-set and full-read state,
+        re-nagging and re-injecting everything. The existing session is reused
+        via the claude_session_id binding, or — resume forks mint a NEW Claude
+        sid — recovered from the KG markers our own renders left in the
+        transcript. source == "clear" always starts fresh (context wiped).
         """
         from .read_format import build_bootstrap
+        from .session_manager import recover_kg_sid_from_transcript
         try:
-            reg = session_manager.register(project_path)
-            session_id = reg["session_id"]
+            session_id = None
+            reused = False
+            if claude_session_id and source != "clear":
+                hit = session_manager.find_by_claude_sid(claude_session_id)
+                if hit:
+                    session_id, reused = hit[0], True
+            if session_id is None and source in ("resume", "compact") and transcript_path:
+                cand = recover_kg_sid_from_transcript(transcript_path)
+                if cand:
+                    data = session_manager.lookup(cand)
+                    try:
+                        resolved = str(safe_project_path(project_path))
+                    except ValueError:
+                        resolved = None
+                    if data and resolved and data.get("project_path") == resolved:
+                        session_id, reused = cand, True
+                        if claude_session_id:
+                            session_manager.bind_claude_sid(cand, claude_session_id)
+            if session_id is None:
+                reg = session_manager.register(project_path, claude_sid=claude_session_id)
+                session_id = reg["session_id"]
             graphs = store.read_graphs(session_id)
             scores = store.scores_for_read(session_id)
             try:
@@ -108,6 +138,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             session_manager.mark_seen(session_id, result["shown_ids"])
             return {
                 "session_id": session_id,
+                "reused": reused,
                 "context": result["context"],
                 "text": result["text"],
                 "stats": result["stats"],
@@ -178,6 +209,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             text = build_prompt_recall(
                 store, session_manager,
                 payload.get("cwd") or "", payload.get("prompt") or "",
+                claude_sid=payload.get("session_id"),
             )
         except Exception:
             logger.exception("prompt_context failed")

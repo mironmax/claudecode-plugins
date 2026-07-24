@@ -3,12 +3,41 @@
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from pathlib import Path
 from core.constants import SESSION_ID_LENGTH, SESSION_TTL_SECONDS, sessions_file_path, safe_project_path
 
 logger = logging.getLogger(__name__)
+
+# Our own renders leave the KG session id in the transcript — the preload
+# header, the kg_read footer, and (pre-0.9.28) the recall header. A resumed
+# Claude session forks the transcript under a NEW Claude session id and
+# rewrites the per-record sessionId fields, so these markers are the only
+# durable link back to the KG session whose seen-state the copied context
+# still reflects.
+_KG_SID_PATTERNS = (
+    re.compile(r"session_id: ([0-9a-f]{8}) \(pass"),
+    re.compile(r"Session: ([0-9a-f]{8})"),
+    re.compile(r"session_id='([0-9a-f]{8})'"),
+)
+
+
+def recover_kg_sid_from_transcript(transcript_path: str) -> str | None:
+    """Last KG session id our renders left in a (possibly forked) transcript."""
+    last = None
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if "ession" not in line:
+                    continue
+                for pat in _KG_SID_PATTERNS:
+                    for m in pat.finditer(line):
+                        last = m.group(1)
+    except OSError:
+        return None
+    return last
 
 
 class HTTPSessionManager:
@@ -24,13 +53,16 @@ class HTTPSessionManager:
         self._sessions_file = sessions_file_path()
         self._load_sessions()
 
-    def register(self, project_path: str | None = None) -> dict:
+    def register(self, project_path: str | None = None, claude_sid: str | None = None) -> dict:
         """
         Register a new session with optional project root path.
         Returns {"session_id": str, "start_ts": float}.
 
         Args:
             project_path: Absolute path to the project root directory.
+            claude_sid: Claude Code session id to bind — ambient hooks resolve
+                their KG session through this binding, so recall dedup follows
+                the actual session instead of "newest in project".
         """
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
         ts = time.time()
@@ -43,10 +75,37 @@ class HTTPSessionManager:
             "last_activity": ts,
             "op_count": 0,
         }
+        if claude_sid:
+            self.bind_claude_sid(session_id, claude_sid, save=False)
 
         logger.info(f"Session registered: {session_id} (project: {resolved_project_path or 'none'})")
         self.save_sessions()  # Persist immediately so project_path survives restarts
         return {"session_id": session_id, "start_ts": ts}
+
+    def bind_claude_sid(self, session_id: str, claude_sid: str, save: bool = True) -> None:
+        """Bind a Claude Code session id to a KG session (rebind on resume).
+
+        A Claude sid points to at most one KG session: any prior binding of
+        the same claude_sid is cleared (its Claude session is dead — resume
+        forks mint a new one).
+        """
+        if session_id not in self._sessions:
+            return
+        for data in self._sessions.values():
+            if data.get("claude_sid") == claude_sid:
+                data.pop("claude_sid", None)
+        self._sessions[session_id]["claude_sid"] = claude_sid
+        if save:
+            self.save_sessions()
+
+    def find_by_claude_sid(self, claude_sid: str) -> tuple[str, dict] | None:
+        """KG session bound to this Claude Code session id, or None."""
+        if not claude_sid:
+            return None
+        for sid, data in self._sessions.items():
+            if data.get("claude_sid") == claude_sid:
+                return (sid, data)
+        return None
 
     def lookup(self, session_id: str) -> dict | None:
         """Return the session record if it exists — no auto-recovery, no mutation.

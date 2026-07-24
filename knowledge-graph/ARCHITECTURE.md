@@ -208,7 +208,7 @@ the hook layer parses nothing and can never break a session:
 
 | Hook | Endpoint | Server decides |
 |------|----------|----------------|
-| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set |
+| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set; binds the Claude session id, and on `resume`/`compact` reuses the existing KG session (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume mints a new Claude sid); `clear` starts fresh |
 | UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), IDF-weighted RRF search over its terms (ubiquitous words carry no signal), seen-deduped, corroboration threshold, unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
 | PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap) |
 

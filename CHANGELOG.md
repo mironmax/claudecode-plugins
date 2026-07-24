@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.29] - 2026-07-24
+
+### Fixed
+- **Session identity survives resume/compact and concurrent sessions — recall dedup no longer resets.** Two live failure modes shared one root: KG sessions were keyed only by project path, and every SessionStart minted a fresh one. (a) Resuming a session re-preloaded memory, re-nagged for the full read, and treated every previously-injected gist as unseen. (b) With two sessions in one project, the older session's recall resolved to the *newest* KG session — the mid-session `session_id` drift the week-1 audit caught — reading and polluting the wrong seen-set. Now the KG session binds to the Claude Code session id every hook payload carries: recall and capture nudges resolve by that binding first, and the bootstrap reuses the existing session on `resume`/`compact` (`clear` still starts fresh). Resume forks mint a *new* Claude sid and rewrite transcript metadata, so recovery uses the one durable anchor — the KG session id our own preload/`kg_read` renders left in the copied transcript. A reused session keeps its seen-set and full-read state: the preload re-render is re-orientation, not amnesia.
+- Tests: `tests/test_v0929.py` (14 assertions — binding/rebind, transcript recovery, per-session seen isolation, compact/resume/clear bootstrap paths, full-read state preserved). Full suite 347 green.
+
 ## [0.9.28] - 2026-07-24
 
 ### Changed

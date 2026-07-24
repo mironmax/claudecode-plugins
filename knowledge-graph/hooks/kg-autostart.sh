@@ -23,13 +23,31 @@
 PORT="${KG_HTTP_PORT:-8765}"
 HOST="${KG_HTTP_HOST:-127.0.0.1}"
 
+# The hook's stdin JSON carries the Claude session identity (session_id,
+# source, transcript_path) — the server binds the KG session to it so that
+# resume/compact reuse the existing seen-state instead of minting a fresh
+# session that re-nags and re-injects everything.
+STDIN_JSON=$(cat 2>/dev/null)
+
 if curl -sf --max-time 2 "http://${HOST}:${PORT}/health" > /dev/null 2>&1; then
-    python3 - "${CLAUDE_PROJECT_DIR:-$PWD}" "http://${HOST}:${PORT}" <<'PYEOF'
-import json, sys, urllib.parse, urllib.request
+    # Payload rides an env var: the heredoc below already occupies stdin, and
+    # SessionStart payloads are small (ids + paths, no prompt text).
+    HOOK_JSON="$STDIN_JSON" python3 - "${CLAUDE_PROJECT_DIR:-$PWD}" "http://${HOST}:${PORT}" <<'PYEOF'
+import json, os, sys, urllib.parse, urllib.request
 
 cwd, base = sys.argv[1], sys.argv[2]
 try:
-    url = f"{base}/api/session_bootstrap?project_path={urllib.parse.quote(cwd)}"
+    try:
+        hook = json.loads(os.environ.get("HOOK_JSON") or "{}")
+    except Exception:
+        hook = {}
+    cwd = hook.get("cwd") or cwd
+    params = {"project_path": cwd}
+    for src, dst in (("session_id", "claude_session_id"), ("source", "source"),
+                     ("transcript_path", "transcript_path")):
+        if hook.get(src):
+            params[dst] = hook[src]
+    url = f"{base}/api/session_bootstrap?{urllib.parse.urlencode(params)}"
     with urllib.request.urlopen(url, timeout=4) as resp:
         data = json.loads(resp.read())
     # New servers return the final injectable text (header included, budgeted
@@ -45,14 +63,15 @@ try:
         + data["text"]
     )
     stats = data.get("stats") or {}
+    verb = "session resumed, seen-state preserved" if data.get("reused") else "preloaded"
     if stats:
         message = (
-            f"KG memory preloaded (session {data['session_id']}): "
+            f"KG memory {verb} (session {data['session_id']}): "
             f"{stats.get('user_active', '?')} user + {stats.get('project_active', '?')} project "
             f"active nodes, {stats.get('shown_gists', '?')} gists inline — kg_read renders the rest."
         )
     else:
-        message = f"KG memory preloaded (session {data['session_id']})."
+        message = f"KG memory {verb} (session {data['session_id']})."
     print(json.dumps({
         "systemMessage": message,
         "hookSpecificOutput": {

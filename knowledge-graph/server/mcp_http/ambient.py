@@ -127,9 +127,17 @@ def _terms(prompt: str, cap: int = 24) -> list[str]:
     return out
 
 
-def build_prompt_recall(store, session_manager, project_path: str, prompt: str) -> str | None:
+def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
+                        claude_sid: str | None = None) -> str | None:
     """Text to inject for this prompt, or None to let the random pools speak."""
-    hit = session_manager.find_by_project_path(project_path)
+    # Resolve by the Claude session id the hook payload carries — concurrent
+    # sessions in one project must each track their OWN seen-set (newest-by-
+    # path made the older session read and poison the newer one's dedup
+    # state, observed live as mid-session session_id drift). Path lookup
+    # stays as fallback for sessions registered before the binding existed.
+    hit = session_manager.find_by_claude_sid(claude_sid) if claude_sid else None
+    if not hit:
+        hit = session_manager.find_by_project_path(project_path)
     if not hit:
         return None
     sid, data = hit
@@ -398,7 +406,8 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
 
         try:
             nudge = _decide_nudge(store, session_manager, data, entry,
-                                  project_path, kind, needle, now)
+                                  project_path, kind, needle, now,
+                                  claude_sid=claude_sid)
         except Exception:
             logger.exception("tool_event nudge decision failed")
             nudge = None
@@ -407,7 +416,8 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
     return nudge
 
 
-def _decide_nudge(store, session_manager, data, entry, project_path, kind, needle, now):
+def _decide_nudge(store, session_manager, data, entry, project_path, kind, needle, now,
+                  claude_sid=None):
     threshold_met = (
         len(entry["sessions"]) >= TOOL_EVENT_FILE_MIN_SESSIONS
         if kind == "read"
@@ -418,7 +428,9 @@ def _decide_nudge(store, session_manager, data, entry, project_path, kind, needl
     if now - entry.get("nudged_ts", 0) < NUDGE_TARGET_COOLDOWN_SECONDS:
         return None
 
-    hit = session_manager.find_by_project_path(project_path)
+    hit = session_manager.find_by_claude_sid(claude_sid) if claude_sid else None
+    if not hit:
+        hit = session_manager.find_by_project_path(project_path)
     if not hit:
         return None  # nobody in context to act on a nudge
     kg_sid = hit[0]
