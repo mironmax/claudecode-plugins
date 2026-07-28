@@ -23,12 +23,97 @@ numbers so a model (or Maxim) can sanity-check the verdict at a glance.
 """
 
 import json
+import re
 import time
 from pathlib import Path
 
-# Gist length the kg-capture standard targets; beyond it a gist reads as a
+# Gist length the kg-core capture standard targets; beyond it a gist reads as a
 # wall, and oversized gists are the documented compactor-stall root cause.
 GIST_OVERSIZE_CHARS = 300
+
+# --- Smear detection -------------------------------------------------------
+# A term is "smeared" when many nodes re-describe one entity in prose instead
+# of edging to the node that owns it (measured live 2026-07-28: "oxygen" in
+# 48 comra node texts, "megamenu" in 38, while the hub nodes held 3 edges).
+# Smearing is what makes project-central vocabulary useless to search — IDF
+# sees a saga, not a signal. The detector names the worst offenders so the
+# maintain pass can consolidate one entity at a time.
+SMEAR_MIN_TERM_LEN = 5
+SMEAR_MIN_DF = 6          # absolute floor of holders before a term counts
+SMEAR_DF_RATIO = 0.08     # ...or this fraction of the graph, whichever is more
+_SMEAR_TOKEN_RE = re.compile(r"[a-z][a-z0-9]{4,}")
+_DATED_ID_RE = re.compile(r"20\d\d-\d\d")
+# Chronicle verbs and generic dev vocabulary that would false-flag; entities
+# the maintain pass should judge (like "plugin") stay in on purpose.
+_SMEAR_STOP = frozenset("""
+    about above added after again alway always applied approach around before
+    behind between broke built cannot cause caused change changed check
+    checked clean commit commits config confirmed correct created datum
+    decided decision default deploy deployed direct disable disabled doctrine
+    dropped enable enabled every finding fixed fixes fresh fully found gists
+    graph graphs happen happened hidden inside instead issue issues
+    latest lesson lessons local longer maxim means merge merged might minute
+    minutes moved needs never nodes nothing observed order other output
+    pattern patterns policy pretty problem procedure project projects prompt
+    prompts reason removed renamed report resolved restore result results
+    review reviewed right root round runs saved second session sessions
+    shipped shipping should since small solved stale stamp standard started
+    still stopped store style their there these thing things think third
+    those three times today under until update updated using value values
+    verified version wanted where which while whole without works would wrong
+""".split())
+
+
+def smeared_terms(nodes: list[dict], edges: list[dict], n_top: int = 3,
+                  slug: str | None = None) -> list[dict]:
+    """Worst smeared terms across ALL tiers (search reaches every tier).
+
+    A term qualifies when its id+gist document frequency exceeds
+    max(SMEAR_MIN_DF, SMEAR_DF_RATIO × node count) AND some undated node id
+    carries the term as a token — the hub candidate the satellites should
+    edge to (most-connected candidate named). Returns
+    [{term, df, hub, hub_edges}] worst-first, at most n_top.
+    """
+    # The project's own name prefixes half the ids by convention — that is a
+    # namespace, not a smeared entity ("comra×126" is noise, "oxygen×48" is
+    # the finding). Slug tokens and their singular/plural kin are skipped.
+    slug_tokens = set((slug or "").lower().replace("_", "-").split("-")) - {""}
+
+    def _is_slug_term(term: str) -> bool:
+        return any(term.startswith(t) or t.startswith(term) for t in slug_tokens)
+
+    texts = {}
+    for n in nodes:
+        nid = n.get("id", "")
+        texts[nid] = (nid + " " + n.get("gist", "")).lower()
+    df: dict[str, set] = {}
+    for nid, text in texts.items():
+        for tok in set(_SMEAR_TOKEN_RE.findall(text)):
+            if tok in _SMEAR_STOP or len(tok) < SMEAR_MIN_TERM_LEN or _is_slug_term(tok):
+                continue
+            df.setdefault(tok, set()).add(nid)
+
+    degree: dict[str, int] = {}
+    for e in edges:
+        for end in (e.get("from", ""), e.get("to", "")):
+            degree[end] = degree.get(end, 0) + 1
+
+    floor = max(SMEAR_MIN_DF, SMEAR_DF_RATIO * len(texts))
+    out = []
+    for term, holders in df.items():
+        if len(holders) < floor:
+            continue
+        hubs = [nid for nid in holders
+                if not _DATED_ID_RE.search(nid)
+                and any(t == term or t.startswith(term) for t in nid.split("-"))]
+        if not hubs:
+            continue
+        hub = max(hubs, key=lambda h: degree.get(h, 0))
+        out.append({"term": term, "df": len(holders), "hub": hub,
+                    "hub_edges": degree.get(hub, 0)})
+    out.sort(key=lambda r: r["df"], reverse=True)
+    return out[:n_top]
+
 STALENESS_FULL_DAYS = 14
 ACTIVITY_FULL_DAYS = 4      # active-days/7d that count as "fully active"
 DEBT_HIGH = 0.5
@@ -46,7 +131,8 @@ def activity_days(timestamps, now: float | None = None, window_days: int = 7) ->
 
 def compute_debt(nodes: list[dict], edges: list[dict],
                  last_maintain_ts: float | None,
-                 active_days_7d: int, now: float | None = None) -> dict:
+                 active_days_7d: int, now: float | None = None,
+                 slug: str | None = None) -> dict:
     """Debt score + factors for one graph. nodes/edges: snapshot lists."""
     now = now or time.time()
 
@@ -60,7 +146,11 @@ def compute_debt(nodes: list[dict], edges: list[dict],
     unconnected = sum(1 for n in active if n["id"] not in connected)
 
     n_active = len(active)
+    smeared = smeared_terms(nodes, edges, slug=slug)
     deficit_raw = ((oversized / n_active) + 0.5 * (unconnected / n_active)) if n_active else 0.0
+    # Each smeared term adds a nudge toward a pass; capped so smear alone
+    # never spikes HIGH — consolidation is a slow structural payoff.
+    deficit_raw += min(0.25, 0.08 * len(smeared))
 
     if last_maintain_ts:
         untended_days = max(0.0, (now - last_maintain_ts) / 86400)
@@ -82,6 +172,7 @@ def compute_debt(nodes: list[dict], edges: list[dict],
         "untended_days": round(untended_days, 1),
         "never_maintained": not last_maintain_ts,
         "active_days_7d": active_days_7d,
+        "smeared": smeared,
     }
 
 
@@ -94,6 +185,9 @@ def debt_line(debt: dict) -> str:
         f"{debt['unconnected_active']} unconnected, {untended}, "
         f"active {debt['active_days_7d']}/7d"
     )
+    if debt.get("smeared"):
+        worst = ", ".join(f"{s['term']}×{s['df']}→{s['hub']}" for s in debt["smeared"])
+        detail += f" — smeared: {worst}"
     line = f"DEBT: {debt['level']} ({debt['score']}) — {detail}"
     if debt["level"] == "HIGH":
         line += " — worth a /kg-maintain pass (or a maintenance subagent) now"
@@ -105,7 +199,8 @@ def debt_line(debt: dict) -> str:
 # surveying every project does not pull them all into server memory.
 # --------------------------------------------------------------------------
 
-def _graph_debt_from_file(graph_path: Path, extra_ts=None, now: float | None = None):
+def _graph_debt_from_file(graph_path: Path, extra_ts=None, now: float | None = None,
+                          slug: str | None = None):
     """(debt, meta) from a persisted graph file, or (None, {}) if unreadable."""
     try:
         data = json.loads(graph_path.read_text())
@@ -120,7 +215,7 @@ def _graph_debt_from_file(graph_path: Path, extra_ts=None, now: float | None = N
     ts_pool = [n.get("_last_read_ts") for n in nodes]
     ts_pool.extend(extra_ts or [])
     debt = compute_debt(nodes, edges, last_maintain,
-                        activity_days(ts_pool, now=now), now=now)
+                        activity_days(ts_pool, now=now), now=now, slug=slug)
     return debt, meta
 
 
@@ -150,7 +245,8 @@ def survey_debt(storage_root: Path, now: float | None = None) -> list[dict]:
                     extra_ts = [e.get("last_ts") for e in events.values()]
                 except Exception:
                     pass
-            debt, meta = _graph_debt_from_file(gpath, extra_ts=extra_ts, now=now)
+            debt, meta = _graph_debt_from_file(gpath, extra_ts=extra_ts, now=now,
+                                               slug=pdir.name)
             if not debt:
                 continue
             rows.append({

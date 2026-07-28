@@ -2,6 +2,8 @@
 
 import json
 import logging
+import math
+import re
 import threading
 import time
 from pathlib import Path
@@ -34,9 +36,73 @@ from core import (
     project_namespace,
     is_project_namespace,
 )
+from core.constants import IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO
 from .session_manager import HTTPSessionManager
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Search term pipeline (module-level: shared by search and the near-dup check)
+# ---------------------------------------------------------------------------
+
+_SUBTOKEN_SPLIT_RE = re.compile(r"[./_\-]+")
+# Light stemming: one suffix stripped, never below a 4-char stem — enough for
+# schedule≈scheduling≈scheduled without mangling short words ("pass" stays).
+_STEM_SUFFIXES = ("ing", "ed", "es", "s")
+_SEARCH_TERM_CAP = 32
+# Field weights: a term in a node's id names the concept, in the gist it
+# headlines it, in notes/touches it may be mentioned only in passing. The
+# weights bias ranking toward nodes ABOUT the query — the live misrank class
+# (week-2 audit: a mail-tooling node topping a database-sync query) came
+# entirely from incidental notes matches.
+_FIELD_W_ID, _FIELD_W_GIST, _FIELD_W_REST = 3, 2, 1
+
+
+def _stem(term: str) -> str:
+    for suf in _STEM_SUFFIXES:
+        if term.endswith(suf) and len(term) - len(suf) >= 4:
+            return term[: -len(suf)]
+    return term
+
+
+def _term_stream(query: str) -> tuple[list[str], list[str]]:
+    """Ordered subtoken stream + composite tokens kept as exact terms.
+
+    "CLAUDE.md-cleanup session" → stream [claude, md, cleanup, session],
+    composites [claude.md-cleanup]. The stream preserves word order so
+    bigrams can be built from adjacency; composites keep hyphen/dot-joined
+    ids searchable as exact strings.
+    """
+    stream: list[str] = []
+    composites: list[str] = []
+    for tok in query.lower().split():
+        tok = tok.strip("./-_")
+        if not tok:
+            continue
+        parts = [p for p in _SUBTOKEN_SPLIT_RE.split(tok) if len(p) >= 2]
+        if len(parts) > 1:
+            composites.append(tok)
+        stream.extend(parts or [tok])
+    return stream, composites
+
+
+def search_terms(query: str) -> tuple[list[str], list[tuple[str, str]]]:
+    """(unigram stems, bigram stem pairs) — order-preserving dedup, capped.
+
+    Bigrams are adjacent subtoken pairs; their document frequency is the
+    co-occurrence count, so "claude"+"md" — each common alone — score high
+    as a pair. Pairs of very short stems carry no phrase signal and are
+    skipped.
+    """
+    stream, composites = _term_stream(query)
+    stems = [_stem(t) for t in stream]
+    unigrams = list(dict.fromkeys(stems + composites))[:_SEARCH_TERM_CAP]
+    bigrams = list(dict.fromkeys(
+        (a, b) for a, b in zip(stems, stems[1:])
+        if a != b and len(a) + len(b) >= 5
+    ))[:_SEARCH_TERM_CAP]
+    return unigrams, bigrams
 
 
 @dataclass
@@ -477,8 +543,126 @@ class MultiProjectGraphStore:
                 session_id
             )
 
+            near_dup = self._near_duplicate(graph_key, node_id, gist) if is_new else None
+
             logger.debug(f"Put node '{node_id}' in {level} graph")
-            return {"node": node, "level": level}
+            return {"node": node, "level": level, "near_duplicate": near_dup}
+
+    def _near_duplicate(self, graph_key: str, node_id: str, gist: str) -> dict | None:
+        """Best near-duplicate candidate for a freshly CREATED node, or None.
+
+        Caller holds the lock; the write has already happened — this is a
+        nudge for the tool layer to surface, never a block. Probes the same
+        term pipeline search uses (subtokens + stems + bigrams,
+        field-weighted, IDF) with the new node's id + gist against the rest
+        of its own graph.
+        """
+        nodes = self.graphs[graph_key]["nodes"]
+        fields = {
+            nid: (
+                nid.lower(),
+                node.get("gist", "").lower(),
+                " ".join(node.get("notes", []) + node.get("touches", [])).lower(),
+            )
+            for nid, node in nodes.items() if nid != node_id
+        }
+        if len(fields) < 10:
+            return None  # tiny graph — everything resembles everything
+        unigrams, bigrams = search_terms(f"{node_id} {gist}")
+        n_total = len(fields)
+        scores: dict[str, float] = {}
+        # The probe's own theoretical maximum: every term at rank 0. Raw
+        # scores grow with probe length, so the flag is the RATIO best/self —
+        # a node restating an existing one shares most of its rare terms; a
+        # node with its own distinctive vocabulary dilutes the ratio however
+        # much it brushes against neighbours.
+        self_denom = 0.0
+
+        def field_count(f: tuple, stem: str) -> int:
+            return (_FIELD_W_ID * f[0].count(stem)
+                    + _FIELD_W_GIST * f[1].count(stem)
+                    + _FIELD_W_REST * f[2].count(stem))
+
+        def pair_count(f: tuple, pair: tuple) -> int:
+            a = field_count(f, pair[0])
+            if not a:
+                return 0
+            b = field_count(f, pair[1])
+            return min(a, b) if b else 0
+
+        for terms, counter in ((unigrams, field_count), (bigrams, pair_count)):
+            for term in terms:
+                matches = [(nid, counter(f, term)) for nid, f in fields.items()]
+                matches = [(nid, c) for nid, c in matches if c]
+                if not matches:
+                    self_denom += 1.0 / 60  # unique to the new node: idf ≈ 1
+                    continue
+                base = math.log(n_total / len(matches)) / math.log(n_total)
+                if base <= 0:
+                    continue
+                idf_w = base ** IDF_SHARPNESS
+                self_denom += idf_w / 60
+                matches.sort(key=lambda x: x[1], reverse=True)
+                for rank, (nid, _c) in enumerate(matches):
+                    scores[nid] = scores.get(nid, 0.0) + idf_w / (60 + rank)
+
+        if scores and self_denom > 0:
+            best_id = max(scores, key=scores.get)
+            best = scores[best_id]
+            if best >= NEAR_DUP_MIN_SCORE and best / self_denom >= NEAR_DUP_RATIO:
+                return {
+                    "kind": "duplicate",
+                    "id": best_id,
+                    "gist": nodes[best_id].get("gist", "")[:120],
+                    "score": round(best / self_denom, 3),
+                }
+        # Not a duplicate — but does the gist re-describe an entity the graph
+        # already names? Prose mentions are how vocabulary smears (measured:
+        # "oxygen" in 48 node texts, its hub holding 4 edges); the durable
+        # alternative is an edge to the owning node.
+        return self._hub_mention(graph_key, node_id, unigrams, fields, nodes)
+
+    _DATED_ID_RE = re.compile(r"20\d\d-\d\d")
+
+    def _hub_mention(self, graph_key: str, node_id: str, probe_stems: list,
+                     fields: dict, nodes: dict) -> dict | None:
+        """The most-smeared entity this new node mentions, with its hub.
+
+        A stem qualifies when it is len ≥5, not a token of the project's own
+        slug (namespace, not entity), held by ≥3 nodes' id+gist, and some
+        undated node id carries it as a token — that node is the suggested
+        edge target. One suggestion max; caller renders it as a nudge.
+        """
+        slug_tokens: set[str] = set()
+        if is_project_namespace(graph_key):
+            slug_tokens = set(
+                graph_key.split(":", 1)[1].rstrip("/").rsplit("/", 1)[-1]
+                .lower().replace("_", "-").split("-")) - {""}
+
+        best = None
+        for stem in probe_stems:
+            if len(stem) < 5 or any(stem.startswith(t) or t.startswith(stem)
+                                    for t in slug_tokens):
+                continue
+            holders = [nid for nid, f in fields.items() if stem in f[0] or stem in f[1]]
+            if len(holders) < 3:
+                continue
+            hubs = [nid for nid in holders
+                    if not self._DATED_ID_RE.search(nid)
+                    and any(t == stem or t.startswith(stem) for t in nid.split("-"))]
+            if not hubs:
+                continue
+            if best is None or len(holders) > best[1]:
+                best = (stem, len(holders), hubs[0])
+        if not best:
+            return None
+        stem, _df, hub = best
+        return {
+            "kind": "mention",
+            "term": stem,
+            "id": hub,
+            "gist": nodes[hub].get("gist", "")[:120],
+        }
 
     def put_edge(
         self,
@@ -818,12 +1002,17 @@ class MultiProjectGraphStore:
                top_k: int = 5, more_k: int = 10) -> dict:
         """Full-text search across node IDs, gists, notes and touches.
 
-        Reciprocal Rank Fusion across per-term ranked lists: the query is split
-        on whitespace; for each term, nodes are ranked by occurrence count in
-        their searchable text; ranks merge via score += 1/(60 + rank). Always
-        searches the user graph; the project graph comes from the session's
-        registered path, or — without a session — best-effort across all loaded
-        project graphs.
+        Reciprocal Rank Fusion across per-term ranked lists. The query is
+        split on whitespace, then each token also contributes its ./_-
+        subtokens ("claude.md-cleanup" → claude, md, cleanup + itself), terms
+        match via a light stem (schedule ≈ scheduling), and adjacent subtoken
+        pairs form bigram terms whose IDF reflects co-occurrence rarity — the
+        pair "claude md" is strong evidence even where each half is common.
+        Occurrences are field-weighted (id ×3, gist ×2, notes/touches ×1) so a
+        node ABOUT a concept outranks one that mentions it in passing; ranks
+        merge via score += idf/(60 + rank). Always searches the user graph;
+        the project graph comes from the session's registered path, or —
+        without a session — best-effort across all loaded project graphs.
 
         Returns a structured result built for compact rendering:
           {
@@ -843,53 +1032,108 @@ class MultiProjectGraphStore:
         """
         RRF_K = 60
         seen = seen or set()
-        terms = list(dict.fromkeys(t for t in query.lower().split() if t))
+        unigrams, bigrams = search_terms(query)
 
-        def search_graph_rrf(graph_key: str) -> dict[str, float]:
+        def search_graph_rrf(graph_key: str) -> tuple[dict[str, float], dict[str, dict]]:
+            """Per-graph RRF: (scores, per-node match meta).
+
+            IDF-style term weighting: a term's contribution scales with its
+            rarity in this graph. RRF ranks are relative, so without this a
+            ubiquitous term ("user", "works", "project") still produces a
+            confident-looking ranking while carrying no signal — the live
+            failure mode of prompt recall on conversational prompts. Weight
+            = log(N/df)/log(N): a term unique to one node ≈ 1.0, a term in
+            half the graph ≈ 0.15 for N=100, a term in every node = 0.
+
+            Meta per matched node — matched_terms (distinct unigrams),
+            max_term_idf (rarity of its best evidence), title_match (any
+            evidence in id/gist rather than notes) — feeds the recall noise
+            gate; kg_search itself never gates on it.
+            """
             if graph_key not in self.graphs:
-                return {}
+                return {}, {}
             nodes = self.graphs[graph_key]["nodes"]
 
-            searchable = {
-                node_id: " ".join([
-                    node_id,
-                    node.get("gist", ""),
-                    " ".join(node.get("notes", [])),
-                    " ".join(node.get("touches", [])),
-                ]).lower()
+            fields = {
+                node_id: (
+                    node_id.lower(),
+                    node.get("gist", "").lower(),
+                    " ".join(node.get("notes", []) + node.get("touches", [])).lower(),
+                )
                 for node_id, node in nodes.items()
             }
 
-            # IDF-style term weighting: a term's contribution scales with its
-            # rarity in this graph. RRF ranks are relative, so without this a
-            # ubiquitous term ("user", "works", "project") still produces a
-            # confident-looking ranking while carrying no signal — the live
-            # failure mode of prompt recall on conversational prompts. Weight
-            # = log(N/df)/log(N): a term unique to one node ≈ 1.0, a term in
-            # half the graph ≈ 0.15 for N=100, a term in every node = 0.
-            import math
-            n_total = len(searchable)
+            def weighted_count(node_id: str, stem: str) -> int:
+                f_id, f_gist, f_rest = fields[node_id]
+                return (_FIELD_W_ID * f_id.count(stem)
+                        + _FIELD_W_GIST * f_gist.count(stem)
+                        + _FIELD_W_REST * f_rest.count(stem))
+
+            def in_title(node_id: str, stem: str) -> bool:
+                f_id, f_gist, _ = fields[node_id]
+                return stem in f_id or stem in f_gist
+
+            n_total = len(fields)
             rrf_scores: dict[str, float] = {}
-            for term in terms:
-                term_scores = [
-                    (node_id, text.count(term))
-                    for node_id, text in searchable.items()
-                    if term in text
-                ]
-                if not term_scores:
+            meta: dict[str, dict] = {}
+
+            def idf(df: int) -> float:
+                if n_total <= 1:
+                    return 1.0
+                base = math.log(n_total / df) / math.log(n_total)
+                # Sharpened: rare evidence keeps its weight, dull evidence
+                # decays faster — otherwise five ubiquitous terms outvote
+                # the one term that names the right node (see constants).
+                return base ** IDF_SHARPNESS if base > 0 else base
+
+            def accumulate(matches: list[tuple[str, int, bool]], idf_w: float,
+                           counts_unigram: bool) -> None:
+                matches.sort(key=lambda x: x[1], reverse=True)
+                for rank, (node_id, _cnt, title) in enumerate(matches):
+                    rrf_scores[node_id] = rrf_scores.get(node_id, 0.0) + idf_w / (RRF_K + rank)
+                    m = meta.setdefault(node_id, {
+                        "matched_terms": 0, "max_term_idf": 0.0, "title_match": False,
+                    })
+                    if counts_unigram:
+                        m["matched_terms"] += 1
+                    m["max_term_idf"] = max(m["max_term_idf"], idf_w)
+                    m["title_match"] = m["title_match"] or title
+
+            for stem in unigrams:
+                matches = []
+                for node_id in fields:
+                    cnt = weighted_count(node_id, stem)
+                    if cnt:
+                        matches.append((node_id, cnt, in_title(node_id, stem)))
+                if not matches:
                     continue
-                if n_total > 1:
-                    idf_w = math.log(n_total / len(term_scores)) / math.log(n_total)
-                else:
-                    idf_w = 1.0
+                idf_w = idf(len(matches))
                 if idf_w <= 0:
                     continue  # term in every node — zero signal
-                term_scores.sort(key=lambda x: x[1], reverse=True)
-                for rank, (node_id, _) in enumerate(term_scores):
-                    rrf_scores[node_id] = rrf_scores.get(node_id, 0.0) + idf_w / (RRF_K + rank)
-            return rrf_scores
+                accumulate(matches, idf_w, counts_unigram=True)
 
-        def build_record(graph_key: str, node_id: str, label: str, score: float) -> dict:
+            for stem_a, stem_b in bigrams:
+                matches = []
+                for node_id in fields:
+                    cnt_a = weighted_count(node_id, stem_a)
+                    if not cnt_a:
+                        continue
+                    cnt_b = weighted_count(node_id, stem_b)
+                    if not cnt_b:
+                        continue
+                    title = in_title(node_id, stem_a) and in_title(node_id, stem_b)
+                    matches.append((node_id, min(cnt_a, cnt_b), title))
+                if not matches:
+                    continue
+                idf_w = idf(len(matches))
+                if idf_w <= 0:
+                    continue
+                accumulate(matches, idf_w, counts_unigram=False)
+
+            return rrf_scores, meta
+
+        def build_record(graph_key: str, node_id: str, label: str, score: float,
+                         match_meta: dict | None = None) -> dict:
             node = self.graphs.get(graph_key, {}).get("nodes", {}).get(node_id, {})
             node_seen = node_id in seen
             record = {
@@ -901,6 +1145,10 @@ class MultiProjectGraphStore:
                 "seen": node_seen,
                 "score": round(score, 4),
             }
+            if match_meta:
+                record["matched_terms"] = match_meta["matched_terms"]
+                record["max_term_idf"] = round(match_meta["max_term_idf"], 3)
+                record["title_match"] = match_meta["title_match"]
             if not node_seen:
                 record["notes"] = list(node.get("notes", []))
             return record
@@ -921,19 +1169,24 @@ class MultiProjectGraphStore:
                 project_keys = [k for k in self.graphs if is_project_namespace(k)]
             graph_keys = ["user"] + [k for k in project_keys if k in self.graphs]
 
+            user_scores, user_meta = search_graph_rrf("user")
             records = [
-                build_record("user", node_id, "user", score)
-                for node_id, score in search_graph_rrf("user").items()
+                build_record("user", node_id, "user", score, user_meta.get(node_id))
+                for node_id, score in user_scores.items()
             ]
             proj_scores: dict[str, float] = {}
+            proj_meta: dict[str, dict] = {}
             proj_key_map: dict[str, str] = {}
             for graph_key in project_keys:
-                for node_id, score in search_graph_rrf(graph_key).items():
+                g_scores, g_meta = search_graph_rrf(graph_key)
+                for node_id, score in g_scores.items():
                     if node_id not in proj_scores or score > proj_scores[node_id]:
                         proj_scores[node_id] = score
+                        proj_meta[node_id] = g_meta.get(node_id, {})
                         proj_key_map[node_id] = graph_key
             records.extend(
-                build_record(proj_key_map[node_id], node_id, "project", score)
+                build_record(proj_key_map[node_id], node_id, "project", score,
+                             proj_meta.get(node_id))
                 for node_id, score in proj_scores.items()
             )
 
@@ -1094,8 +1347,14 @@ class MultiProjectGraphStore:
                         ts_pool.extend(e.get("last_ts") for e in events.values())
                     except Exception:
                         pass
+                slug = None
+                if label == "project" and project_path:
+                    try:
+                        slug = project_graph_path(project_path).parent.name
+                    except Exception:
+                        pass
                 result[label] = compute_debt(nodes, edges, last_maintain,
-                                             activity_days(ts_pool))
+                                             activity_days(ts_pool), slug=slug)
         return result
 
     # ========================================================================

@@ -3,194 +3,118 @@ name: kg-core
 user-invocable: false
 description: |
   Knowledge Graph — persistent memory, your twin across sessions.
-  Primary context before reaching for any other tool.
 
-  Session start: memory usually arrives PRELOADED — a "KG MEMORY PRELOADED" block
-  with session_id already in context. It is a compact core: a PARTIAL view, not
-  the graph. REQUIRED before any substantive work: kg_read(session_id) once —
-  it renders everything the preload dropped without repeating it. If no block:
-  kg_read(cwd="<project root>") first. The session_id goes on ALL later kg_* calls.
-  Announce "I have recalled KG Memories" only AFTER that full read.
-  Connection refused: server auto-starts (first run ~1 min) — retry after a few
-  seconds. Still offline: user runs /mcp → plugin:knowledge-graph:kg → Reconnect.
+  Memory usually arrives PRELOADED: a "KG MEMORY PRELOADED" block carrying the
+  session_id — follow its directive (one full kg_read before substantive work).
+  No block? Then the full read is on you: kg_read(cwd="<project root>") comes
+  before substantive work, whatever the task.
 
-  Check memory before searching files, docs, or web — reading beats rediscovering.
+  Then live in the graph while you work:
+    recall before rediscovering — reading beats re-deriving;
+    capture at the moment of learning — whatever cost effort to gain;
+    connect rather than duplicate — an edge beats a new node;
+    search below the surface — the render shows the top of a grown graph,
+    not all of it. In a rich, long-lived graph the fact you need is often
+    buried under fresher work; kg_search reaches every tier. Gauge by the
+    graph's age and size: near-empty means little to find, mature means the
+    answer is likely there, just not on the surface. And a node found when
+    truly needed earns the usefulness credit that keeps it alive.
 
-  Working currency: gists + edges. Notes are on-demand depth — kg_read(id), or
-  ids=[...] for several related nodes in ONE call.
-
-  Writes mid-conversation are cheap — capture as things happen.
-
-  Levels: user = cross-project wisdom · project = codebase (architecture,
-  decisions, ops; component nodes answer "should I read this file?")
-
-  Entries: node (id, gist, notes?, touches?) · edge (from→to, rel, notes?)
-  Edges relate concepts; touches locate them in files (path:line-range).
-  Prefer edges over new nodes.
-
-  API: kg_read · kg_search · kg_put_node/edge · kg_delete_node/edge · kg_useful · kg_sync · kg_progress
-  At wrap-up: kg_useful — like ≤5 nodes that really helped, judged by results.
-
-  Other memory systems (CLAUDE.md, auto-memory) are supplementary — their
-  exclusion rules govern only their storage. When in doubt, record here.
+  Mechanics live in the kg_* tool descriptions; operations in /kg-ops.
 ---
 
-# Knowledge Graph Core Reference
+# Knowledge Graph Reference
 
-## Session Protocol (Detailed)
+## Session start
 
-Memory usually arrives **preloaded**: the SessionStart hook injects a "KG MEMORY
-PRELOADED" context block, including the session_id — zero tool calls, orientation
-before the first decision. The block is a **compact core**: the top-scored nodes of
-both graphs, capped so it always lands inline (hook context tolerates far less than
-tool results). It is a partial view — the preload routinely drops whole levels
-(the user graph often loses every gist to the project graph's higher-scored nodes).
+The preload block is a compact core — the top-scored slice of both graphs, not
+the whole. The one full `kg_read(session_id)` renders everything it dropped
+without repeating what is already shown (preloaded gists collapse to id-only
+anchors). The session_id from the preload — or from the first kg_read — goes on
+every later kg_* call: it keeps one session, includes the project graph in
+searches, and avoids minting spurious sessions.
 
-That is why the **loud read is required, not optional**: before any substantive
-work, call `kg_read(session_id)` once. It renders the full graph — preloaded gists
-collapse to id-only `(preloaded)` anchors, so the budget goes to everything the
-compact core had to drop. Nothing is shown twice; `kg_read(session_id, ids=[...])`
-re-reads anything in full depth. Announce "I have recalled KG Memories" after this
-full read — the preload alone is orientation, not recall.
+No preload block (Desktop sessions, server still warming up):
+`kg_read(cwd="<project root>")` returns the full graph plus your session_id.
+Connection refused usually means the server is starting — retry after a few
+seconds; persistent trouble is a /kg-ops matter.
 
-If no preloaded block exists (server was still warming up), load explicitly:
-```
-kg_read(cwd="<project root>")  # Returns full graph + session_id
-```
-Either way, the session_id is used for **all** subsequent tool calls — including later
-kg_read calls (node reads, re-reads). Passing it means the server reuses your session;
-omitting it and passing cwd again mints a fresh one. Passing session_id to kg_search
-ensures the project graph is included — worth doing by default.
+Resuming an earlier conversation: `kg_sync(session_id)` picks up what other
+sessions wrote meanwhile.
 
-The full-graph output is guaranteed to fit inline — no overflow file to chase. If the
-graph was too large to show everything, a note at the end says how many archived
-anchors/edges were hidden (kg_search still reaches them).
+## Recall
 
-Reading the graph: nodes render in cluster order (related nodes adjacent, hubs first),
-each with its relationships indented under it. An edge appears once, under whichever
-endpoint renders first — scan a cluster top-down and its story assembles itself.
+After the full read, scan gists for anything touching the task and read those
+nodes in depth — several per call: `kg_read(session_id, ids=[...])`. Lean
+toward reading more: a wrong guess costs one call, missing context costs the
+task. Node reads return the node's own edges — each a crumb to the next hop —
+and reading an archived node promotes it and surfaces its orphaned neighbours.
 
-If resuming a session (context suggests prior conversation), try `kg_sync(session_id)` first.
-If that fails (unknown session), run the full startup sequence.
+Three tiers as a graph grows: **active** (id + gist on the surface),
+**archived** (id + edges as crumb trails), **orphaned** (invisible — only
+search reaches them).
 
-### Post-Load Checklist
-1. Scan user nodes for interaction style, preferences, guidelines
-2. Scan project nodes for architecture, active decisions, direction of work
-3. Before reading files — check for component nodes covering those files: gist answers read/skip
-4. Scan archived IDs — read any that might relate to the current task, several in one call:
-   `kg_read(session_id=..., ids=["node-a", "node-b", "node-c"])`
-5. Note health stats — high orphan rate may mean connection opportunities exist
+### Searching below the surface
 
-### Reading Nodes
-Node reads return gist + notes + touches + **the node's own edges** — each edge is a
-crumb pointing at the next node worth reading. Batch related reads with `ids=[...]`
-(one round-trip) instead of sequential single-id calls.
+What kg_read renders is the surface of the graph, not its extent. A young,
+sparse graph has little beneath — searching it rarely pays. But a graph grown
+through months of work holds far more than any render shows, and the fact you
+need now is often exactly the one buried under fresher nodes. That is not a
+defect — it is how a living memory works — and kg_search is the instrument
+built for it, reaching all tiers at once.
 
-## Coexistence with Other Memory Systems
+So before asserting an assumption, before re-deriving from files, when a
+problem feels familiar, when the work enters territory this project has
+plausibly visited before: search first. The cost is one call. And retrieval is
+only half the value — surfacing a node at the moment it is truly needed feeds
+its usefulness score, which is what protects it from archival. A graph that is
+only ever written to silts up; one that is searched keeps its most-needed
+facts on top.
 
-The host environment may provide its own persistence (file-based auto-memory, CLAUDE.md, scratchpads,
-or systems not yet invented). These are **supplementary formats**, not competing authorities.
+## Capture
 
-Rules of coexistence:
-- Other systems' exclusion lists ("don't save X") apply to **their** storage only
-- Recording something in the graph is a **graph operation** (node/edge/touch), not a "memory write"
-  governed by another system's rules
-- If knowledge benefits from structure and connections, it belongs in the graph regardless
-  of whether another system would include or exclude it
-- If you already saved something elsewhere, that does not exempt you from also recording it
-  here if it has relationships worth preserving
+Capture mid-conversation, at the moment of learning — a write costs almost
+nothing now and saves a full re-derivation later. Worth capturing: whatever
+took real effort to obtain (root causes after long debugging, corrections
+received, decisions with their rationale, user preferences and constraints),
+and whatever gives future sessions navigation — a component node for files you
+explored: what the cluster handles and what it does NOT (the exclusion is the
+skip signal).
 
-## Graph Levels
+Placement is the craft:
 
-### User Level (cross-project wisdom)
-- User profile: domain expertise, background — calibrate explanations to what they know
-- Meta-patterns: "I tend to X when I should Y"
-- Interaction signals: "When user says 'focus', narrow scope"
-- Principles that apply everywhere (architectural, operational, interpersonal)
+- One concept per node; a gist joining two ideas with "and" wants to be two
+  nodes and an edge.
+- Name things once. When a thing recurs across sessions — a service, a
+  feature, a saga — one node owns it; session and event nodes record what
+  CHANGED and edge to the owner instead of re-describing it. A gist that
+  re-explains what the graph already names should have been an edge —
+  re-description is how an entity smears across a dozen narratives until
+  search can no longer tell which node owns it.
+- Gist = subject + key fact, telegraphic ("Docker file edit:
+  chown→edit→chown-back" — not a paragraph). Rationale and steps go in notes.
+- Touches are precise pointers — `path:line-range (short anchor)` — so the
+  next session reads ten lines instead of the file.
+- Cross-level edges (project decision → user principle) are legitimate; store
+  them in the project graph.
 
-### Project Level (codebase-specific)
-- **Navigation index**: component nodes (file clusters + what they handle/don't handle)
-  → use before opening files to make read/skip decisions
-- Architecture decisions + rationale
-- Non-obvious dependencies
-- Debugging discoveries: "X fails when Y because Z"
-- Code conventions not in docs
-- Operational knowledge: workflows, infrastructure, service relationships
+Other memory systems (CLAUDE.md, auto-memory) are supplementary — their
+exclusion rules govern their own storage. When in doubt, record here.
 
-## Server Operations
+## Levels
 
-The plugin auto-starts the server: a SessionStart hook health-checks port 8765 and launches
-the server in the background if it is down (a first run also builds the Python venv, ~1 min).
-So a connection-refused on the first kg_read usually means "warming up" — wait a few seconds
-and retry before treating it as an outage. The hook only ever starts; it never stops or
-restarts a running server.
+**user** — cross-project wisdom: preferences, principles, patterns that
+travel. **project** — this codebase and its operations: architecture,
+decisions, component nodes, discoveries.
 
-**If the server was down when the session connected**, the kg_* MCP tools are offline for
-this session even after the server comes up — Claude Code's MCP connection went stale at
-startup. Recovery requires the user: verify the server responds
-(`curl -sf http://127.0.0.1:8765/health`), then ask them to run `/mcp`, select
-`plugin:knowledge-graph:kg`, and hit **Reconnect**. Tools work immediately after.
+## Subagents
 
-Two registered shell commands give manual control. Both are symlinks in `~/.local/bin/`,
-installed by running `knowledge-graph/install_command.sh` once (optional).
+Subagents receive no preload. The dispatching session sizes memory into each
+prompt: exploration and mining agents get kg_* instructions plus the
+session_id; ordinary task agents get the few relevant gists pasted; narrow
+mechanical tasks get nothing.
 
-```
-kg-memory start|stop|restart|status|logs    # MCP graph server (port 8765)
-kg-visual start|stop|restart|status|logs    # Visual editor web UI (port 8766, http://localhost:8766)
-```
+## Operations
 
-If the server stays unreachable after retries, ask the user to run `kg-memory start` in their
-terminal (or the install script first if the command is missing) — the error output there
-shows what's wrong.
-
-After `kg-memory restart`, the MCP tools go offline in the current session — the connection
-reference goes stale. Let the user know: "Please run `/mcp` in Claude Code, find
-`plugin:knowledge-graph:kg` in the list, and hit Reconnect — tools will be available again
-immediately after."
-
-**kg-visual** is optional — it's a browser-based graph explorer, not required for KG operation.
-Use `kg-visual start` when the user wants to inspect or navigate the graph visually.
-
-## Multi-Session Coordination
-
-All sessions share the same server. `kg_sync(session_id)` pulls changes from other sessions.
-Call sync: before decisions depending on shared knowledge, when another session may have been active,
-after spawning subagents that write to the graph.
-
-## Available Skills
-
-| Skill | Purpose |
-|-------|---------|
-| `/skill kg-scout` | Mine conversation history for patterns worth preserving |
-| `/skill kg-extract` | Map codebase architecture into the knowledge graph |
-
-## Auto-Compaction
-
-System archives lowest-scored nodes when a graph level exceeds its size budget.
-Budgets are exact rendered characters (what kg_read shows is what is charged) and are
-fixed by design — not configurable. kg_read output therefore always lands inline.
-Score = 0.25×recency + 0.40×connectedness + 0.35×usefulness (percentile ranks).
-Recency = max(last write, last read). Connectedness = weighted in/out edges (in×0.66 + out×0.33), full weight to active neighbours, reduced to archived.
-Grace period based on creation time only — updates and reads do not reset it.
-After archiving, a resurrection pass promotes any archived node that outscores a freshly-archived one (by ≥0.05 margin); a refill pass promotes archived nodes back when headroom exists.
-Archived nodes remain on disk; edges stay visible as memory traces.
-
-## Edges, Touches, Cross-Level
-
-- **Edges relate concepts** (node→node). **Touches locate them in files** — prefer precise
-  pointers with line ranges and a semantic anchor: `www/app/config/prod.yaml:30-40 (upstream block)`.
-- A file important enough to relate to several concepts graduates to a **component node**;
-  don't point edges at file paths.
-- **Cross-level edges are legitimate**: a project node may point up to a user-level node
-  (`proj-decision --applies--> user-principle`). Put such edges in the **project** graph.
-
-## Agents
-
-Subagents never receive the session-start preload — SessionStart fires only for the
-main session. The dispatching session guides each agent's memory explicitly, sized
-to its task:
-- Codebase exploration / history mining → instruct agent to actively read and write
-  memory (pass the session_id and the kg_* usage in its prompt)
-- General task work → paste the few relevant gists into the dispatch prompt; leave
-  further reads at agent discretion
-- Narrow well-defined task → skip memory to avoid wasted tokens
+Server lifecycle, reconnect after restart, backup, troubleshooting — the
+/kg-ops runbook covers it; don't improvise server management from here.

@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.31] - 2026-07-28
+
+### Changed
+- **Skills collapsed to one always-loaded voice.** kg-capture and kg-recall folded into kg-core, per the Claude-5 context-engineering shifts (judgment over constraint, no cross-layer repetition, progressive disclosure): the collapsed description is 1,032 chars where the three totaled ~4.4K, mechanics live only in the kg_* tool descriptions, the session protocol lives only in the server preload header, and the description's longest instinct is deliberately *search below the surface* — a rich graph buries needed facts under fresher work; finding one when it matters also feeds the usefulness signal that keeps it alive.
+- **Search core sees more and weighs better** (shared by kg_search and recall): tokens contribute their `./_-` subtokens ("CLAUDE.md-cleanup" → claude, md, cleanup), terms match through a light stem (schedule ≈ scheduling), adjacent subtokens form bigram terms with their own co-occurrence IDF, occurrences are field-weighted (id ×3, gist ×2, notes ×1 — the week-2 misrank class came entirely from incidental notes matches), and IDF is sharpened (^1.5) so one term naming the right node isn't outvoted by five dull ones. Minimum recall term length drops 4→3 (the audited misses' core vocabulary — css, woo, smtp — never reached search), with function words that length stopworded instead.
+- **Recall speaks only on evidence.** A hit must be corroborated by a second term, near-unique in the graph, or named by the node's id/gist — the week-2 audit's noise mechanism (one moderately common word brushing somebody's notes) stays silent. Injection order is evidence quality, not raw rank-fusion, so a sharp single-term hit no longer falls to the 5-hit cap.
+
+### Added
+- **Smear detection + entity consolidation.** Why search kept missing "project-central" vocabulary: chronicle-style capture re-describes entities in prose (measured: "oxygen" in 48 comra node texts, "megamenu" in 38, while the hub nodes held 3-4 edges) — IDF sees a saga, not a signal. Three-part fix at the root instead of an embedding layer: (a) kg-core's capture craft gains *name things once* — event nodes record the delta and edge to the owner; (b) `put_node` gains a hub-mention nudge — a new node whose gist re-describes an entity the graph already names (≥3 holders, undated hub id) gets "an edge to it beats re-describing"; (c) the DEBT line gains a **smeared** factor (`term×count→hub`, slug tokens excluded as namespace) and /kg-maintain gains category 1: consolidate exactly ONE smeared entity per pass. Doctrine changes now have a standing home: express them as debt factors and the scheduled dispatcher propagates them through old graphs automatically.
+- **Near-duplicate nudge on node create.** Sessions measurably never search before writing (two audited weeks: 229 writes, 6 searches), so duplicate control moved to the interface: creating a node probes its id + gist against its own graph and the tool result names the closest existing node when the self-normalized similarity ratio clears 0.50 (calibrated leave-one-out on a 380-node graph: ~5% base rate, and the pairs above 0.6 were actual duplicates the graph already carried). A nudge, never a block.
+
+### Fixed
+- **`source=fork` re-preloaded on top of inherited context.** Claude Code emits source values v0.9.29 never met; recovery now runs for ANY source except `clear` — the KG markers in the transcript are the evidence of inherited context, so unknown future sources degrade gracefully (a genuinely fresh transcript has no markers). Reused non-compact sessions get the continuity note; compact keeps its full re-render.
+- Tests: `tests/test_v0931.py` (26 assertions — term pipeline, ranking fixtures from the week-2 misses, evidence gate, source-agnostic lineage, near-dup nudge and its never-blocks guarantee). Full suite green. Offline replay harness over both audit weeks' real prompts validated the retuning (session scratchpad `eval_search.py`).
+
 ## [0.9.30] - 2026-07-24
 
 ### Changed

@@ -208,8 +208,8 @@ the hook layer parses nothing and can never break a session:
 
 | Hook | Endpoint | Server decides |
 |------|----------|----------------|
-| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set; binds the Claude session id, and on `resume`/`compact` reuses the existing KG session (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume mints a new Claude sid); compact re-renders the core (the summary squeezed it), resume gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
-| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), IDF-weighted RRF search over its terms (ubiquitous words carry no signal), seen-deduped, corroboration threshold, unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
+| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week); compact re-renders the core (the summary squeezed it), every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
+| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), run through the shared search core (subtokens, stems, bigrams, field-weighted, sharpened IDF — ubiquitous words carry no signal), seen-deduped, corroboration threshold plus an evidence gate (a hit speaks only corroborated, near-unique, or named by the node's id/gist — lexical strays stay silent), hits injected in evidence-quality order: unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
 | PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap) |
 
 Precision is the design constraint on this whole loop: an ambient channel that
@@ -219,7 +219,10 @@ nudge.
 
 Maintenance closes the loop. `kg_read` and the preload render a `DEBT:` line
 per graph (`core/debt.py`: staleness since the last stamped pass × active
-days × oversized/unconnected wear, raw factors printed for sanity-checking).
+days × oversized/unconnected/smeared wear, raw factors printed for
+sanity-checking; *smeared* = an entity re-described across many nodes' id+gist
+while one undated node plausibly owns it — the pass consolidates one such
+entity per run, prose mentions becoming edges).
 `GET /api/maintenance_debt` surveys every graph on disk, neediest first — the
 hook for any dispatcher, from an in-session subagent to a cron tick. A pass
 stamps itself via `kg_progress` task `"maintain"`; only stamped passes reset
@@ -269,7 +272,7 @@ staleness.
 - **Visual Editor** — D3.js force-directed graph with real-time WebSocket updates, full CRUD, multi-panel UI, project selector. Managed via `manage_visual.sh` / `kg-visual` command.
 - **Scout Skill** (`/skill kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
 - **Extract Skill** (`/skill kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
-- **Ranked Search** — `kg_search` with Reciprocal Rank Fusion (RRF): query tokenized, each term ranked by occurrence count across all nodes, results merged into a single unified ranking. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent.
+- **Ranked Search** — `kg_search` and prompt recall share one core (RRF, k=60): whitespace tokens plus their `./_-` subtokens, light stemming (schedule ≈ scheduling), adjacent-subtoken bigram terms with their own co-occurrence IDF, field-weighted occurrences (id ×3, gist ×2, notes ×1) and sharpened IDF so one term naming the right node isn't outvoted by several dull ones. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent. Write-side, the same pipeline powers `put_node`'s near-duplicate and hub-mention nudges.
 - **Ambient recall & capture** — prompt-matched gist injection per prompt and re-derivation capture nudges on tool traffic; all decisions server-side behind thin hooks (see "The Ambient Loop").
 - **Maintenance debt** — per-graph `DEBT:` line, disk-wide survey endpoint, and `/kg-maintain` as a bounded, resumable, self-stamping pass.
 

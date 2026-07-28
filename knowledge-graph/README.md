@@ -164,9 +164,7 @@ Once the server is running, Claude captures insights automatically. A few habits
 
 | Skill | Type | Purpose |
 |-------|------|---------|
-| `kg-core` | Hidden (auto-loaded) | Session protocol, self-awareness, API reference |
-| `kg-capture` | Hidden (auto-loaded) | Capture rules, compression, search-before-put |
-| `kg-recall` | Hidden (auto-loaded) | Proactive recall, memory traces, sync timing |
+| `kg-core` | Hidden (auto-loaded) | The memory doctrine: session protocol, recall, capture, search below the surface |
 | `/skill kg-maintain` | User-invocable | Bounded maintenance pass that pays down the graph's DEBT line; includes the subagent dispatch prompt |
 | `/skill kg-scout` | User-invocable | Mine conversation history for patterns and insights |
 | `/skill kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |

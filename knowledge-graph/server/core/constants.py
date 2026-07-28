@@ -54,8 +54,12 @@ COMPACTION_TARGET_RATIO = 0.8
 # itself trains the model to ignore it).
 PROMPT_RECALL_MAX_HITS = 5
 PROMPT_RECALL_CHAR_BUDGET = 2500
-# Search terms shorter than this carry too little signal ("yes", "the", "fix").
-PROMPT_RECALL_MIN_TERM_LEN = 4
+# Search terms shorter than this carry too little signal. 3, not 4: live
+# replay of the week-2 misses showed the discarded vocabulary was exactly the
+# 3-char technical kind — css, woo, seo, smtp arrived as prompts' core terms
+# and never reached search. Function words this length ("the", "was", "are")
+# are stopworded instead of length-filtered.
+PROMPT_RECALL_MIN_TERM_LEN = 3
 # Recall answers a human asking something. Harness records ride the same
 # UserPromptSubmit event — task notifications, image-paste placeholders
 # ("[Image: source: /path.png]"), bare drag-and-dropped paths — and the
@@ -66,15 +70,48 @@ PROMPT_RECALL_MIN_TERM_LEN = 4
 # ("Yes commit all") are real asks and landed meaningful hits in the audit.
 PROMPT_RECALL_MIN_PROMPT_CHARS = 8
 # RRF scores are IDF-weighted (see store.search): a term contributes
-# idf/(60+rank) where idf = log(N/df)/log(N) — near 1.0 for a term unique to
-# one node, near 0 for a ubiquitous one. Calibration: a single rare term at a
-# top rank yields ~0.012-0.016, so 0.010 means "one genuinely rare term,
-# ranked well". For multi-term prompts, 0.020 requires either two meaningful
-# terms corroborating or one rare term dominating — while a stack of generic
-# conversational terms (idf ≈ 0.1-0.2 each) sums to ~0.01 and stays silent,
-# which is the point: ubiquitous vocabulary must not trigger injection.
+# idf^IDF_SHARPNESS/(60+rank) where idf = log(N/df)/log(N) — near 1.0 for a
+# term unique to one node, near 0 for a ubiquitous one. Calibration: a single
+# rare term at a top rank yields ~0.012-0.016, so 0.010 means "one genuinely
+# rare term, ranked well". For multi-term prompts, 0.020 requires either two
+# meaningful terms corroborating or one rare term dominating — while a stack
+# of generic conversational terms sums below it and stays silent, which is
+# the point: ubiquitous vocabulary must not trigger injection.
 PROMPT_RECALL_SCORE_SINGLE = 0.010
 PROMPT_RECALL_SCORE_MULTI = 0.020
+# Exponent applied to idf before the RRF merge. 1.0 is classic weighting; the
+# week-2 offline replay showed its flaw at 1.0 on mature graphs: one node
+# accumulating five ubiquitous terms outvoted the single sharp term that
+# named the right node (the turnstile/embeddings miss class). Raising the
+# exponent widens the gap between sharp and dull evidence while leaving
+# unique terms untouched. Value picked by sweep over both audit weeks' real
+# prompts (see devdocs eval notes).
+IDF_SHARPNESS = 1.5
+# Noise gate (week-2 audit, 2026-07-28: 8 of 10 noise injections rode
+# low-signal prompts — "Continue", "How its going?" — where one moderately
+# rare word cleared the score threshold and dragged in a lexical stray). A
+# hit now justifies speaking only with corroboration (≥2 distinct matched
+# terms), near-unique evidence (a term found in almost no other node), or a
+# title match (the term names the node's id/gist — "deploying?" hitting a
+# deploy node speaks; a notes-only mention of "continue" stays silent).
+# The threshold below is the near-unique bar on max_term_idf.
+PROMPT_RECALL_MIN_SOLO_IDF = 0.85
+# Near-duplicate nudge on node CREATE: sessions measurably never search
+# before writing (two audited weeks: 229 writes, 6 searches), so duplicate
+# control lives at the interface — put_node probes the new node's id + gist
+# against its graph via the same term pipeline search uses, and the tool
+# result names the best candidate. A nudge, never a block: the write always
+# proceeds; the model decides whether to merge. The measure is a RATIO of
+# the best other node's score to the probe's own theoretical maximum (every
+# term at rank 0) — raw scores grow with probe length, so an absolute
+# threshold flagged 100% of a mature graph in the leave-one-out replay.
+# Ratio floor calibrated there: median best-neighbour ratio 0.23, p90 0.43;
+# the pairs above 0.6 were ACTUAL near-duplicates the graph already carried
+# (ssh-hardening vs hardening-session, same day). 0.50 also reaches down to
+# close paraphrases at ~5% base nudge rate on a mature graph — acceptable
+# for a one-line nudge that only ever fires on brand-new node ids.
+NEAR_DUP_RATIO = 0.50
+NEAR_DUP_MIN_SCORE = 0.02  # raw floor so two-term flukes on tiny probes stay quiet
 
 # Tool-event capture nudges — the PostToolUse hook reports Read/WebFetch/
 # WebSearch targets; the server counts them across sessions and nudges capture

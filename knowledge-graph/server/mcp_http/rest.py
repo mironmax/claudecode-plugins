@@ -95,13 +95,17 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         older hooks that compose their own header. The rendered ids seed the
         session's preloaded + seen sets — that is what kg_read dedups against.
 
-        Resume-aware: SessionStart also fires on resume/compact, where the
-        model's context (and thus the injected-gist state) carries over — a
-        fresh KG session there would reset the seen-set and full-read state,
+        Resume-aware: SessionStart also fires on resume/compact/fork, where
+        the model's context (and thus the injected-gist state) carries over —
+        a fresh KG session there would reset the seen-set and full-read state,
         re-nagging and re-injecting everything. The existing session is reused
-        via the claude_session_id binding, or — resume forks mint a NEW Claude
+        via the claude_session_id binding, or — resume/fork mints a NEW Claude
         sid — recovered from the KG markers our own renders left in the
-        transcript. source == "clear" always starts fresh (context wiped).
+        transcript. Recovery is deliberately source-agnostic (only "clear"
+        hard-resets): the transcript markers ARE the evidence of inherited
+        context, and source values Claude Code adds later ("fork" arrived
+        unannounced and re-preloaded for a week) then degrade gracefully — a
+        genuinely fresh transcript has no markers and registers fresh.
         """
         from .read_format import build_bootstrap
         from .session_manager import recover_kg_sid_from_transcript
@@ -112,7 +116,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 hit = session_manager.find_by_claude_sid(claude_session_id)
                 if hit:
                     session_id, reused = hit[0], True
-            if session_id is None and source in ("resume", "compact") and transcript_path:
+            if session_id is None and source != "clear" and transcript_path:
                 cand = recover_kg_sid_from_transcript(transcript_path)
                 if cand:
                     data = session_manager.lookup(cand)
@@ -129,10 +133,11 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 session_id = reg["session_id"]
             # Re-render only where the context actually lost the preload.
             # Compact squeezed it into a summary — re-rendering is restoration.
-            # Resume carries the full transcript, original preload included —
-            # re-rendering would be pure duplication, so a continuity note
-            # (session_id + state reassurance) is all that's injected.
-            if reused and source == "resume":
+            # Every other reused source (resume, fork, future ones) carries
+            # the full transcript, original preload included — re-rendering
+            # would be pure duplication, so a continuity note (session_id +
+            # state reassurance) is all that's injected.
+            if reused and source != "compact":
                 context = (
                     f"KG memory session resumed — session_id: {session_id} "
                     "(pass it to every kg_* call). The memory preload earlier in "

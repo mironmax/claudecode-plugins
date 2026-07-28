@@ -30,6 +30,7 @@ from core.constants import (
     PROMPT_RECALL_CHAR_BUDGET,
     PROMPT_RECALL_MAX_HITS,
     PROMPT_RECALL_MIN_PROMPT_CHARS,
+    PROMPT_RECALL_MIN_SOLO_IDF,
     PROMPT_RECALL_MIN_TERM_LEN,
     PROMPT_RECALL_SCORE_MULTI,
     PROMPT_RECALL_SCORE_SINGLE,
@@ -62,6 +63,10 @@ _STOPWORDS = frozenset("""
     take than that them then there these they thing things think this those
     through under very want well were what when where which while will with
     would your yours
+    all and any are but can did for get got had has her him his how its let
+    may nor not now off one our out per say see she the too two via was who
+    why yet you
+    use used uses using need needed want wanted make makes making new yes
 """.split())
 
 _TERM_RE = re.compile(r"[a-z0-9][a-z0-9_\-./]*")
@@ -154,14 +159,37 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
         return None
 
     seen = session_manager.get_seen(sid)
-    result = store.search(" ".join(terms), session_id=sid, seen=seen)
+    # top_k above MAX_HITS on purpose: the evidence gate filters the widened
+    # list, so one sharp hit ranked 6th by accumulation still gets its turn.
+    result = store.search(" ".join(terms), session_id=sid, seen=seen, top_k=10)
     threshold = PROMPT_RECALL_SCORE_MULTI if len(terms) >= 2 else PROMPT_RECALL_SCORE_SINGLE
 
-    # Gate 1 — speak at all: enough match quality among the top hits.
+    # Gate 1 — speak at all: enough match quality among the top hits, and the
+    # match must be evidence, not a lexical stray: corroborated by a second
+    # term, or near-unique in the graph, or naming the node's id/gist. A
+    # notes-only brush with one moderately common word is the measured noise
+    # mechanism (week-2 audit) and stays silent. Records without match meta
+    # (older store) pass — the gate fails open.
+    def _evidence(r):
+        if "matched_terms" not in r:
+            return True
+        return (r["matched_terms"] >= 2
+                or r.get("max_term_idf", 0.0) >= PROMPT_RECALL_MIN_SOLO_IDF
+                or r.get("title_match", False))
+
     hits = [
         r for r in result.get("top", [])
-        if r.get("score", 0.0) >= threshold and r.get("gist")
-    ][:PROMPT_RECALL_MAX_HITS]
+        if r.get("score", 0.0) >= threshold and r.get("gist") and _evidence(r)
+    ]
+    # Injection order = evidence quality, not raw RRF: a node NAMED by a rare
+    # prompt term beats one that accumulated many dull terms (the live miss
+    # class: megamenu-search-uses-embeddings ranked 7th on "embedding
+    # mechanics" behind five accumulation hits and fell to the cap).
+    # kg_search keeps pure RRF order — this reordering is recall's own.
+    hits.sort(key=lambda r: (r.get("title_match", False),
+                             r.get("max_term_idf", 0.0),
+                             r.get("score", 0.0)), reverse=True)
+    hits = hits[:PROMPT_RECALL_MAX_HITS]
     if not hits:
         return None
 

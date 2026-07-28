@@ -39,18 +39,26 @@ If a previous pass left a cursor, continue where it stopped.
 
 Work in this order — each category caps, so a pass ends instead of sprawling:
 
-1. **Oversized gists — up to 8, longest first.** Rewrite the gist as headline
+1. **Entity consolidation — exactly ONE smeared term** (only when the DEBT
+   line lists any, as `term×count→hub`). Smearing is many nodes re-describing
+   one entity in prose instead of edging to its owner — it is what makes
+   project-central vocabulary useless to search. Confirm the named hub (or
+   anoint a better undated node), move the durable entity facts satellites
+   carry into the hub, then rewrite the worst satellites' gists to their own
+   delta only and edge them to the hub. This is the biggest lever and may
+   take half the pass — let the later caps shrink accordingly.
+2. **Oversized gists — up to 8, longest first.** Rewrite the gist as headline
    ≤300 chars (subject + key fact); move the displaced detail into notes —
    merge with what's there, discard no facts. Keep the node id stable.
-2. **Unconnected active nodes — up to 5.** Batch-read them
+3. **Unconnected active nodes — up to 5.** Batch-read them
    (`kg_read(session_id, ids=[...])`), then give each ONE meaningful edge to
    an existing node. No honest edge exists? Sharpen the gist instead — an
    unconnected but crisp node beats a fake edge.
-3. **Duplicate merges — up to 3.** Overlap spotted during the scan: merge
+4. **Duplicate merges — up to 3.** Overlap spotted during the scan: merge
    into the richer node (union of notes/touches), re-point the poorer node's
    edges (`kg_put_edge` new, `kg_delete_edge` old), then delete the empty
    shell. Verify overlap before merging — presumed duplicates often aren't.
-4. **Notes hygiene — up to 3 nodes** (the most-revised ones you touched
+5. **Notes hygiene — up to 3 nodes** (the most-revised ones you touched
    above). Notes that read as a changelog ("actually…", contradictions,
    repeats of the gist) → rewrite to current truth only: clean standalone
    bullets, history discarded, conclusions kept.
@@ -67,8 +75,9 @@ dropped. Then stamp — **mandatory, the stamp is what resets staleness; an
 unstamped pass didn't happen**:
 
     kg_progress(session_id, task_id="maintain", level=<target>,
-        state={"last_ts": <unix now>, "gists_tightened": N,
-               "edges_added": N, "merges": N, "notes_rewritten": N})
+        state={"last_ts": <unix now>, "entities_consolidated": N,
+               "gists_tightened": N, "edges_added": N, "merges": N,
+               "notes_rewritten": N})
 
 ## 4 — Report
 
@@ -83,13 +92,18 @@ context-switching. Subagents get NO preload — the prompt must carry:
     Run a knowledge-graph maintenance pass in <cwd>.
     First call kg_read(cwd="<cwd>") — the result includes your session_id
     and both graphs with DEBT lines. Then follow the /kg-maintain skill's
-    "Maintenance Pass" runbook against the <level> graph: oversized gists
-    (≤8), unconnected nodes (≤5), duplicate merges (≤3), notes hygiene (≤3),
-    then verify, STAMP kg_progress task "maintain", and report counts.
+    "Maintenance Pass" runbook against the <level> graph: entity
+    consolidation (ONE smeared term, if the DEBT line lists any), oversized
+    gists (≤8), unconnected nodes (≤5), duplicate merges (≤3), notes hygiene
+    (≤3), then verify, STAMP kg_progress task "maintain", and report counts.
     Do not invent facts; sharpen wording, not meaning. ~25 kg_* calls max.
 
 # Reference: what the DEBT factors mean
 
+- **smeared: term×count→hub** — the term appears in that many nodes'
+  id+gist across all tiers while an undated node (the hub) plausibly owns
+  it. Consolidation turns prose mentions into edges so search can find the
+  owner again.
 - **oversized gist(s)** — active gists >300 chars; the documented
   compactor-stall root cause and the top-value fix.
 - **unconnected** — active nodes in no edge; one honest edge makes a node

@@ -98,7 +98,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_search",
-                description="Full-text search across node IDs, gists, and notes in both user and project graphs. Returns matching nodes with full content. Use before kg_put_node to check for duplicates. Use when a problem feels familiar — memory likely has the answer.",
+                description="Full-text search across node IDs, gists, notes, and touches in both graphs — reaches archived and orphaned nodes that no render shows. Use when a problem feels familiar, before asserting an assumption, and whenever a mature graph plausibly covers the topic: in a long-lived graph the needed fact is often buried under fresher work, and finding it when it matters also feeds the usefulness signal that keeps it alive.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -429,10 +429,24 @@ def create_mcp_server() -> Server:
                     session_id=sid
                 )
                 from core.utils import gist_length_warning
+                dup = result.get("near_duplicate")
+                dup_note = ""
+                if dup and dup.get("kind") == "duplicate":
+                    dup_note = (
+                        f"\nSimilar existing node: '{dup['id']}' — \"{dup['gist']}\". "
+                        "Same concept? Fold this into that node (update it, then "
+                        "kg_delete_node the one just created) instead of keeping both."
+                    )
+                elif dup and dup.get("kind") == "mention":
+                    dup_note = (
+                        f"\nGraph already names '{dup['term']}': '{dup['id']}' — "
+                        f"\"{dup['gist']}\". An edge to it beats re-describing; "
+                        "keep this gist to what is NEW here."
+                    )
                 return [TextContent(
                     type="text",
                     text=f"Node '{arguments['id']}' saved to {arguments['level']} graph"
-                         + gist_length_warning(arguments["gist"]),
+                         + gist_length_warning(arguments["gist"]) + dup_note,
                 )]
 
             elif name == "kg_put_edge":
