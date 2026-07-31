@@ -133,14 +133,16 @@ remaining budget.
   Needs `jq`. Then tell the agent the file exists — a KG node is the cheapest
   home (rides the preload); a short `~/.claude/CLAUDE.md` section also works.
 - **Verify**: `jq . ~/.claude/last-limits.json` after one render — expect
-  `five_hour_pct`, `seven_day_pct`, `*_resets_at` (epoch), `context_pct`,
-  `updated_at`.
+  `five_hour_pct`, `seven_day_pct`, `*_resets_at` (epoch), `*_seen_at` (epoch),
+  `context_pct`, `updated_at`.
 - **Undo**: remove the `statusLine` key from settings.
 
 Reading it: `five_hour_pct`/`seven_day_pct` are **account-global** (valid for
 every session incl. background/scheduled); `context_pct` belongs to whichever
-session rendered last, not necessarily this one; always gate on `updated_at`
-freshness — headless/scheduled sessions don't reliably render a frame. Anchor
+session rendered last, not necessarily this one. Gate each window on its own
+`*_seen_at` — a frame carrying only one window keeps the other's previous value
+with its original stamp, so `updated_at` alone can vouch for a stale number.
+Headless/scheduled sessions don't reliably render a frame at all. Anchor
 quota-sensitive scheduling to `five_hour_resets_at` (the window drifts with
 first use), not to wall-clock times. Pace so the session ends on a checkpoint —
 handover letter + KG writes cost budget too; stop near ~90%, not at 100%.

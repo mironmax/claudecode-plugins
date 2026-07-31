@@ -13,9 +13,10 @@
 # `jq . ~/.claude/last-limits.json`.
 #
 # Note: rate_limits reaches this stdin only for Claude.ai subscriber (Pro/Max)
-# sessions, and only after the session's first API response. Each window can be
-# absent independently; the persist block below skips such renders rather than
-# clobbering a good reading.
+# sessions, and only after the session's first API response. Each window
+# (five_hour / seven_day) can be absent independently — the persist block below
+# writes whichever arrived and carries the previous value, with its original
+# observation stamp, for the one that didn't.
 #
 # Requires: jq, bash (Git Bash on Windows). Uses python3 for path shortening
 # (falls back to basename).
@@ -144,13 +145,41 @@ fi
 #    Atomic write via tmp+mv.
 #    Renders without rate_limits (some stdin payloads omit it) must NOT
 #    clobber a previous good reading with nulls — readers treat non-numeric
-#    fields as gauge-missing. Skip instead; staleness is handled reader-side
-#    via updated_at. ──
-if [ -n "$FIVE_HR" ] && [ -n "$SEVEN_DAY" ]; then
+#    fields as gauge-missing.
+#    Each window can be absent INDEPENDENTLY, so persist whenever EITHER
+#    arrives and carry the previous file's value for the missing one — a live
+#    5h reading must never be dropped just because 7d was absent. A carried
+#    value keeps its ORIGINAL observation stamp (five_hour_seen_at /
+#    seven_day_seen_at) so it can never masquerade as fresh; updated_at
+#    remains "when this file was last written".
+#    Render variables are left untouched — the status line honestly shows a
+#    dash for whatever this frame did not carry. ──
+if [ -n "$FIVE_HR" ] || [ -n "$SEVEN_DAY" ]; then
+    LIMITS_FILE="$HOME/.claude/last-limits.json"
+    NOW=$(date +%s)
+    P_5H="$FIVE_HR";   P_5H_AT="$RESETS_AT";     P_5H_SEEN=""
+    P_7D="$SEVEN_DAY"; P_7D_AT="$RESETS_AT_7D";  P_7D_SEEN=""
+    [ -n "$FIVE_HR" ]   && P_5H_SEEN="$NOW"
+    [ -n "$SEVEN_DAY" ] && P_7D_SEEN="$NOW"
+    if [ -f "$LIMITS_FILE" ]; then
+        # `// .updated_at` upgrades files written before per-window stamps existed
+        if [ -z "$FIVE_HR" ]; then
+            P_5H=$(jq -r '.five_hour_pct // empty' "$LIMITS_FILE" 2>/dev/null)
+            P_5H_AT=$(jq -r '.five_hour_resets_at // empty' "$LIMITS_FILE" 2>/dev/null)
+            P_5H_SEEN=$(jq -r '.five_hour_seen_at // .updated_at // empty' "$LIMITS_FILE" 2>/dev/null)
+        fi
+        if [ -z "$SEVEN_DAY" ]; then
+            P_7D=$(jq -r '.seven_day_pct // empty' "$LIMITS_FILE" 2>/dev/null)
+            P_7D_AT=$(jq -r '.seven_day_resets_at // empty' "$LIMITS_FILE" 2>/dev/null)
+            P_7D_SEEN=$(jq -r '.seven_day_seen_at // .updated_at // empty' "$LIMITS_FILE" 2>/dev/null)
+        fi
+    fi
 {
-  printf '{"five_hour_pct":%s,"five_hour_resets_at":%s,"seven_day_pct":%s,"seven_day_resets_at":%s,"context_pct":%s,"updated_at":%s}\n' \
-    "$FIVE_HR" "${RESETS_AT:-null}" "$SEVEN_DAY" "${RESETS_AT_7D:-null}" "${CTX_PCT:-0}" "$(date +%s)"
-} > "$HOME/.claude/last-limits.json.tmp" 2>/dev/null && mv "$HOME/.claude/last-limits.json.tmp" "$HOME/.claude/last-limits.json" 2>/dev/null
+  printf '{"five_hour_pct":%s,"five_hour_resets_at":%s,"five_hour_seen_at":%s,"seven_day_pct":%s,"seven_day_resets_at":%s,"seven_day_seen_at":%s,"context_pct":%s,"updated_at":%s}\n' \
+    "${P_5H:-null}" "${P_5H_AT:-null}" "${P_5H_SEEN:-null}" \
+    "${P_7D:-null}" "${P_7D_AT:-null}" "${P_7D_SEEN:-null}" \
+    "${CTX_PCT:-0}" "$NOW"
+} > "$LIMITS_FILE.tmp" 2>/dev/null && mv "$LIMITS_FILE.tmp" "$LIMITS_FILE" 2>/dev/null
 fi
 
 # ── Color for quota percentage ──

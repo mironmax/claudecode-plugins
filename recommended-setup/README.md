@@ -54,7 +54,7 @@ maxim@Solaris 📁 claudecode-plugins 🕐 21:21 🔗 knowledge-graph,claude-in-
 
 Reading line two: model · 5-hour quota used and when it resets · 7-day quota used and when it resets · prompt-cache hit rate this turn · context window filled. Quota percentages are green under 50%, amber to 80%, red above.
 
-A dash in the quota segment means that render carried no `rate_limits`. Claude Code sends it only to Claude.ai subscribers (Pro/Max) and only after the session's first API response, and each window can be absent independently — so early frames legitimately show a dash, and API-key users never see one at all. The script persists only when both windows are present, and otherwise leaves the last good reading on disk untouched rather than overwriting it with nulls.
+A dash in the quota segment means that render carried no `rate_limits`. Claude Code sends it only to Claude.ai subscribers (Pro/Max) and only after the session's first API response, and each window can be absent independently — so early frames legitimately show a dash, and API-key users never see one at all. The line renders only what the current frame actually carried; the file on disk is the one that remembers.
 
 Then confirm the disk side-effect, which is the part Claude uses:
 
@@ -76,21 +76,22 @@ jq . ~/.claude/last-limits.json
 
 Claude Code pipes a JSON payload to the status-line command on every render, and that payload carries `rate_limits` — your 5-hour and 7-day subscription usage, with reset timestamps. It goes to that command's stdin and nowhere else. I never see it, and the harness doesn't persist it. So by default, when I need to know how much budget is left before committing to a two-hour refactor, I have exactly one move available: ask you to read the number off your screen.
 
-That is a silly place to be, and the fix is four lines of shell. Every render, this script atomically writes what it received:
+That is a silly place to be, and the fix is a few lines of shell. Every render, this script atomically writes what it received:
 
 ```json
-{"five_hour_pct":41.5,"five_hour_resets_at":1785539400,
- "seven_day_pct":62.0,"seven_day_resets_at":1785664800,
+{"five_hour_pct":41.5,"five_hour_resets_at":1785539400,"five_hour_seen_at":1785521950,
+ "seven_day_pct":62.0,"seven_day_resets_at":1785664800,"seven_day_seen_at":1785521950,
  "context_pct":34.2,"updated_at":1785521950}
 ```
 
 Now `jq . ~/.claude/last-limits.json` is a cheap, one-call answer to "how much room do I have?" — and the question stops being a question for you.
 
-Three properties of that file are worth knowing before trusting it:
+Four properties of that file are worth knowing before trusting it:
 
 - **`five_hour_pct` and `seven_day_pct` are account-global.** Whichever session rendered last wrote them, and the value is valid for every session — including background and scheduled ones sharing your account.
 - **`context_pct` is not.** It belongs to whichever session rendered last, which may not be me. I treat it as a hint and use my own context signals for my own conversation.
-- **`updated_at` decides whether any of it counts.** It's a unix epoch. If it's minutes old, it's live. If it's hours old, the number is history and I should say so rather than plan against it.
+- **Each window carries its own `*_seen_at` stamp**, because the two windows can arrive independently. A frame carrying only the 5-hour figure still gets written — dropping a live reading because its neighbour was absent would be the worse failure — and the 7-day value is carried over *with its original stamp*. That is the honest arrangement: a number's freshness travels with the number, so a carried-over value can never pass itself off as current.
+- **`updated_at` is when the file was written**, not when either reading was taken. It answers "is this file being maintained at all", which matters because headless and scheduled sessions don't reliably render a frame. For "can I trust this number", read that window's `*_seen_at`.
 
 ### What I actually do with it
 
@@ -119,7 +120,8 @@ Then **tell your agent that the file exists** — otherwise nothing changes, bec
 ```markdown
 ## Limits
 My rolling quota is at ~/.claude/last-limits.json (written by the status line):
-five_hour_pct, seven_day_pct, reset epochs, updated_at. Read it at session start
+five_hour_pct, seven_day_pct, reset epochs, per-window *_seen_at stamps. Read it
+at session start
 and before committing to a large block of work; pace against it and say plainly
 when the budget argues for a smaller scope.
 ```
@@ -128,7 +130,7 @@ That can live in `~/.claude/CLAUDE.md` — keep it factual and short, since in b
 
 Finally, treat the gauge as a **pacing instrument rather than an alarm**. Its value is not the warning at 85% — it's that a plan made against a known budget gets scoped correctly at the start, so the warning never arrives. A session that ends on a checkpoint by choice is worth several that end mid-edit.
 
-One caveat I'd rather state than have you discover: headless and scheduled sessions don't reliably render a status-line frame, so the file can go stale exactly when an unattended run needs it most. This is why `updated_at` is in there. Check it, and when the reading is old, plan conservatively instead of trusting it.
+One caveat I'd rather state than have you discover: headless and scheduled sessions don't reliably render a status-line frame, so the file can go stale exactly when an unattended run needs it most. This is why the timestamps are in there. Check the window's `*_seen_at` before planning against it, and when the reading is old, plan conservatively instead of trusting it.
 
 ---
 
