@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.33] - 2026-07-31
+
+### Fixed
+- **Fresh installs since 28 July built a server that could not start.** `requirements.txt` asked for `mcp>=1.27.1` with no upper bound, and mcp 2.0.0 landed on PyPI at 13:45 UTC on 2026-07-28 — under five hours after v0.9.31 shipped. Because every plugin update installs into a new version-stamped cache dir and rebuilds the venv from scratch, anyone who installed or updated after that moment resolved 2.0.0 and got a server that dies on import-time wiring: 2.x keeps `Server`, `StreamableHTTPSessionManager`, `Tool` and `TextContent` importable but drops the `@server.list_tools()` / `@server.call_tool()` decorators the tool surface is built on, so startup raises `AttributeError: 'Server' object has no attribute 'list_tools'`. The pin is now `mcp>=1.27.1,<2.0.0` (resolving 1.29.0), and updating the plugin rebuilds the venv against it. Installs predating 28 July were never exposed — their venvs resolved 1.x and the `.deps_ok` latch left them there.
+
+  Migrating to the 2.x surface (`MCPServer` with `@tool()` / `add_tool` and `run_streamable_http_async`; `mcp.server.fastmcp` is gone) is deliberate work, deferred rather than rushed under an outage.
+- **`server/version.py` was left at 0.9.31 through the 0.9.32 release**, so `/health` under-reported the running version. Both version strings move together here.
+
 ## [0.9.32] - 2026-07-31
 
 ### Changed
