@@ -29,7 +29,7 @@ You don't operate the graph — Claude does. After install:
 **Also recommended:**
 - Disable built-in auto-memory — ⚙ Settings → Memory → toggle Auto-memory **off**. Otherwise two memory systems run in parallel and write conflicting entries.
 - Enable plugin auto-updates — run `/plugin`, pick **Marketplaces** → `maxim-plugins` → **Enable auto-update**. Off by default for third-party marketplaces.
-- Adopt the **[recommended user-level setup](recommended-setup/)** — a benchmarked `~/.claude/CLAUDE.md` working agreement + output style that pair well with graph memory: better answer quality at −27% output tokens, and a collaboration tone worth remembering.
+- Adopt the **[recommended user-level setup](recommended-setup/)** — a benchmarked `~/.claude/CLAUDE.md` working agreement, an output style, and a status line that pair well with graph memory: better answer quality at −27% output tokens, a collaboration tone worth remembering, and a quota gauge Claude can actually read so it paces long sessions instead of stopping mid-edit.
 
 ---
 

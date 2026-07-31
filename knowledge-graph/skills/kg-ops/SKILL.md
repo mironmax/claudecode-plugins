@@ -4,10 +4,11 @@ user-invocable: true
 description: |
   Operations runbook for the knowledge-graph plugin: install and first run,
   plugin updates, server lifecycle (start/stop/restart/logs), autostart via
-  systemd, connecting Claude Desktop/Cowork, configuration, backup and
-  restore, and troubleshooting (tools offline, -32000 errors, stale data,
-  Desktop issues). Use when something needs setting up, breaks, or the user
-  asks to manage the memory server or "read the docs and do what's needed".
+  systemd, connecting Claude Desktop/Cowork, configuration, the quota-gauge
+  status line (reading your own 5h/7d limits), backup and restore, and
+  troubleshooting (tools offline, -32000 errors, stale data, Desktop issues).
+  Use when something needs setting up, breaks, or the user asks to manage the
+  memory server or "read the docs and do what's needed".
 ---
 
 # Knowledge-graph operations runbook
@@ -115,6 +116,34 @@ Env vars (shell rc, or the systemd unit), then `kg-memory restart`:
 `KG_GRACE_PERIOD_DAYS` / `KG_ORPHAN_GRACE_DAYS` (see `server/core/constants.py`).
 Render budgets are fixed by design — no knob. Don't edit the bundled
 `.mcp.json` (overwritten on update).
+
+## Session limits gauge (companion setup)
+
+Claude Code sends `rate_limits` (rolling 5h/7d subscription usage + reset
+epochs) **only** to the status-line command's stdin — never to the model, never
+persisted. Without a status line that saves it, an agent cannot read its own
+remaining budget.
+
+- **Diagnose**: `jq . ~/.claude/last-limits.json` — missing file or stale
+  `updated_at` means no status line is persisting the reading.
+- **Act**: install `recommended-setup/statusline.sh` from the repo
+  (`github.com/mironmax/claudecode-plugins`) to `~/.claude/statusline.sh`,
+  `chmod +x`, and register it in `~/.claude/settings.json`:
+  `"statusLine": {"type": "command", "command": "~/.claude/statusline.sh"}`.
+  Needs `jq`. Then tell the agent the file exists — a KG node is the cheapest
+  home (rides the preload); a short `~/.claude/CLAUDE.md` section also works.
+- **Verify**: `jq . ~/.claude/last-limits.json` after one render — expect
+  `five_hour_pct`, `seven_day_pct`, `*_resets_at` (epoch), `context_pct`,
+  `updated_at`.
+- **Undo**: remove the `statusLine` key from settings.
+
+Reading it: `five_hour_pct`/`seven_day_pct` are **account-global** (valid for
+every session incl. background/scheduled); `context_pct` belongs to whichever
+session rendered last, not necessarily this one; always gate on `updated_at`
+freshness — headless/scheduled sessions don't reliably render a frame. Anchor
+quota-sensitive scheduling to `five_hour_resets_at` (the window drifts with
+first use), not to wall-clock times. Pace so the session ends on a checkpoint —
+handover letter + KG writes cost budget too; stop near ~90%, not at 100%.
 
 ## Backup and restore
 
