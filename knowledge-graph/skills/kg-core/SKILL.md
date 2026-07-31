@@ -2,23 +2,22 @@
 name: kg-core
 user-invocable: false
 description: |
-  Knowledge Graph — persistent memory, your twin across sessions.
+  Knowledge Graph — persistent, granular, evolving memory.
 
-  Memory usually arrives PRELOADED: a "KG MEMORY PRELOADED" block carrying the
-  session_id — follow its directive (one full kg_read before substantive work).
-  No block? Then the full read is on you: kg_read(cwd="<project root>") comes
-  before substantive work, whatever the task.
+  Part of memory initially arrives preloaded: a "KG MEMORY PRELOADED" block carrying the
+  session_id and most important portion of memory.
+  Then the full read is on you: kg_read(cwd="<project root>") comes
+  before any work, whatever the task. Full read still brings up only most important memories.
 
-  Then live in the graph while you work:
-    recall before rediscovering — reading beats re-deriving;
-    capture at the moment of learning — whatever cost effort to gain;
-    connect rather than duplicate — an edge beats a new node;
-    search below the surface — the render shows the top of a grown graph,
-    not all of it. In a rich, long-lived graph the fact you need is often
-    buried under fresher work; kg_search reaches every tier. Gauge by the
-    graph's age and size: near-empty means little to find, mature means the
-    answer is likely there, just not on the surface. And a node found when
-    truly needed earns the usefulness credit that keeps it alive.
+  Memory is highly optimised and served in layers.
+  Recall: if needed details are not in preload/read and there is a gist
+  that points in the right direction, recall full node;
+  Capture: at the moment of learning, once the dots connect;
+  Connect rather than duplicate — an edge beats a new node;
+  Search for more — the read/sync shows the top of graph,
+  not all of it. In a rich graph the fact you need is often
+  buried under fresher work; search reaches every tier.
+  A node found when needed earns credit that keeps it alive.
 
   Mechanics live in the kg_* tool descriptions; operations in /kg-ops.
 ---
@@ -63,11 +62,11 @@ need now is often exactly the one buried under fresher nodes. That is not a
 defect — it is how a living memory works — and kg_search is the instrument
 built for it, reaching all tiers at once.
 
-So before asserting an assumption, before re-deriving from files, when a
-problem feels familiar, when the work enters territory this project has
-plausibly visited before: search first. The cost is one call. And retrieval is
+So before asserting an assumption, before re-deriving from files,
+when the work enters territory this project 
+has plausibly visited before: search first. The cost is one call. And retrieval is
 only half the value — surfacing a node at the moment it is truly needed feeds
-its usefulness score, which is what protects it from archival. A graph that is
+its usefulness score, which is what makes it more prominent. A graph that is
 only ever written to silts up; one that is searched keeps its most-needed
 facts on top.
 
@@ -75,11 +74,10 @@ facts on top.
 
 Capture mid-conversation, at the moment of learning — a write costs almost
 nothing now and saves a full re-derivation later. Worth capturing: whatever
-took real effort to obtain (root causes after long debugging, corrections
-received, decisions with their rationale, user preferences and constraints),
+took effort to obtain (how the project is wired, how the thing work, project how tos,
+decisions and their rationale, preferences and constraints, where is what),
 and whatever gives future sessions navigation — a component node for files you
-explored: what the cluster handles and what it does NOT (the exclusion is the
-skip signal).
+explored: what the cluster handles and what it does not.
 
 Placement is the craft:
 
@@ -87,12 +85,11 @@ Placement is the craft:
   nodes and an edge.
 - Name things once. When a thing recurs across sessions — a service, a
   feature, a saga — one node owns it; session and event nodes record what
-  CHANGED and edge to the owner instead of re-describing it. A gist that
+  changed and edge to the owner instead of re-describing it. A gist that
   re-explains what the graph already names should have been an edge —
   re-description is how an entity smears across a dozen narratives until
   search can no longer tell which node owns it.
-- Gist = subject + key fact, telegraphic ("Docker file edit:
-  chown→edit→chown-back" — not a paragraph). Rationale and steps go in notes.
+- Gist = subject + key fact, telegraphic. Rationale and steps go in notes.
 - Touches are precise pointers — `path:line-range (short anchor)` — so the
   next session reads ten lines instead of the file.
 - Cross-level edges (project decision → user principle) are legitimate; store
