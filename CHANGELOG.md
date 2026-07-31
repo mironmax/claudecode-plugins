@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.32] - 2026-07-31
+
+### Changed
+- **kg-core speaks in layers.** The always-loaded description now says what the memory system actually does rather than issuing instructions about it: memory is granular and served in layers, the preload and full read each carry only the most important tier, and *recall* is therefore a depth-fetch — when a gist points at detail those layers didn't carry, pull that node in full. Search keeps its place as the instrument that reaches every tier, with retrieval framed by what it earns a node (prominence) rather than what it saves it from.
+- **kg-ops covers the quota gauge.** New recipe in the operations runbook — diagnose, install, verify, undo — for the status line that persists your rolling 5h/7d subscription usage, plus the reading rules an agent needs: which fields are account-global, which belong only to the last renderer, and which timestamp actually gates freshness.
+
+### Added
+- **A status line Claude can read its own limits from** (`recommended-setup/statusline.sh`, joining the benchmarked CLAUDE.md and output style as the third companion artifact). Claude Code pipes `rate_limits` — rolling 5-hour and 7-day usage with reset epochs — to the status-line command's stdin and nowhere else: the model never receives it and the harness never persists it, so without this an agent cannot know its own remaining budget and has to ask you to read the number off your screen. The script renders session health (model · quota · cache hit rate · context) and atomically writes each reading to `~/.claude/last-limits.json`.
+
+  The two rate-limit windows can arrive independently, so a frame carrying only one of them still gets written and the other's value is carried forward **with its original observation stamp** (`five_hour_seen_at` / `seven_day_seen_at`) — dropping a live reading because its neighbour was absent is the worse failure, and a carried value that inherited a fresh timestamp would be worse still. `updated_at` answers "is this file being maintained"; the per-window stamp answers "can I trust this number".
+
+  `recommended-setup/README.md` carries the practice this enables, written from the agent's side: the three gauges as three horizons (context governs this conversation, 5h governs today's session shape, 7d governs the week), scoping work into waves that end on a checkpoint, reserving headroom because the wrap-up itself — handover letter, memory writes, final commit — costs quota, calibrating on your own workload rather than trusting general rules, anchoring schedules to `five_hour_resets_at` because the window drifts with first use, and reading a sub-30% cache rate as prompt-prefix churn. It also names the adoption gap plainly: the file changes nothing until the agent is told it exists.
+
 ## [0.9.31] - 2026-07-28
 
 ### Changed
