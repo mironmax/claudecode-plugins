@@ -62,10 +62,9 @@ need now is often exactly the one buried under fresher nodes. That is not a
 defect — it is how a living memory works — and kg_search is the instrument
 built for it, reaching all tiers at once.
 
-So before asserting an assumption, before re-deriving from files,
-when the work enters territory this project 
-has plausibly visited before: search first. The cost is one call. And retrieval is
-only half the value — surfacing a node at the moment it is truly needed feeds
+So before asserting an assumption, before re-deriving from files, when the work
+enters territory this project has plausibly visited before: search first. The
+cost is one call. And retrieval is only half the value — surfacing a node at the moment it is truly needed feeds
 its usefulness score, which is what makes it more prominent. A graph that is
 only ever written to silts up; one that is searched keeps its most-needed
 facts on top.
