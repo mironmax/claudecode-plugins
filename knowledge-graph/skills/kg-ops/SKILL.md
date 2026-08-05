@@ -164,9 +164,28 @@ handover letter + KG writes cost budget too; stop near ~90%, not at 100%.
   start` (first run builds venv, ~1 min), then user runs `/mcp` → Reconnect.
 - **`-32000` / "failed to reconnect"** → the server-side process died; the
   code is generic. Get the real error: `kg-memory logs`, or run the start
-  command by hand and read the traceback. Most common cause: OS Python
-  upgrade broke the venv → `rm -rf` the plugin's `server/venv`, `kg-memory
-  start` rebuilds it.
+  command by hand and read the traceback. Check `server/.last_start_error`
+  first — a failed start records the classified cause, the time and the log
+  path there, and the session-start hook reads it. Most common cause: OS
+  Python upgrade broke the venv → `rm -rf` the plugin's `server/venv`,
+  `kg-memory start` rebuilds it.
+- **Server will not start after a dependency change** (`AttributeError` on a
+  library object, `ImportError` at startup) → the venv resolved a version this
+  server is not written against. Diagnose with the same smoke check the start
+  script runs:
+  `cd <plugin>/server && ./venv/bin/python -c 'import mcp_streamable_server as m; m.create_mcp_server()'`
+  A version mismatch answers with a `KG PREFLIGHT:` line naming what is
+  installed against what `requirements.txt` asks for. Remedy is `rm -rf
+  server/venv` + `kg-memory start`; since 0.9.34 the dependency marker is
+  keyed to the hash of `requirements.txt`, so a corrected pin re-resolves on
+  the next start without needing a plugin update.
+- **`restart` says "Server started" but `/health` reports the old version** →
+  the PID file went stale while the real process kept listening, so the stop
+  missed it and the new process died on a busy port. Confirm with
+  `ss -tlnp | grep 8765` (or `lsof -ti:8765`) and compare against
+  `server/.mcp_server.pid`; `kg-memory stop-port` clears the true owner.
+  Fixed in 0.9.34 — restart now falls back to stopping by port, and a start
+  only reports success if the process it launched is still alive.
 - **Graph looks stale after direct disk edits** (scripts writing to
   `~/.knowledge-graph` while the server runs) → the server caches graphs in
   memory: `curl -s 'http://127.0.0.1:8765/api/graph/read?reload=true&project_path=<root>'`

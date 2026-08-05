@@ -17,33 +17,117 @@ STORAGE_ROOT="$HOME/.knowledge-graph"
 LOG_FILE="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph/mcp_server.log"
 PORT="${KG_HTTP_PORT:-8765}"
 HOST="${KG_HTTP_HOST:-127.0.0.1}"
+REQUIREMENTS="$SCRIPT_DIR/requirements.txt"
+DEPS_MARKER="$SCRIPT_DIR/venv/.deps_ok"
+# Why a start failure needs a file: the SessionStart hook backgrounds this
+# script and exits immediately, so it never sees the outcome. Without a
+# breadcrumb it tells every future session the environment is "warming up"
+# for a server that will never come up.
+BREADCRUMB="$SCRIPT_DIR/.last_start_error"
+
+# sha256 of a file, portable across Linux and macOS. Empty when no hasher is
+# available — callers then fall back to presence-only checking rather than
+# reinstalling dependencies on every single start.
+file_hash() {
+    if command -v sha256sum > /dev/null 2>&1; then
+        sha256sum "$1" 2>/dev/null | cut -d' ' -f1
+    elif command -v shasum > /dev/null 2>&1; then
+        shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1
+    else
+        echo ""
+    fi
+}
+
+# The declared mcp range, quoted back in failure messages so the user sees
+# what was asked for next to what got installed.
+mcp_requirement() {
+    grep -E '^[[:space:]]*mcp[<>=!]' "$REQUIREMENTS" 2>/dev/null | head -1
+}
+
+# The cheapest check that exercises the real wiring. Import-time API drift —
+# mcp 2.x dropping the @list_tools()/@call_tool() decorators — fails exactly
+# here, while every plain import still resolves and pip still exits 0.
+venv_smoke() {
+    (cd "$SCRIPT_DIR" && "$VENV_PYTHON" -c \
+        'import mcp_streamable_server as m; m.create_mcp_server()') 2>&1
+}
+
+write_breadcrumb() {
+    mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null
+    {
+        echo "when: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "cause: $1"
+        echo "log: $LOG_FILE"
+    } > "$BREADCRUMB" 2>/dev/null
+}
+
+# Reduce a smoke-test or log failure to one sentence naming the cause. The
+# server's preflight emits a "KG PREFLIGHT:" line for the known API-drift
+# case; anything else falls back to the last exception line.
+classify_failure() {
+    local text="$1" line
+    line=$(printf '%s\n' "$text" | grep -m1 "KG PREFLIGHT:")
+    if [ -n "$line" ]; then
+        printf '%s' "${line#*KG PREFLIGHT: }"
+        return
+    fi
+    line=$(printf '%s\n' "$text" | grep -E "^[A-Za-z_.]*(Error|Exception):" | tail -1)
+    if [ -n "$line" ]; then
+        printf '%s' "$line"
+        return
+    fi
+    printf '%s' "server did not answer /health within 10s"
+}
 
 # Create the Python venv on first run (or after a plugin update wiped it —
 # every update installs into a fresh version-stamped cache dir, so the venv
 # must be rebuildable, not a one-time setup step).
 ensure_venv() {
-    if [ -x "$VENV_PYTHON" ] && [ -f "$SCRIPT_DIR/venv/.deps_ok" ]; then
-        return 0
+    local want
+    want=$(file_hash "$REQUIREMENTS")
+    # Short-circuit only when the venv exists AND was built from these exact
+    # requirements. The marker used to record merely that pip exited 0, and it
+    # latched forever — so a changed pin could never reach an existing install
+    # and the only way a dependency fix propagated was riding a version bump
+    # into a fresh cache dir. Dependency fixes should not need a release.
+    if [ -x "$VENV_PYTHON" ] && [ -f "$DEPS_MARKER" ]; then
+        if [ -z "$want" ] || [ "$(cat "$DEPS_MARKER" 2>/dev/null)" = "$want" ]; then
+            return 0
+        fi
+        echo "Dependencies changed since this environment was built — reinstalling..."
     fi
     local py
     py=$(command -v python3 || command -v python)
     if [ -z "$py" ]; then
         echo "ERROR: python3 not found. Install Python 3.10+ and run 'kg-memory start' again."
+        write_breadcrumb "python3 not found on PATH — install Python 3.10+"
         return 1
     fi
     echo "First run: setting up Python environment (one-time, ~1 min)..."
     if [ ! -x "$VENV_PYTHON" ]; then
-        "$py" -m venv "$SCRIPT_DIR/venv" || { echo "ERROR: could not create venv"; return 1; }
+        "$py" -m venv "$SCRIPT_DIR/venv" || {
+            echo "ERROR: could not create venv"
+            write_breadcrumb "could not create the Python venv at $SCRIPT_DIR/venv"
+            return 1
+        }
     fi
-    if "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check -r "$SCRIPT_DIR/requirements.txt"; then
-        # Marker file: venv/bin/python existing is not enough — a failed pip run
-        # leaves a venv that passes the -x check but can't start the server.
-        touch "$SCRIPT_DIR/venv/.deps_ok"
-        echo "✓ Python environment ready"
-    else
+    if ! "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check -r "$REQUIREMENTS"; then
         echo "ERROR: dependency install failed — will retry on next start"
+        write_breadcrumb "pip install from requirements.txt failed"
         return 1
     fi
+    # Installed is not the same as working: verify before latching the marker.
+    local smoke_out cause
+    if ! smoke_out=$(venv_smoke); then
+        cause=$(classify_failure "$smoke_out")
+        echo "ERROR: dependencies installed but the server cannot start."
+        echo "  $cause"
+        echo "  Required: $(mcp_requirement)"
+        write_breadcrumb "$cause"
+        return 1
+    fi
+    printf '%s\n' "$want" > "$DEPS_MARKER"
+    echo "✓ Python environment ready"
 }
 
 # Wait for server health endpoint to respond (up to $1 seconds)
@@ -126,12 +210,31 @@ start() {
     # Disown so the shell doesn't track this job
     disown $! 2>/dev/null
 
-    # Wait for server to be healthy (up to 10s)
-    if wait_healthy 10; then
-        echo "Server started (PID: $(cat "$PID_FILE"))"
+    # Wait for server to be healthy (up to 10s).
+    #
+    # A healthy /health is NOT proof that OUR process came up: if something
+    # else already holds the port, the process launched above dies on bind
+    # while the incumbent keeps answering, and reporting "started" then is a
+    # lie that also skips the breadcrumb. Require both — the port answers AND
+    # the process we launched is still alive.
+    local launched
+    launched=$(cat "$PID_FILE" 2>/dev/null)
+    if wait_healthy 10 && ps -p "$launched" > /dev/null 2>&1; then
+        rm -f "$BREADCRUMB"
+        echo "Server started (PID: $launched)"
         echo "Logs: $LOG_FILE"
     else
-        echo "Failed to start server. Check $LOG_FILE"
+        local cause
+        if ps -p "$launched" > /dev/null 2>&1; then
+            cause=$(classify_failure "$(tail -40 "$LOG_FILE" 2>/dev/null)")
+        elif curl -sf "http://${HOST}:${PORT}/health" > /dev/null 2>&1; then
+            cause="port $PORT is already served by another process — the server we launched exited immediately (run '$0 stop-port' to clear it)"
+        else
+            cause=$(classify_failure "$(tail -40 "$LOG_FILE" 2>/dev/null)")
+        fi
+        write_breadcrumb "$cause"
+        echo "Failed to start server: $cause"
+        echo "Check $LOG_FILE"
         rm -f "$PID_FILE"
         return 1
     fi
@@ -275,7 +378,18 @@ restart() {
     fi
 
     # Wait for port to be free (the OS may hold it briefly after process exit)
-    wait_port_free 5
+    #
+    # Stopping by PID is not enough. A stale PID file — recorded process gone,
+    # real server still listening — leaves the incumbent untouched, and then
+    # the new process dies on a busy port while /health keeps answering from
+    # the old one. Observed 2026-08-05: a restart reported success while the
+    # server kept running months-old code. If the port is still answering,
+    # find its owner and stop that.
+    if ! wait_port_free 5; then
+        echo "Port $PORT still in use after stopping by PID — stopping by port..."
+        stop_port
+        wait_port_free 5
+    fi
 
     start
 }

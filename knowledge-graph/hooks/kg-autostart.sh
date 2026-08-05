@@ -93,6 +93,21 @@ if [ ! -f "$MANAGE" ]; then
     exit 0
 fi
 
+# A previous start already failed and said why. This hook backgrounds the
+# start and exits immediately, so it can only ever report the PREVIOUS
+# attempt — which is exactly right here: a venv that cannot start fails the
+# same way every time, and the "warming up, ~1 min" message below would be
+# wrong every session, forever. Report the real cause instead and do not
+# start a process that will only die again.
+BREADCRUMB="$HOOK_DIR/../server/.last_start_error"
+if [ -f "$BREADCRUMB" ]; then
+    CAUSE=$(grep -m1 '^cause: ' "$BREADCRUMB" 2>/dev/null | sed 's/^cause: //')
+    WHEN=$(grep -m1 '^when: ' "$BREADCRUMB" 2>/dev/null | sed 's/^when: //')
+    LOGPATH=$(grep -m1 '^log: ' "$BREADCRUMB" 2>/dev/null | sed 's/^log: //')
+    echo "KG memory server is DOWN and its last start attempt FAILED (${WHEN:-unknown time}): ${CAUSE:-cause not recorded}. This is not a warming-up delay — it will fail the same way until fixed, so do not tell the user to wait or to hit /mcp Reconnect. Report the cause above, point at the log (${LOGPATH:-see plugin docs}), and offer the remedy: rebuild the environment with \`rm -rf <plugin>/server/venv\` then \`kg-memory start\`, which re-resolves dependencies against the current requirements.txt. The kg_* tools are offline for this session; proceed without memory rather than retrying."
+    exit 0
+fi
+
 nohup bash "$MANAGE" start > /dev/null 2>&1 &
 disown 2>/dev/null
 

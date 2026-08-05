@@ -52,8 +52,58 @@ connection_manager: ConnectionManager | None = None
 mcp_server: Server | None = None
 
 
+def _mcp_requirement() -> str:
+    """The declared mcp range, read from requirements.txt.
+
+    Read rather than hardcoded: a second copy of the range in Python would
+    drift from the one pip actually resolves against, and the whole point of
+    the preflight below is to report the truth.
+    """
+    req = Path(__file__).parent / "requirements.txt"
+    try:
+        for line in req.read_text().splitlines():
+            stripped = line.strip()
+            if stripped.startswith("mcp") and not stripped.startswith("#"):
+                return stripped
+    except OSError:
+        pass
+    return "see requirements.txt"
+
+
+def _preflight_mcp_surface() -> None:
+    """Fail legibly when the installed mcp is not the one this server is written against.
+
+    mcp 2.x keeps Server, StreamableHTTPSessionManager, Tool and TextContent
+    importable but drops the @list_tools()/@call_tool() decorators the tool
+    surface is built on. An unbounded resolution therefore died with a bare
+    AttributeError raised from inside a decorator call — a traceback naming
+    neither the package nor its version, which is why a broken install could
+    sit undiagnosed for days. Check the surface first and say what is wrong.
+
+    Exits non-zero rather than raising: this is also the tripwire manage_server.sh
+    smoke-tests before latching the dependency marker, and its "KG PREFLIGHT:"
+    prefix is the string both that script and the session-start hook classify on.
+    """
+    missing = [name for name in ("list_tools", "call_tool") if not hasattr(Server, name)]
+    if not missing:
+        return
+    try:
+        from importlib.metadata import version
+        installed = version("mcp")
+    except Exception:
+        installed = "unknown"
+    logger.error(
+        "KG PREFLIGHT: installed mcp %s is incompatible with this server — "
+        "mcp.server.Server is missing %s. Required: %s. "
+        "Rebuild with: rm -rf server/venv && kg-memory start",
+        installed, ", ".join(missing), _mcp_requirement(),
+    )
+    sys.exit(1)
+
+
 def create_mcp_server() -> Server:
     """Create and configure MCP server with all tools."""
+    _preflight_mcp_surface()
     server = Server("knowledge-graph-mcp")
 
     # ========================================================================

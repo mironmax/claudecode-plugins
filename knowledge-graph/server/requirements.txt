@@ -1,6 +1,9 @@
 # mcp 2.x is a breaking rewrite: the lowlevel Server drops the
 # @server.list_tools()/@server.call_tool() decorators this server is built on.
-# Migrating to the 2.x MCPServer API is a deliberate piece of work — cap until then.
+# 2.x replaces them with Server(on_list_tools=…, on_call_tool=…) constructor
+# callbacks — measured, with a working PoC, in
+# devdocs/ops/2026-08-05-mcp2-migration-scope.md. Cap until that lands; 1.29.0
+# shipped four minutes before 2.0.0, so the 1.x line is current, not abandoned.
 mcp>=1.27.1,<2.0.0
 uvicorn[standard]>=0.48.0
 pydantic>=2.13.4
