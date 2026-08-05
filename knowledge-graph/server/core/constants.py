@@ -52,7 +52,12 @@ COMPACTION_TARGET_RATIO = 0.8
 # all, and at least one UNSEEN node must be present — an all-seen match set
 # injects nothing (habituation is the failure mode: a channel that repeats
 # itself trains the model to ignore it).
-PROMPT_RECALL_MAX_HITS = 5
+# 3, not 5: the week-3 audit (27 injections, 08-05) measured the tail as the
+# noise carrier — rank 1 was project-graph 21/28 and on-topic, while ranks 2-3
+# flipped to user-graph accumulation hits (15/25, 16/23) that matched on dull
+# vocabulary. Cutting the cap trims where the misses live without touching the
+# thresholds that let a single sharp hit through on a sparse prompt.
+PROMPT_RECALL_MAX_HITS = 3
 PROMPT_RECALL_CHAR_BUDGET = 2500
 # Search terms shorter than this carry too little signal. 3, not 4: live
 # replay of the week-2 misses showed the discarded vocabulary was exactly the

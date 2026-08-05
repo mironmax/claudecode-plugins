@@ -17,7 +17,9 @@ description: |
   Search for more — the read/sync shows the top of graph,
   not all of it. In a rich graph the fact you need is often
   buried under fresher work; search reaches every tier.
-  A node found when needed earns credit that keeps it alive.
+  Endorse at wrap-up: kg_useful(ids) on the ≤5 nodes that demonstrably
+  changed this session's outcome. That credit is what keeps a node alive —
+  it is never earned by being read, only by being named at the end.
 
   Mechanics live in the kg_* tool descriptions; operations in /kg-ops.
 ---
