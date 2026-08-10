@@ -181,13 +181,26 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
         r for r in result.get("top", [])
         if r.get("score", 0.0) >= threshold and r.get("gist") and _evidence(r)
     ]
-    # Injection order = evidence quality, not raw RRF: a node NAMED by a rare
-    # prompt term beats one that accumulated many dull terms (the live miss
-    # class: megamenu-search-uses-embeddings ranked 7th on "embedding
-    # mechanics" behind five accumulation hits and fell to the cap).
+    # Injection order: a node NAMED by a prompt term first, then plain score.
     # kg_search keeps pure RRF order — this reordering is recall's own.
+    #
+    # max_term_idf used to sit between them, to rescue nodes named by a RARE
+    # term from accumulation hits. It inverted the ranking instead, because
+    # idf is computed PER GRAPH (store.search_graph_rrf): the user graph is a
+    # heterogeneous pile where nearly any specific term is unique (idf ~1.0),
+    # while a project graph is topically dense, so the very vocabulary a
+    # project node is ABOUT scores low there. Ranking on the single rarest
+    # term therefore preferred a one-word coincidence in the user graph over
+    # a project node matching ten prompt terms. Measured 2026-08-10 by
+    # replaying live prompts: "…rewrite for version 2.0 of MCP … do you have
+    # notes" ranked v0934-venv-selfheal-plan, mcp-dep-unbounded-2x-risk and
+    # mcp2-migration-shape 1-2-3 by score, and this sort replaced all three
+    # with verify-report-against-reporters-box (one term, idf 1.0).
+    #
+    # title_match survives as the primary key: it is a per-node fact (the
+    # evidence is in the id or gist, not buried in notes) and carries no
+    # cross-graph calibration, so it ranks honestly.
     hits.sort(key=lambda r: (r.get("title_match", False),
-                             r.get("max_term_idf", 0.0),
                              r.get("score", 0.0)), reverse=True)
     hits = hits[:PROMPT_RECALL_MAX_HITS]
     if not hits:

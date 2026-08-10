@@ -52,12 +52,15 @@ COMPACTION_TARGET_RATIO = 0.8
 # all, and at least one UNSEEN node must be present — an all-seen match set
 # injects nothing (habituation is the failure mode: a channel that repeats
 # itself trains the model to ignore it).
-# 3, not 5: the week-3 audit (27 injections, 08-05) measured the tail as the
-# noise carrier — rank 1 was project-graph 21/28 and on-topic, while ranks 2-3
-# flipped to user-graph accumulation hits (15/25, 16/23) that matched on dull
-# vocabulary. Cutting the cap trims where the misses live without touching the
-# thresholds that let a single sharp hit through on a sparse prompt.
-PROMPT_RECALL_MAX_HITS = 3
+# 4, after a detour through 3. Week 3 read the noisy TAIL as the disease and
+# cut the cap 5->3; week 4 measured that as the worst setting on the board.
+# The tail was a symptom of the re-sort in ambient.py ranking by max_term_idf
+# (one rare-word coincidence beat broad topical agreement), so trimming it
+# only removed slots the right node could have occupied. With the ranking
+# fixed, replaying six live prompts scored cap 4 at 5/5 prompts carrying at
+# least one useful node against 2/5 at cap 3 — the measure that matters is
+# whether the injection carries something worth having, not how short it is.
+PROMPT_RECALL_MAX_HITS = 4
 PROMPT_RECALL_CHAR_BUDGET = 2500
 # Search terms shorter than this carry too little signal. 3, not 4: live
 # replay of the week-2 misses showed the discarded vocabulary was exactly the
