@@ -2,6 +2,6 @@
 # @server.list_tools()/@server.call_tool() decorators this server is built on.
 # Migrating to the 2.x MCPServer API is a deliberate piece of work — cap until then.
 mcp>=1.27.1,<2.0.0
-uvicorn[standard]>=0.48.0
+uvicorn[standard]>=0.52.1
 pydantic>=2.13.4
 fastapi>=0.136.3
