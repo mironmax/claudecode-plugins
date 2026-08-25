@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.34] - 2026-08-25
+
+### Fixed
+- **Prompt recall was finding the right nodes and then throwing them away in its own re-sort.** Hits were ordered by `(title_match, max_term_idf, score)`, but IDF is computed *per graph* (`store.search_graph_rrf` sets `n_total` from the graph it is searching). A heterogeneous user graph makes nearly any specific term unique in it (idf ~1.0), while a topic-dense project graph makes the very vocabulary its nodes are *about* dull. Ranking on the rarest single term therefore preferred a one-word coincidence in the user graph over a project node matching ten prompt terms — topical density was being punished. Live case: the prompt "rewrite for version 2.0 of MCP ... do you have notes" scored `v0934-venv-selfheal-plan`, `mcp-dep-unbounded-2x-risk` and `mcp2-migration-shape` 1-2-3, and the sort replaced all three with unrelated single-term hits.
+
+  The sort key is now `(title_match, score)`. `max_term_idf` is not deleted — it still gates admission in `_evidence` via `PROMPT_RECALL_MIN_SOLO_IDF`, which is the job it is good at; it was demoted from ranking, which is the job it was bad at. `title_match` stays primary: it is a per-node fact carrying no cross-graph calibration, so it ranks honestly. Six replayed live prompts, hand-labelled: 2/5 carried anything useful before, 5/5 after. `tests/test_recall_rank.py` locks the ordering, the per-graph IDF asymmetry that causes it, that `max_term_idf` still gates, and the cap — 10 assertions, verified to fail against the old sort.
+
+- **A dependency fix could not reach an existing install without a release.** `.deps_ok` recorded only that pip had exited 0 and then latched forever, so a corrected pin in `requirements.txt` was invisible to any venv already marked good — the v0.9.33 mcp cap could only arrive by riding a version bump into a fresh cache dir. The marker now holds the sha256 of `requirements.txt`, and a mismatch re-runs pip.
+
+- **Installed was being treated as working.** After pip succeeds the bootstrap now imports the server module and builds the tool surface before latching the marker — precisely the step that fails under mcp 2.x while every plain import still resolves. The server also preflights the lowlevel decorators before wiring and logs one `KG PREFLIGHT` line naming the installed mcp version against the declared range, instead of surfacing an `AttributeError` raised inside a decorator call that names neither the package nor its version. Verified against a real mcp 2.0.0 venv.
+
+- **The startup path claimed the opposite of the truth on failure.** A failed start now writes `server/.last_start_error` with the classified cause, and `kg-autostart.sh` reports that instead of announcing that the server is warming up.
+
+### Changed
+- **kg-core asks for endorsements in so many words.** `kg_useful` calls fell to zero at the v0.9.32 kg-core rewrite, which softened the line to "a node found when needed earns credit" — true, but it names no call and no moment. The description now states all three: the call, the <=5 cap, and wrap-up as the time to make it. This lives in the skill *description* rather than its body deliberately: a hidden skill's body is never loaded, so behaviour depended on must ride in the description.
+
+- **`PROMPT_RECALL_MAX_HITS` is 4** (was 5). An intermediate cut to 3 was measured as the worst setting on the board and reversed: the noisy tail was the ranking inversion above, so trimming only removed slots the right node could have occupied.
+
 ## [0.9.33] - 2026-07-31
 
 ### Fixed
