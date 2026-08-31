@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.36] - 2026-08-31
+
+Both changes are instrumentation. The system was doing work and keeping no record of it, so the questions that decide what to build next could only be answered from sources that erase themselves.
+
+### Added
+- **Ambient recall writes down what it decided.** `build_prompt_recall` computed the injection and then kept nothing. Every number in five weeks of audits — fire rate, payload, per-node frequency — had to be reconstructed after the fact from Claude Code transcripts, which expire in 30 days. The measurement had a shorter memory than the graph it measured. Each decision now appends one JSON line to `~/.knowledge-graph/recall.jsonl`: the matched terms, the threshold it was judged against, and per candidate its id, level, score, `title_match`, `matched_terms` and `max_term_idf`.
+
+  **Silences are logged too, and that is the point.** A log of injections alone gives no denominator, and — worse — no near-misses. The prompts that scored just under the bar are precisely the evidence any threshold change has to be argued from, and nothing has ever seen them: `no_hits` records carry the top three candidates the gate rejected and the score each one reached. The other outcomes (`full_read_nudge`, `not_a_prompt`, `no_terms`, `all_seen`, `trimmed_to_seen`) are recorded the same way. Terms are stored rather than the prompt — enough to replay a ranking after the transcript that held it is gone, without keeping a second copy of everything typed. A prompt with no registered session writes nothing, deliberately: there is nothing to attribute it to. The file rotates to `.prev` at 8 MB, and every failure path is swallowed to a debug line, because a hook must never break a session.
+
+### Changed
+- **`kg_progress` stops destroying the previous stamp.** `set_progress` assigned the state dict, so each write erased the one before it. The maintenance pass is asked to carry "found-but-deferred" forward as the next pass's cursor and the storage could not hold it across two passes; the dispatcher fires every 20 minutes, so each pass reconsidered from scratch and a merge already weighed and refused was re-litigated on the next tick. Git records what changed. Nothing recorded what was considered and rejected — which is the record that stops work repeating.
+
+  Each write now appends a size-bounded copy of the stamp to a 20-entry `_trail` ring carried inside the stored dict. Top-level keys are written through unchanged, so `core.debt` reading `state["last_ts"]` is unaffected; a caller supplying its own `_trail` has it ignored, since the ring is server-owned; long strings and lists are clipped rather than dropped, so a trail stays readable at a glance and cannot grow the graph file without bound.
+
+- **`/kg-maintain` stamps what it declined.** Step 1 now reads `_trail` before working the list, and step 3's stamp gains a `declined` list — one short line per rejection with its reason. That is the half that compounds: a pass that examined a merge and decided against it has done real work, and without recording it the next pass repeats the examination to reach the same answer.
+
+19 test files, 461 assertions, suite green.
+
 ## [0.9.35] - 2026-08-28
 
 ### Added

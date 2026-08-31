@@ -38,7 +38,11 @@ from core import (
     project_namespace,
     is_project_namespace,
 )
-from core.constants import IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO
+from core.constants import (
+    IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
+    PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
+    PROGRESS_TRAIL_VALUE_CHARS,
+)
 from core.persistence import rewrite_edge_refs_on_disk
 from .session_manager import HTTPSessionManager
 
@@ -106,6 +110,30 @@ def search_terms(query: str) -> tuple[list[str], list[tuple[str, str]]]:
         if a != b and len(a) + len(b) >= 5
     ))[:_SEARCH_TERM_CAP]
     return unigrams, bigrams
+
+
+def _trail_entry(state: dict) -> dict:
+    """A compact, size-bounded copy of one stamp for the progress trail.
+
+    Values are clipped rather than dropped: a trail is only useful if it is
+    readable at a glance, and an unbounded copy of every stamp would grow the
+    graph file without bound for a task that stamps often.
+    """
+    entry: dict = {"_ts": round(time.time(), 3)}
+    for k, v in state.items():
+        if k == PROGRESS_TRAIL_KEY:
+            continue
+        if isinstance(v, str):
+            v = v[:PROGRESS_TRAIL_VALUE_CHARS]
+        elif isinstance(v, (list, tuple)):
+            v = [str(x)[:PROGRESS_TRAIL_VALUE_CHARS]
+                 for x in list(v)[:PROGRESS_TRAIL_LIST_ITEMS]]
+        elif isinstance(v, dict):
+            v = str(v)[:PROGRESS_TRAIL_VALUE_CHARS]
+        elif not isinstance(v, (int, float, bool)) and v is not None:
+            v = str(v)[:PROGRESS_TRAIL_VALUE_CHARS]
+        entry[k] = v
+    return entry
 
 
 @dataclass
@@ -1447,12 +1475,34 @@ class MultiProjectGraphStore:
             return self._progress.get(graph_key, {}).get(task_id, {})
 
     def set_progress(self, task_id: str, state: dict, level: str = "user", session_id: str | None = None) -> dict:
-        """Write persistent progress for a task to _meta.progress. Marks graph dirty."""
+        """Write persistent progress for a task to _meta.progress. Marks graph dirty.
+
+        The previous stamp is no longer destroyed. Each write appends a
+        size-bounded copy of `state` to a ring under PROGRESS_TRAIL_KEY inside
+        the stored dict, so a later pass can read what earlier passes did AND
+        what they declined. Assignment alone meant the 20-minute maintenance
+        dispatcher reconsidered from scratch every tick: a merge weighed and
+        refused left no trace and got re-litigated on the next pass, and the
+        skill's own "found-but-deferred seeds the next pass's cursor" could not
+        survive two stamps. Git records what changed; nothing recorded what was
+        considered and rejected.
+
+        Top-level keys are written through unchanged, so readers that reach for
+        state["last_ts"] (core.debt) are unaffected. A caller passing its own
+        _trail key has it ignored — the ring is server-owned.
+        """
         with self.lock:
             graph_key = self._get_graph_key(level, session_id) if level == "project" else "user"
             if graph_key not in self._progress:
                 self._progress[graph_key] = {}
-            self._progress[graph_key][task_id] = state
+
+            prior = self._progress[graph_key].get(task_id) or {}
+            trail = list(prior.get(PROGRESS_TRAIL_KEY, []))
+            trail.append(_trail_entry(state))
+
+            stored = {k: v for k, v in state.items() if k != PROGRESS_TRAIL_KEY}
+            stored[PROGRESS_TRAIL_KEY] = trail[-PROGRESS_TRAIL_MAX:]
+            self._progress[graph_key][task_id] = stored
             self.dirty[graph_key] = True
 
             # Write-through: save immediately

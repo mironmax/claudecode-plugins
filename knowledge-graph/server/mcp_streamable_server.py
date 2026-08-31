@@ -343,7 +343,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_progress",
-                description="Track multi-step task progress across context compaction and session boundaries. Call with task_id only to read current state. Add state to write. Progress persists to disk.",
+                description="Track multi-step task progress across context compaction and session boundaries. Call with task_id only to read current state. Add state to write. Progress persists to disk. Writes also append the stamp to a bounded _trail ring returned by the read, so a later pass sees what earlier ones did — and, when the stamp says so, what they considered and DECLINED. Record a rejection there and it stops being re-litigated every pass.",
                 inputSchema={
                     "type": "object",
                     "properties": {

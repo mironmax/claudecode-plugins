@@ -34,9 +34,12 @@ from core.constants import (
     PROMPT_RECALL_MIN_TERM_LEN,
     PROMPT_RECALL_SCORE_MULTI,
     PROMPT_RECALL_SCORE_SINGLE,
+    RECALL_LOG_MAX_BYTES,
+    RECALL_LOG_NAME,
     TOOL_EVENT_FILE_MIN_SESSIONS,
     TOOL_EVENT_WEB_MIN_COUNT,
     TOOL_EVENTS_MAX_KEYS,
+    get_storage_root,
     project_graph_path,
     project_namespace,
     safe_project_path,
@@ -132,6 +135,72 @@ def _terms(prompt: str, cap: int = 24) -> list[str]:
     return out
 
 
+# --------------------------------------------------------------------------
+# Injection log
+# --------------------------------------------------------------------------
+
+# One lock for the append; recall runs on the request thread and concurrent
+# sessions in different projects share the single file.
+_recall_log_lock = threading.Lock()
+
+
+def _recall_log_path():
+    return get_storage_root() / RECALL_LOG_NAME
+
+
+def log_recall(reason: str, project_path: str, claude_sid: str | None,
+               sid: str | None = None, terms=None, **extra) -> None:
+    """Append one line describing what recall decided for this prompt.
+
+    Every outcome is recorded, not just the injections. Fire rate needs the
+    denominator, and the near-misses — the prompts that scored just under the
+    bar — are the only evidence a threshold change can be argued from; until
+    now nothing has ever seen them. Never raises: a hook must not break a
+    session, so a failed write is a debug line and nothing more.
+    """
+    try:
+        record = {
+            "ts": round(time.time(), 3),
+            "reason": reason,
+            "project": project_path or None,
+            "claude_session": claude_sid,
+            "kg_session": sid,
+        }
+        if terms is not None:
+            # Terms, not the prompt: enough to replay the ranking after the
+            # transcript that held the prompt has expired, without keeping a
+            # second copy of everything the user typed.
+            record["terms"] = list(terms)
+        record.update(extra)
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+        path = _recall_log_path()
+        with _recall_log_lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                oversize = path.stat().st_size + len(line) + 1 > RECALL_LOG_MAX_BYTES
+            except FileNotFoundError:
+                oversize = False
+            if oversize:
+                os.replace(path, path.parent / (path.name + ".prev"))
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+    except Exception:
+        logger.debug("recall log write failed", exc_info=True)
+
+
+def _hit_record(r: dict) -> dict:
+    """The ranking evidence for one node, small enough to keep every time."""
+    return {
+        "id": r.get("id"),
+        "level": r.get("level"),
+        "score": round(r.get("score", 0.0), 5),
+        "seen": bool(r.get("seen")),
+        "title_match": bool(r.get("title_match", False)),
+        "matched_terms": r.get("matched_terms"),
+        "max_term_idf": round(r.get("max_term_idf", 0.0), 4),
+    }
+
+
 def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
                         claude_sid: str | None = None) -> str | None:
     """Text to inject for this prompt, or None to let the random pools speak."""
@@ -144,18 +213,23 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
     if not hit:
         hit = session_manager.find_by_project_path(project_path)
     if not hit:
+        # No registered session — nothing to attribute a record to, and the
+        # server has no view of this prompt at all. Deliberately unlogged.
         return None
     sid, data = hit
 
     # Until the loud full-graph read happens, THE nudge outranks everything.
     if not data.get("full_read_ts"):
+        log_recall("full_read_nudge", project_path, claude_sid, sid)
         return FULL_READ_NUDGE
 
     text = _prompt_text(prompt)
     if text is None:
+        log_recall("not_a_prompt", project_path, claude_sid, sid)
         return None
     terms = _terms(text)
     if not terms:
+        log_recall("no_terms", project_path, claude_sid, sid)
         return None
 
     seen = session_manager.get_seen(sid)
@@ -204,6 +278,13 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
                              r.get("score", 0.0)), reverse=True)
     hits = hits[:PROMPT_RECALL_MAX_HITS]
     if not hits:
+        # The near-miss record: what the search DID find, and how close it
+        # came. This is the only place the cost of the threshold and the
+        # evidence gate is visible.
+        top = result.get("top", [])
+        log_recall("no_hits", project_path, claude_sid, sid, terms=terms,
+                   threshold=threshold,
+                   best=[_hit_record(r) for r in top[:3]])
         return None
 
     # The whole neighbourhood rides along: connector nodes on the paths
@@ -241,6 +322,9 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
     def _unseen(records):
         return [r for r in records if not r.get("seen")]
     if not _unseen(hits) and not _unseen(connectors):
+        log_recall("all_seen", project_path, claude_sid, sid, terms=terms,
+                   threshold=threshold,
+                   hits=[_hit_record(r) for r in hits])
         return None
 
     # Week-1 audit: the "depth: kg_read(ids=[...])" invitation that used to
@@ -284,9 +368,19 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
 
     shown_unseen = [r["id"] for r in _unseen(hits)] + [c["id"] for c in _unseen(connectors)]
     if not shown_unseen:
+        log_recall("trimmed_to_seen", project_path, claude_sid, sid, terms=terms,
+                   threshold=threshold)
         return None
     session_manager.mark_seen(sid, shown_unseen)
-    return assemble()
+    injected = assemble()
+    log_recall("injected", project_path, claude_sid, sid, terms=terms,
+               threshold=threshold,
+               chars=len(injected),
+               hits=[_hit_record(r) for r in hits],
+               connectors=[{"id": c.get("id"), "level": c.get("level"),
+                            "seen": bool(c.get("seen"))} for c in connectors],
+               edges=len(edges))
+    return injected
 
 
 # --------------------------------------------------------------------------

@@ -197,6 +197,44 @@ SCORE_WEIGHT_USEFULNESS = 0.35
 # gradual, self-limiting cluster recovery rather than an all-at-once resurrection.
 ARCHIVED_EDGE_WEIGHT = 0.2
 
+# ---------------------------------------------------------------------------
+# Recall injection log (v0.9.36)
+#
+# build_prompt_recall used to compute what it injected and then keep nothing:
+# every ambient-recall number — fire rate, payload, per-node frequency — was
+# reconstructed after the fact by devdocs/audit/recall-audit.py from Claude
+# Code transcripts, which expire in 30 days. The measurement therefore had a
+# shorter memory than the graph it measured, and week 1 of the audit series
+# is already unrecoverable.
+#
+# Every decision point now appends one JSON line here, SILENCES INCLUDED: a
+# log of injections alone gives no denominator and, worse, no near-misses —
+# the prompts that scored just under the bar are exactly the evidence a
+# threshold change needs, and nothing has ever seen them. Records carry the
+# matched terms so a prompt stays replayable after its transcript is gone.
+RECALL_LOG_NAME = "recall.jsonl"
+# Rotate to <name>.prev at this size (~40-60k records). One generation is
+# enough: the audit window is weeks, not years.
+RECALL_LOG_MAX_BYTES = 8 * 1024 * 1024
+
+# ---------------------------------------------------------------------------
+# kg_progress trail (v0.9.36)
+#
+# set_progress assigned the state dict, so each stamp destroyed the previous
+# one. The maintenance pass is asked to carry "found-but-deferred" forward as
+# the next pass's cursor, and the storage could not hold it across two passes:
+# the 20-minute dispatcher reconsidered from scratch every tick, so a merge
+# weighed and declined left no trace and got re-litigated on the next one.
+# Git records what changed; nothing recorded what was considered and refused.
+#
+# Each write now appends a size-bounded copy of the stamp to a ring carried
+# inside the stored dict under _trail. Top-level keys are untouched, so
+# readers that reach for state["last_ts"] (debt) keep working unchanged.
+PROGRESS_TRAIL_KEY = "_trail"
+PROGRESS_TRAIL_MAX = 20          # entries kept per task
+PROGRESS_TRAIL_VALUE_CHARS = 240  # per string value in an entry
+PROGRESS_TRAIL_LIST_ITEMS = 8     # per list value in an entry
+
 # Session
 SESSION_ID_LENGTH = 8
 SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 hours

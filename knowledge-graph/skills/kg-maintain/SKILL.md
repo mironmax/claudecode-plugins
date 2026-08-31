@@ -32,8 +32,11 @@ higher-debt level unless the dispatch said otherwise. Announce:
 
 ## 1 — Resume
 
-`kg_progress(session_id, task_id="maintain", level=<target>)` → prior state.
-If a previous pass left a cursor, continue where it stopped.
+`kg_progress(session_id, task_id="maintain", level=<target>)` → prior state,
+plus `_trail`: the last ~20 stamps, newest last. Read it before working the
+list. It carries what earlier passes did and — where they said so — what they
+looked at and DECLINED. A merge already weighed and refused twice does not
+need weighing a third time; a cursor left behind says where to resume.
 
 ## 2 — Work the list (bounded per pass)
 
@@ -102,12 +105,20 @@ unstamped pass didn't happen**:
     kg_progress(session_id, task_id="maintain", level=<target>,
         state={"last_ts": <unix now>, "entities_consolidated": N,
                "gists_tightened": N, "ids_renamed": N, "edges_added": N,
-               "merges": N, "notes_rewritten": N})
+               "merges": N, "notes_rewritten": N,
+               "declined": ["<what you considered and did not do, and why>"]})
+
+`declined` is the half that compounds. A pass that examined a merge and
+decided against it has done real work; without recording it, the next pass
+repeats the examination and reaches the same answer. One short line per
+rejection — what, and the reason in a few words. Empty list when there was
+nothing to refuse.
 
 ## 4 — Report
 
 One compact summary: debt before → after, counts per category, anything
-found-but-deferred (it seeds the next pass's cursor).
+found-but-deferred (it seeds the next pass's cursor — and belongs in
+`declined` above, where the next pass will actually see it).
 
 # Dispatching Maintenance as a Subagent
 
@@ -121,7 +132,8 @@ context-switching. Subagents get NO preload — the prompt must carry:
     consolidation (ONE smeared term, if the DEBT line lists any), oversized
     gists (≤8), id refinement via kg_rename_node (≤5), unconnected nodes
     (≤5), duplicate merges (≤3), notes hygiene (≤3), then verify, STAMP
-    kg_progress task "maintain", and report counts.
+    kg_progress task "maintain" — counts plus a `declined` list of what you
+    considered and refused — and report counts.
     Do not invent facts; sharpen wording, not meaning. ~25 kg_* calls max.
 
 # Reference: what the DEBT factors mean
