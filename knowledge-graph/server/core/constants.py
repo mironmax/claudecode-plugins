@@ -121,6 +121,31 @@ PROMPT_RECALL_MIN_SOLO_IDF = 0.85
 NEAR_DUP_RATIO = 0.50
 NEAR_DUP_MIN_SCORE = 0.02  # raw floor so two-term flukes on tiny probes stay quiet
 
+# Node id length. Measured 2026-08-28 across 1737 nodes in 27 graphs: mean id
+# length by creation month ran 3.4 -> 4.5 -> 5.1 -> 5.1 -> 6.4 words, with 65%
+# of August ids over five words and the worst at eleven
+# ("cd-chained-into-git-is-hardcoded-no-allow-rule-beats-it"). The cause was a
+# doctrine gap — the only guidance anywhere was "kebab-case", while the GIST
+# doctrine ("compressed headline") bled into the id, so ids became sentence
+# claims. It is not cosmetic: search field-weights the id x3 and in_title()
+# fires on a match in id OR gist, so every extra id word is another token that
+# can set title_match and let a weak hit clear the prompt-recall noise gate;
+# long ids also inflate df for common technical terms, flattening IDF for
+# everyone. Shortening costs retrieval almost nothing precisely because the
+# gist keeps the words and still counts as a title match.
+#
+# The rule is: the ID NAMES THE SUBJECT, THE GIST MAKES THE CLAIM. Three to
+# five words. Six is tolerated with a nudge in the tool result; seven or more
+# is refused at the write boundary with a steering error, because a nudge is
+# known not to be enough here (two audited weeks: 229 writes, 6 searches — the
+# near-duplicate nudge exists for the same reason). A date in an id is nudged
+# too: it records when something was written down, never what it is, so it
+# ages into noise in the one field that must stay recognisable years later.
+# Dates are still COUNTED as one word so legacy dated ids are not punished
+# twice for a habit the rule is separately unlearning.
+NODE_ID_TARGET_WORDS = 5
+NODE_ID_MAX_WORDS = 6
+
 # Tool-event capture nudges — the PostToolUse hook reports Read/WebFetch/
 # WebSearch targets; the server counts them across sessions and nudges capture
 # only on proven re-derivation: an uncovered file read in a 2nd distinct

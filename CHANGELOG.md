@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.35] - 2026-08-28
+
+### Added
+- **`kg_rename_node` — ids can finally be changed without losing the graph around them.** There was no rename. The only way to change an id was `kg_put_node` under a new name plus `kg_delete_node` of the old one, which silently drops `_created_ts`, `_useful_ts`, `_last_read_ts` and the whole version history, and strips the node of every edge. The damage that hurts most was delayed and invisible: cross-level edges live in PROJECT graphs and point up to user nodes (`_clean_orphaned_edges` is explicit that this is the sanctioned direction), those graphs are not loaded when the write happens, so nothing rewrites them — and the next time each one loads, its now-dangling edge is garbage-collected with a `logger.warning` nobody reads. Measured on the live graph: **28 user nodes were referenced that way from 10 different project graphs**, several of them the very ids most in need of renaming.
+
+  The new primitive moves the node with every underscore field intact, re-keys its edges in both directions (edges are keyed by `(from, to, rel)`, so a rename is a re-key, not a field write), follows cross-level references into project graphs **on disk** whether or not they are loaded, carries the version history onto the new key, and updates live sessions' seen/preload state so search dedup keeps working mid-session. It refuses a target that already exists rather than merging by accident, skips any project graph that owns its own node by that name (those edges are local references, not cross-level ones), refuses to rewrite into a graph that already has a node named like the target, and reports what it skipped. Available as an MCP tool, as `POST /api/nodes/rename` for bulk passes, and broadcast to the visual editor as `node_renamed`.
+
+### Changed
+- **Node ids have a length rule, because they had been growing for four months.** Measured across 1737 nodes in 27 graphs, mean id length by creation month ran 3.4 → 4.5 → 5.1 → 5.1 → 6.4 words; 65% of August ids were over five words and the worst was eleven (`cd-chained-into-git-is-hardcoded-no-allow-rule-beats-it`). The cause was a doctrine gap rather than carelessness: the only guidance anywhere was `"Node ID (kebab-case)"`, while the gist doctrine ("compressed headline") bled into the id, so ids drifted into being claims. The user graph reached 43% over-length and the project graph only 7% — because project ids name *things* and user ids had started naming *conclusions*.
+
+  It is not cosmetic. `store.search` field-weights the id ×3 and `in_title()` fires on a match in id **or** gist, so every extra id word is another token that can set `title_match` and let a weak hit clear the prompt-recall noise gate; long ids also inflate `df` for common technical terms, flattening IDF for every other query. Shortening costs retrieval almost nothing precisely because the gist keeps the words and still counts as a title match.
+
+  The rule — **the id names the subject, the gist makes the claim**, three to five words — is enforced where behaviour actually rides: in the `kg_put_node` schema description, since a hidden skill's body is never loaded. Seven words or more is refused at the write boundary with a steering error; six earns a nudge in the tool result. The refusal applies **only to a create or a rename target**, never to an update: a node named before the rule existed must stay writable, or the graph's own history becomes read-only.
+
+- **Dates in ids are nudged too.** A date records when something was written down, never what it is, so it ages into noise in the one field that has to stay recognisable years later. A dated id is nearly always a node minted per *event* where the graph wanted one enduring node for the subject, updated in place, with `touches` pointing at the current document — the document's own filename is where a date is actually useful.
+
+- **DEBT counts long ids.** The maintenance signal now reports `N long id(s)` (active ids over five words or carrying a date) alongside oversized gists, and weights them into the deficit the same way unconnected nodes are weighted. Without this the drift stayed invisible: unlike a bloated gist, a bad id costs nothing to look at and everything to search.
+
+- **`/kg-maintain` gained an id category — and it is not only repair.** Naming a growing graph is like categorising a growing archive: at the start you cannot know the right categories, and only once a body of work accumulates does the vocabulary the graph *actually* uses become visible. The pass now reads a cluster of related nodes together, asks what they are collectively about, and renames toward that shared vocabulary so siblings read as siblings — capped at five per pass, always through `kg_rename_node`.
+
+- **Documents point into memory, never the reverse** (`/kg-core`, `/kg-ops`). A letter, handover or README naming a node id makes a stationary artifact depend on a moving one: memory keeps evolving and the document rots unnoticed. Write what the document means in its own words; let the node carry the document's path in `touches`.
+
 ## [0.9.34] - 2026-08-25
 
 ### Fixed

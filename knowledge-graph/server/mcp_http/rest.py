@@ -44,6 +44,14 @@ class EdgeCreateRequest(BaseModel):
     project_path: str | None = None
 
 
+class NodeRenameRequest(BaseModel):
+    old_id: str
+    new_id: str
+    level: str | None = None
+    session_id: str | None = None
+    project_path: str | None = None
+
+
 class ProgressSetRequest(BaseModel):
     task_id: str
     state: dict
@@ -309,6 +317,25 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         except Exception:
             logger.exception("Error deleting node")
             raise HTTPException(status_code=500, detail="Failed to delete node")
+
+    @rest_api.post("/api/nodes/rename")
+    async def rest_rename_node(data: NodeRenameRequest):
+        """Rename a node, carrying its edges, history and cross-level refs."""
+        try:
+            return store.rename_node(
+                old_id=data.old_id,
+                new_id=data.new_id,
+                level=data.level,
+                session_id=data.session_id,
+                project_path=data.project_path,
+            )
+        except NodeNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except (KGError, ValueError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception:
+            logger.exception("Error renaming node")
+            raise HTTPException(status_code=500, detail="Failed to rename node")
 
     @rest_api.post("/api/edges")
     async def rest_create_edge(data: EdgeCreateRequest):

@@ -5,7 +5,7 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from .utils import edge_storage_key
+from .utils import edge_storage_key, version_key_edge
 
 logger = logging.getLogger(__name__)
 
@@ -113,3 +113,64 @@ class GraphPersistence:
             if temp_path.exists():
                 temp_path.unlink()
             return False
+
+
+def rewrite_edge_refs_on_disk(path: Path, old_id: str, new_id: str) -> tuple[int, str]:
+    """Rewrite edge endpoints naming old_id in a graph file that is NOT loaded.
+
+    Cross-level edges live in project graphs and point up to user nodes
+    (see MultiProjectGraphStore._clean_orphaned_edges). A rename that only
+    fixes loaded graphs leaves those dangling, and the next load of each
+    project silently garbage-collects them. This closes that hole by editing
+    the file directly, preserving every other _meta field verbatim.
+
+    Returns (edges_rewritten, status):
+      "ok"              rewritten (or nothing to rewrite)
+      "skip:local-node" the file has its OWN node by that id, so its edges
+                        refer to that node, not to the one being renamed
+      "skip:collision"  the file already has a node named new_id; rewriting
+                        would silently re-point the edge at a different node
+    """
+    if not path.exists():
+        return 0, "ok"
+    with open(path) as f:
+        data = json.load(f)
+    nodes = data.get("nodes", {})
+    edges = data.get("edges", {})
+    if old_id in nodes:
+        return 0, "skip:local-node"
+
+    hits = [k for k, e in edges.items() if e.get("from") == old_id or e.get("to") == old_id]
+    if not hits:
+        return 0, "ok"
+    if new_id in nodes:
+        return 0, "skip:collision"
+
+    versions = data.get("_meta", {}).get("versions", {})
+    for key in hits:
+        edge = edges.pop(key)
+        versions.pop(version_key_edge(edge["from"], edge["to"], edge["rel"]), None)
+        if edge.get("from") == old_id:
+            edge["from"] = new_id
+        if edge.get("to") == old_id:
+            edge["to"] = new_id
+        new_key = edge_storage_key(edge["from"], edge["to"], edge["rel"])
+        if new_key in edges:
+            # The rename collapsed two edges onto one key — keep the survivor
+            # and union the notes rather than dropping a relationship.
+            survivor = edges[new_key]
+            merged = list(dict.fromkeys(survivor.get("notes", []) + edge.get("notes", [])))
+            if merged:
+                survivor["notes"] = merged
+        else:
+            edges[new_key] = edge
+
+    temp_path = path.with_suffix(".tmp")
+    with open(temp_path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    shutil.copy2(path, path.with_suffix(".prev"))
+    temp_path.replace(path)
+    logger.info(f"Rewrote {len(hits)} edge ref(s) {old_id} -> {new_id} in {path}")
+    return len(hits), "ok"

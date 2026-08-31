@@ -25,8 +25,10 @@ from core import (
     version_key_edge,
     NodeNotFoundError,
     SessionNotFoundError,
+    KGError,
     validate_level,
     validate_node_id,
+    validate_new_node_id,
     validate_rel,
     validate_edge_ref,
     get_storage_root,
@@ -37,6 +39,7 @@ from core import (
     is_project_namespace,
 )
 from core.constants import IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO
+from core.persistence import rewrite_edge_refs_on_disk
 from .session_manager import HTTPSessionManager
 
 logger = logging.getLogger(__name__)
@@ -499,8 +502,13 @@ class MultiProjectGraphStore:
             # structured field. No-op for well-formed input.
             gist, notes, touches = heal_node_fields(gist, notes, touches)
 
-            # Create or update node
+            # Create or update node. The id length rule applies only to a
+            # CREATE: an update, promotion or rewire of a node named before the
+            # rule existed must stay writable, or the graph's own history
+            # becomes read-only.
             is_new = node_id not in nodes
+            if is_new:
+                validate_new_node_id(node_id)
             node = nodes.get(node_id, {"id": node_id})
             node["gist"] = gist
             if notes is not None:
@@ -767,6 +775,152 @@ class MultiProjectGraphStore:
 
             logger.info(f"Deleted node '{node_id}' and {len(edges_to_delete)} edges from {resolved_level} graph")
             return {"deleted": node_id, "level": resolved_level, "edges_deleted": len(edges_to_delete)}
+
+    def rename_node(self, old_id: str, new_id: str, level: str | None = None,
+                    session_id: str | None = None, project_path: str | None = None) -> dict:
+        """Rename a node, carrying every reference with it.
+
+        put_node(new) + delete_node(old) is NOT a rename. It drops _created_ts,
+        _useful_ts, _last_read_ts and the version history, and it strips the
+        node of every edge. Worse, cross-level edges live in PROJECT graphs and
+        point up to user nodes (see _clean_orphaned_edges) — those graphs are
+        not loaded during the write, so nothing rewrites them and the next load
+        of each one deletes the dangling edge with a log warning nobody reads.
+        Measured 2026-08-28: 28 user nodes were referenced that way from 10
+        project graphs. A rename therefore sweeps every graph on DISK, not only
+        the loaded ones, and rewrites session seen/preload state so dedup keeps
+        working for sessions already in flight.
+        """
+        validate_new_node_id(new_id)
+        if old_id == new_id:
+            raise KGError(f"Node id {new_id!r} is unchanged — nothing to rename")
+
+        with self.lock:
+            if level:
+                resolved_level, graph_key = self._resolve_graph_key(level, session_id, project_path)
+            else:
+                found = self.find_node_level(old_id, session_id)
+                if not found:
+                    raise NodeNotFoundError("both", old_id)
+                resolved_level, graph_key = found
+
+            nodes = self.graphs[graph_key]["nodes"]
+            if old_id not in nodes:
+                raise NodeNotFoundError(resolved_level, old_id)
+            if new_id in nodes:
+                raise KGError(
+                    f"Node {new_id!r} already exists in the {resolved_level} graph. "
+                    f"Rename to a free id, or merge deliberately with kg_put_node "
+                    f"then kg_delete_node."
+                )
+
+            # Move the node — every underscore field rides along, which is the
+            # whole point: creation time, endorsement, archival state, scores.
+            node = nodes.pop(old_id)
+            node["id"] = new_id
+            nodes[new_id] = node
+
+            # Edges in every LOADED graph. A graph carrying its own node by the
+            # old name is referring to that node, not to this one.
+            rewired = 0
+            touched = {graph_key}
+            for gk, graph in self.graphs.items():
+                if gk != graph_key and old_id in graph["nodes"]:
+                    continue
+                n = self._rewrite_edge_refs(gk, graph, old_id, new_id, session_id)
+                if n:
+                    rewired += n
+                    touched.add(gk)
+
+            # Version history follows the name.
+            versions = self._versions[graph_key]
+            old_ver = versions.pop(version_key_node(old_id), None)
+            self._bump_version(graph_key, version_key_node(new_id), session_id)
+            if old_ver:
+                versions[version_key_node(new_id)]["v"] = old_ver.get("v", 0) + 1
+
+            for gk in touched:
+                self.dirty[gk] = True
+                self._write_through(gk)
+
+            # Graphs not loaded right now — the silent-loss path.
+            swept, skipped = self._sweep_disk_rename(old_id, new_id, touched)
+            rewired += swept
+
+            # Sessions already holding the old id in their seen/preload sets.
+            self.session_manager.rename_node_ref(old_id, new_id)
+
+            self._broadcast(
+                {"type": "node_renamed", "level": resolved_level, "old_id": old_id,
+                 "node": node, "source_session": session_id},
+                resolved_level,
+                session_id
+            )
+
+            logger.info(
+                f"Renamed '{old_id}' -> '{new_id}' in {resolved_level} graph, "
+                f"{rewired} edge ref(s) rewired"
+            )
+            return {
+                "renamed": {"from": old_id, "to": new_id},
+                "level": resolved_level,
+                "edges_rewired": rewired,
+                "skipped_graphs": skipped,
+                "node": node,
+            }
+
+    def _rewrite_edge_refs(self, graph_key: str, graph: dict, old_id: str, new_id: str,
+                           session_id: str | None) -> int:
+        """Repoint every edge in one loaded graph. Caller must hold the lock.
+
+        Edges are keyed by (from, to, rel), so a rename is a re-key, not a
+        field write — the old key has to go or the graph carries a ghost.
+        """
+        edges = graph["edges"]
+        versions = self._versions.get(graph_key, {})
+        hits = [k for k, e in edges.items() if e["from"] == old_id or e["to"] == old_id]
+        for key in hits:
+            edge = edges.pop(key)
+            versions.pop(version_key_edge(*key), None)
+            if edge["from"] == old_id:
+                edge["from"] = new_id
+            if edge["to"] == old_id:
+                edge["to"] = new_id
+            new_key = (edge["from"], edge["to"], edge["rel"])
+            if new_key in edges:
+                # Two edges collapsed onto one key — keep the survivor and union
+                # the notes rather than dropping a relationship on the floor.
+                survivor = edges[new_key]
+                merged = list(dict.fromkeys(survivor.get("notes", []) + edge.get("notes", [])))
+                if merged:
+                    survivor["notes"] = merged
+            else:
+                edges[new_key] = edge
+                self._bump_version(graph_key, version_key_edge(*new_key), session_id)
+        return len(hits)
+
+    def _sweep_disk_rename(self, old_id: str, new_id: str, loaded_keys: set) -> tuple[int, list]:
+        """Rewrite refs in project graphs that are not loaded. Caller holds lock."""
+        live_paths = {
+            str(self._persistence[gk].path) for gk in self.graphs if gk in self._persistence
+        }
+        swept, skipped = 0, []
+        projects_dir = self.config.storage_root / "projects"
+        if not projects_dir.is_dir():
+            return 0, []
+        for graph_path in sorted(projects_dir.glob("*/graph.json")):
+            if str(graph_path) in live_paths:
+                continue
+            try:
+                n, status = rewrite_edge_refs_on_disk(graph_path, old_id, new_id)
+            except Exception as e:
+                logger.error(f"Rename sweep failed for {graph_path}: {e}")
+                skipped.append({"graph": graph_path.parent.name, "reason": "error"})
+                continue
+            swept += n
+            if status.startswith("skip:"):
+                skipped.append({"graph": graph_path.parent.name, "reason": status[5:]})
+        return swept, skipped
 
     def find_edge_level(self, from_ref: str, to_ref: str, rel: str, session_id: str | None = None) -> tuple[str, str] | None:
         """Find which graph contains an edge. Returns (level, graph_key) or None. Caller must hold lock."""

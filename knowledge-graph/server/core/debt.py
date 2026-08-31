@@ -27,6 +27,9 @@ import re
 import time
 from pathlib import Path
 
+from .constants import NODE_ID_TARGET_WORDS
+from .utils import node_id_has_date, node_id_words
+
 # Gist length the kg-core capture standard targets; beyond it a gist reads as a
 # wall, and oversized gists are the documented compactor-stall root cause.
 GIST_OVERSIZE_CHARS = 300
@@ -138,6 +141,14 @@ def compute_debt(nodes: list[dict], edges: list[dict],
 
     active = [n for n in nodes if not n.get("_archived")]
     oversized = sum(1 for n in active if len(n.get("gist", "")) > GIST_OVERSIZE_CHARS)
+    # Ids that carry the claim instead of naming the subject, or carry a date.
+    # Counted as wear because ids are load-bearing in search (weighted x3,
+    # matched for the recall gate) — a wrong name is paid on every prompt, and
+    # unlike a long gist it is invisible until someone looks for it.
+    long_ids = [
+        n["id"] for n in active
+        if node_id_words(n["id"]) > NODE_ID_TARGET_WORDS or node_id_has_date(n["id"])
+    ]
 
     connected: set[str] = set()
     for e in edges:
@@ -147,7 +158,8 @@ def compute_debt(nodes: list[dict], edges: list[dict],
 
     n_active = len(active)
     smeared = smeared_terms(nodes, edges, slug=slug)
-    deficit_raw = ((oversized / n_active) + 0.5 * (unconnected / n_active)) if n_active else 0.0
+    deficit_raw = ((oversized / n_active) + 0.5 * (unconnected / n_active)
+                   + 0.5 * (len(long_ids) / n_active)) if n_active else 0.0
     # Each smeared term adds a nudge toward a pass; capped so smear alone
     # never spikes HIGH — consolidation is a slow structural payoff.
     deficit_raw += min(0.25, 0.08 * len(smeared))
@@ -167,6 +179,8 @@ def compute_debt(nodes: list[dict], edges: list[dict],
         "score": round(score, 2),
         "level": level,
         "oversized_gists": oversized,
+        "long_ids": len(long_ids),
+        "long_id_examples": sorted(long_ids, key=lambda i: -node_id_words(i))[:3],
         "unconnected_active": unconnected,
         "active_nodes": n_active,
         "untended_days": round(untended_days, 1),
@@ -182,6 +196,7 @@ def debt_line(debt: dict) -> str:
                 else f"untended {debt['untended_days']:g}d")
     detail = (
         f"{debt['oversized_gists']} oversized gist(s), "
+        f"{debt['long_ids']} long id(s), "
         f"{debt['unconnected_active']} unconnected, {untended}, "
         f"active {debt['active_days_7d']}/7d"
     )

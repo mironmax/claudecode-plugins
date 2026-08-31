@@ -49,16 +49,41 @@ Work in this order — each category caps, so a pass ends instead of sprawling:
    take half the pass — let the later caps shrink accordingly.
 2. **Oversized gists — up to 8, longest first.** Rewrite the gist as headline
    ≤300 chars (subject + key fact); move the displaced detail into notes —
-   merge with what's there, discard no facts. Keep the node id stable.
-3. **Unconnected active nodes — up to 5.** Batch-read them
+   merge with what's there, discard no facts. Leave the id alone here; ids
+   have their own category below and their own tool.
+3. **Id refinement — up to 5.** Ids are load-bearing: search weights them ×3
+   and matches them for the recall gate, so a wrong name is a retrieval cost
+   paid on every prompt. Two kinds of work here, and the second is the one
+   worth showing up for:
+
+   *Repair.* Ids carrying the claim instead of naming the subject
+   (`a-401-in-a-log-is-an-event-not-a-state` → `auth-401-is-an-event`), and
+   dated ids — a date says when a thing was written down, never what it is.
+   A run of dated siblings (`…-week1-…`, `…-week2-…`) is the graph asking for
+   ONE enduring node, updated in place, touching the current document; that
+   is a merge, so propose it rather than renaming each in turn.
+
+   *Refinement.* Naming is like categorising a growing archive — at the start
+   you cannot know the right categories, and only after a body of work
+   accumulates does the vocabulary the graph ACTUALLY uses become visible.
+   Read a cluster of related nodes together and ask what they are collectively
+   about, then rename toward that shared vocabulary so siblings read as
+   siblings and the terms you really search for are the terms in the ids.
+
+   Always `kg_rename_node(old_id, new_id)` — it carries every edge, the
+   creation time, the endorsements, the version history and the cross-level
+   references in project graphs that are not even loaded. Never put_node +
+   delete_node: that is not a rename, it is a quiet amputation.
+
+4. **Unconnected active nodes — up to 5.** Batch-read them
    (`kg_read(session_id, ids=[...])`), then give each ONE meaningful edge to
    an existing node. No honest edge exists? Sharpen the gist instead — an
    unconnected but crisp node beats a fake edge.
-4. **Duplicate merges — up to 3.** Overlap spotted during the scan: merge
+5. **Duplicate merges — up to 3.** Overlap spotted during the scan: merge
    into the richer node (union of notes/touches), re-point the poorer node's
    edges (`kg_put_edge` new, `kg_delete_edge` old), then delete the empty
    shell. Verify overlap before merging — presumed duplicates often aren't.
-5. **Notes hygiene — up to 3 nodes** (the most-revised ones you touched
+6. **Notes hygiene — up to 3 nodes** (the most-revised ones you touched
    above). Notes that read as a changelog ("actually…", contradictions,
    repeats of the gist) → rewrite to current truth only: clean standalone
    bullets, history discarded, conclusions kept.
@@ -76,8 +101,8 @@ unstamped pass didn't happen**:
 
     kg_progress(session_id, task_id="maintain", level=<target>,
         state={"last_ts": <unix now>, "entities_consolidated": N,
-               "gists_tightened": N, "edges_added": N, "merges": N,
-               "notes_rewritten": N})
+               "gists_tightened": N, "ids_renamed": N, "edges_added": N,
+               "merges": N, "notes_rewritten": N})
 
 ## 4 — Report
 
@@ -94,8 +119,9 @@ context-switching. Subagents get NO preload — the prompt must carry:
     and both graphs with DEBT lines. Then follow the /kg-maintain skill's
     "Maintenance Pass" runbook against the <level> graph: entity
     consolidation (ONE smeared term, if the DEBT line lists any), oversized
-    gists (≤8), unconnected nodes (≤5), duplicate merges (≤3), notes hygiene
-    (≤3), then verify, STAMP kg_progress task "maintain", and report counts.
+    gists (≤8), id refinement via kg_rename_node (≤5), unconnected nodes
+    (≤5), duplicate merges (≤3), notes hygiene (≤3), then verify, STAMP
+    kg_progress task "maintain", and report counts.
     Do not invent facts; sharpen wording, not meaning. ~25 kg_* calls max.
 
 # Reference: what the DEBT factors mean
@@ -106,6 +132,8 @@ context-switching. Subagents get NO preload — the prompt must carry:
   owner again.
 - **oversized gist(s)** — active gists >300 chars; the documented
   compactor-stall root cause and the top-value fix.
+- **long id(s)** — active ids over five words, or carrying a date. The id
+  names the subject; the gist makes the claim. Fix with kg_rename_node.
 - **unconnected** — active nodes in no edge; one honest edge makes a node
   far more durable (connectedness is 40% of the archival score).
 - **untended Nd / never maintained** — days since the last stamped pass

@@ -20,6 +20,10 @@ from .utils import (
     edge_storage_key,
     validate_level,
     validate_node_id,
+    validate_new_node_id,
+    node_id_words,
+    node_id_has_date,
+    node_id_warning,
     validate_rel,
     validate_edge_ref,
 )
@@ -79,6 +83,10 @@ __all__ = [
     "edge_storage_key",
     "validate_level",
     "validate_node_id",
+    "validate_new_node_id",
+    "node_id_words",
+    "node_id_has_date",
+    "node_id_warning",
     "validate_rel",
     "validate_edge_ref",
 ]

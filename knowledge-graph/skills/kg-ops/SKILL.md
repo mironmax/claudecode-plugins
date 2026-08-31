@@ -147,6 +147,49 @@ quota-sensitive scheduling to `five_hour_resets_at` (the window drifts with
 first use), not to wall-clock times. Pace so the session ends on a checkpoint —
 handover letter + KG writes cost budget too; stop near ~90%, not at 100%.
 
+## Renaming nodes (and why never by hand)
+
+An id is not a label — it is the key every edge, every version record and
+every other graph refers to. Changing one is a graph-wide operation:
+
+    kg_rename_node(session_id, old_id="<old>", new_id="<new>")
+
+That carries the node's creation time, endorsements, archival state and
+version history, re-keys its edges in both directions, follows cross-level
+edges into project graphs that are **not currently loaded**, and updates live
+sessions' seen/preload state. It refuses a target that already exists and one
+over six words, and reports any project graph it could not rewrite.
+
+**Never** emulate it with `kg_put_node` under a new name plus
+`kg_delete_node` of the old one. That drops the timestamps, the endorsements
+and the version history, and strips every edge. The damage that hurts most is
+delayed and silent: cross-level edges live in PROJECT graphs pointing up to
+user nodes, those graphs are not loaded during the write, and the next time
+each one loads, its dangling edge is garbage-collected with only a log
+warning. Measured 2026-08-28: 28 user nodes were referenced that way from 10
+project graphs.
+
+Bulk pass over a whole graph (server running, source of truth is memory —
+editing the JSON under a live server is overwritten on the next save):
+
+    curl -s -X POST localhost:8765/api/nodes/rename \
+      -H 'Content-Type: application/json' \
+      -d '{"old_id":"<old>","new_id":"<new>","level":"user"}'
+
+Check the response's `skipped_graphs` — a non-empty list names project graphs
+that were left alone because they own a node by that id, or already have one
+named like the target.
+
+## Documents point into memory, never the reverse
+
+A handover letter, README or CHANGELOG that names a node id takes a
+dependency from a stationary artifact on a moving one: nodes get renamed,
+merged and archived, and the document rots without anyone noticing. Write
+what the document means in its own words; put the document's path in the
+node's `touches`. When a series of handovers covers one subject, keep ONE
+node for that subject and re-point its `touches` at the current letter rather
+than minting a dated node per letter.
+
 ## Backup and restore
 
 - Crash protection is built in: atomic writes + one rolling `<file>.prev`.

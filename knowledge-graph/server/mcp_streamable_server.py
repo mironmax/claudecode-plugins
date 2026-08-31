@@ -181,11 +181,11 @@ def create_mcp_server() -> Server:
                         },
                         "id": {
                             "type": "string",
-                            "description": "Node ID (kebab-case)"
+                            "description": "Node ID: kebab-case, 3-5 words NAMING THE SUBJECT. The claim about the subject goes in the gist, never in the id — 7+ words is refused. No dates: a date is a reference, not a meaning, and ages into noise. Ids are load-bearing: search weights them x3."
                         },
                         "gist": {
                             "type": "string",
-                            "description": "Compressed headline — what this node captures. Scans best ≤300 chars; detail belongs in notes"
+                            "description": "Compressed headline — the CLAIM this node makes about its subject. Scans best ≤300 chars; detail belongs in notes"
                         },
                         "notes": {
                             "type": "array",
@@ -235,6 +235,33 @@ def create_mcp_server() -> Server:
                         }
                     },
                     "required": ["session_id", "level", "from", "to", "rel"]
+                }
+            ),
+            Tool(
+                name="kg_rename_node",
+                description="Rename a node, carrying everything with it — every edge in every graph (including cross-level edges in project graphs that are not currently loaded), creation time, endorsements, archival state and version history. This is the ONLY safe way to change an id: kg_put_node under a new name plus kg_delete_node of the old one silently drops all of that. Use it when an id has drifted into carrying the claim instead of naming the subject, or when accumulated nodes reveal the vocabulary the graph actually uses. Ids are load-bearing: search weights them x3 and matches them for the recall gate.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "session_id": {
+                            "type": "string",
+                            "description": "Session ID from kg_read"
+                        },
+                        "old_id": {
+                            "type": "string",
+                            "description": "Current node ID"
+                        },
+                        "new_id": {
+                            "type": "string",
+                            "description": "New node ID — names the SUBJECT in 3-5 kebab-case words, no date; the claim and the date belong in the gist"
+                        },
+                        "level": {
+                            "type": "string",
+                            "enum": ["user", "project"],
+                            "description": "Optional storage level hint; auto-resolved when omitted"
+                        }
+                    },
+                    "required": ["session_id", "old_id", "new_id"]
                 }
             ),
             Tool(
@@ -478,7 +505,7 @@ def create_mcp_server() -> Server:
                     touches=arguments.get("touches"),
                     session_id=sid
                 )
-                from core.utils import gist_length_warning
+                from core.utils import gist_length_warning, node_id_warning
                 dup = result.get("near_duplicate")
                 dup_note = ""
                 if dup and dup.get("kind") == "duplicate":
@@ -496,7 +523,8 @@ def create_mcp_server() -> Server:
                 return [TextContent(
                     type="text",
                     text=f"Node '{arguments['id']}' saved to {arguments['level']} graph"
-                         + gist_length_warning(arguments["gist"]) + dup_note,
+                         + gist_length_warning(arguments["gist"])
+                         + node_id_warning(arguments["id"]) + dup_note,
                 )]
 
             elif name == "kg_put_edge":
@@ -525,6 +553,26 @@ def create_mcp_server() -> Server:
                 parts.extend(f"Skipped {nid}: {why}" for nid, why in result["rejected"].items())
                 parts.append(f"{result['remaining']} like(s) remaining this session.")
                 return [TextContent(type="text", text="\n".join(parts))]
+
+            elif name == "kg_rename_node":
+                sid = arguments["session_id"]
+                session_manager.increment_ops(sid)
+                result = store.rename_node(
+                    old_id=arguments["old_id"],
+                    new_id=arguments["new_id"],
+                    level=arguments.get("level"),
+                    session_id=sid,
+                )
+                lines = [
+                    f"Renamed '{result['renamed']['from']}' -> '{result['renamed']['to']}' "
+                    f"in {result['level']} graph; {result['edges_rewired']} edge ref(s) rewired."
+                ]
+                for skip in result["skipped_graphs"]:
+                    lines.append(
+                        f"NOT rewired in project '{skip['graph']}' ({skip['reason']}) — "
+                        "check that graph by hand."
+                    )
+                return [TextContent(type="text", text="\n".join(lines))]
 
             elif name == "kg_delete_node":
                 sid = arguments["session_id"]

@@ -150,6 +150,7 @@ function handleWebSocketMessage(message) {
         case 'edge_updated':
         case 'edge_deleted':
         case 'node_recalled':
+        case 'node_renamed':
             if (state.graphLevel && message.level === state.graphLevel) {
                 loadGraph();
                 showToast(formatUpdateMessage(message), 'success');
@@ -164,7 +165,8 @@ function formatUpdateMessage(message) {
         'node_deleted': `Node deleted: ${message.node_id}`,
         'edge_updated': `Edge updated: ${message.edge?.from} → ${message.edge?.to}`,
         'edge_deleted': `Edge deleted: ${message.from} → ${message.to}`,
-        'node_recalled': `Node recalled: ${message.node?.id}`
+        'node_recalled': `Node recalled: ${message.node?.id}`,
+        'node_renamed': `Node renamed: ${message.old_id} → ${message.node?.id}`
     };
     return actions[message.type] || 'Graph updated';
 }

@@ -2,7 +2,7 @@
 
 import re
 
-from .constants import LEVELS
+from .constants import LEVELS, NODE_ID_MAX_WORDS, NODE_ID_TARGET_WORDS
 from .exceptions import KGError
 
 # Identifier validation. The graph is rendered into other surfaces (kg_read text,
@@ -16,12 +16,49 @@ _REL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 _EDGE_REF_RE = re.compile(r"^[A-Za-z0-9~/][A-Za-z0-9._~/-]{0,255}$")
 
 
+# A calendar date is one word, not three: "2026-08-25" is a single stamp, and
+# splitting it would make every dated audit node look bloated.
+_ID_DATE_RE = re.compile(r"\d{4}-\d{2}(?:-\d{2})?")
+
+
+def node_id_words(node_id: str) -> int:
+    """Word count of a node id, counting an ISO date as one word."""
+    if not isinstance(node_id, str):
+        return 0
+    return len([p for p in _ID_DATE_RE.sub("d", node_id).split("-") if p])
+
+
 def validate_node_id(node_id: str):
     """Validate a node ID (kebab-ish, single path segment). Raises KGError."""
     if not isinstance(node_id, str) or not _NODE_ID_RE.match(node_id):
         raise KGError(
             f"Invalid node id {node_id!r}: use letters, digits, '.', '_', '-' "
             f"(max 128 chars, must start alphanumeric)"
+        )
+
+
+def node_id_has_date(node_id: str) -> bool:
+    """True if the id embeds a calendar date — a reference, not a meaning."""
+    return bool(_ID_DATE_RE.search(node_id))
+
+
+def validate_new_node_id(node_id: str):
+    """Charset validation plus the length rule. Raises KGError.
+
+    Deliberately NOT part of validate_node_id: the length rule applies to ids
+    being CHOSEN (a create, a rename target), never to ids being addressed. An
+    update, a promotion or a rewire of a node named before the rule existed
+    must not fail on its name — that would make the graph's own history
+    unwritable.
+    """
+    validate_node_id(node_id)
+    words = node_id_words(node_id)
+    if words > NODE_ID_MAX_WORDS:
+        raise KGError(
+            f"Node id {node_id!r} is {words} words. An id NAMES THE SUBJECT in "
+            f"{NODE_ID_TARGET_WORDS - 2}-{NODE_ID_TARGET_WORDS} words; the "
+            f"claim about it belongs in the gist. Rename the subject "
+            f"(a date counts as one word) and write again."
         )
 
 
@@ -129,4 +166,43 @@ def gist_length_warning(gist: str) -> str:
     return (
         f" — note: gist is {len(gist)} chars; gists scan best ≤{GIST_SCAN_LIMIT}. "
         "Consider keeping the headline and moving detail to notes."
+    )
+
+
+def node_id_warning(node_id: str) -> str:
+    """A nudge when a freshly chosen id is workable but poorly shaped, else ''.
+
+    Two shapes, neither fatal enough to refuse:
+
+    * Width. Above NODE_ID_MAX_WORDS the write is refused outright
+      (validate_new_node_id); this covers the last tolerated width, where the
+      id still works but has started carrying the claim rather than naming the
+      subject.
+
+    * A date in the id. A date is a reference, not a meaning: it says when
+      something was written down, never what it is, so it ages into pure
+      noise while occupying the one field that has to stay recognisable years
+      later. It belongs in the gist. Kept as a nudge because dated ids are a
+      long-standing habit here and the series number ("week5") usually
+      already carries what the date was standing in for.
+    """
+    parts = []
+    words = node_id_words(node_id)
+    if words > NODE_ID_TARGET_WORDS:
+        parts.append(
+            f"id is {words} words; ids name the SUBJECT in "
+            f"{NODE_ID_TARGET_WORDS - 2}-{NODE_ID_TARGET_WORDS}, and the claim "
+            "about it belongs in the gist"
+        )
+    if node_id_has_date(node_id):
+        parts.append(
+            "id carries a date; a date is a reference, not a meaning. If this "
+            "is one more entry in a series, the graph wants ONE enduring node "
+            "for the subject, updated in place, touching the current document"
+        )
+    if not parts:
+        return ""
+    return (
+        " — note: " + "; ".join(parts) +
+        ". kg_rename_node carries edges and history if you tighten it."
     )

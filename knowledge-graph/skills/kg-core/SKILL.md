@@ -13,6 +13,8 @@ description: |
   Recall: if needed details are not in preload/read and there is a gist
   that points in the right direction, recall full node;
   Capture: at the moment of learning, once the dots connect;
+  Name: the id names the SUBJECT in 3-5 words and the gist makes the claim —
+  ids are load-bearing in search, so a sentence-shaped id is a retrieval cost;
   Connect rather than duplicate — an edge beats a new node;
   Search for more — the read/sync shows the top of graph,
   not all of it. In a rich graph the fact you need is often
@@ -90,11 +92,32 @@ Placement is the craft:
   re-explains what the graph already names should have been an edge —
   re-description is how an entity smears across a dozen narratives until
   search can no longer tell which node owns it.
+- **The id names the subject; the gist makes the claim.** Three to five
+  kebab-case words. `a-401-in-a-log-is-an-event-not-a-state` is a gist wearing
+  an id's clothes; the subject was `auth-401-is-an-event`. This is not
+  tidiness: search weights the id ×3 and matches it for the recall gate, so
+  every extra word is another token that can drag the node into an unrelated
+  prompt. Seven words or more is refused at the write boundary.
+- **No dates — not in the id, not in the gist.** A date says when something
+  was written down, never what it is. A dated node is nearly always a node
+  minted per EVENT where the graph wanted one enduring node for the subject:
+  keep `ambient-recall-audit`, update it as each audit lands, and let its
+  `touches` point at the current handover doc. The document's own filename
+  carries the date, which is where a date is actually useful.
 - Gist = subject + key fact, telegraphic. Rationale and steps go in notes.
 - Touches are precise pointers — `path:line-range (short anchor)` — so the
   next session reads ten lines instead of the file.
 - Cross-level edges (project decision → user principle) are legitimate; store
   them in the project graph.
+- Ids can be changed later, but only with `kg_rename_node` — it carries the
+  edges, the history and the cross-level references. Writing a new node and
+  deleting the old one is not a rename; it is a quiet amputation.
+
+Documents point INTO memory, never the other way round. A letter, a handover
+or a README naming a node id is a stationary artifact taking a dependency on a
+moving one: memory keeps evolving — nodes get renamed, merged, archived — and
+the doc silently rots. Write what the doc means in its own words, and let the
+node carry the doc's path in `touches`. That direction survives both.
 
 Other memory systems (CLAUDE.md, auto-memory) are supplementary — their
 exclusion rules govern their own storage. When in doubt, record here.

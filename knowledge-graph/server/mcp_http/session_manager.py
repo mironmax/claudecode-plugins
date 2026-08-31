@@ -203,6 +203,26 @@ class HTTPSessionManager:
         session = self._sessions.get(session_id)
         return set(session.get("preloaded_ids", [])) if session else set()
 
+    def rename_node_ref(self, old_id: str, new_id: str) -> int:
+        """Carry a renamed node through every session's seen/preload state.
+
+        Without this a session that has already seen the node under its old
+        name loses dedup: the renamed node reads as unseen and gets re-dumped
+        with its notes, and a preloaded anchor line reappears in full. Cheap
+        to do, invisible when skipped until it is annoying.
+        """
+        touched = 0
+        for session in self._sessions.values():
+            for field in ("seen_ids", "preloaded_ids"):
+                ids = session.get(field)
+                if not ids or old_id not in ids:
+                    continue
+                session[field] = list(dict.fromkeys(
+                    new_id if nid == old_id else nid for nid in ids
+                ))
+                touched += 1
+        return touched
+
     def mark_full_read(self, session_id: str) -> None:
         """Record that this session has made the loud full-graph kg_read.
 
