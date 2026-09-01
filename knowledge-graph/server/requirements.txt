@@ -4,7 +4,7 @@
 # callbacks — measured, with a working PoC, in
 # devdocs/ops/2026-08-05-mcp2-migration-scope.md. Cap until that lands; 1.29.0
 # shipped four minutes before 2.0.0, so the 1.x line is current, not abandoned.
-mcp>=1.27.1,<2.0.0
+mcp>=2.1.1,<3.0.0
 uvicorn[standard]>=0.48.0
 pydantic>=2.13.4
 fastapi>=0.136.3
