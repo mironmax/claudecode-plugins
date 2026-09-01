@@ -6,5 +6,5 @@
 # shipped four minutes before 2.0.0, so the 1.x line is current, not abandoned.
 mcp>=1.27.1,<2.0.0
 uvicorn[standard]>=0.48.0
-pydantic>=2.13.4
+pydantic>=2.13.5
 fastapi>=0.136.3
