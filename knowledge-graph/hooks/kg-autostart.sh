@@ -20,6 +20,11 @@
 # This hook only ever STARTS the server — never stops or restarts one the
 # user is running.
 
+# A maintenance chore runs headless inside this same plugin: it needs no
+# preload (its prompt names its targets), no recall, and above all no chore
+# dispatch of its own. The runner exports KG_CHORE=1 — stay silent.
+[ -n "${KG_CHORE:-}" ] && exit 0
+
 PORT="${KG_HTTP_PORT:-8765}"
 HOST="${KG_HTTP_HOST:-127.0.0.1}"
 

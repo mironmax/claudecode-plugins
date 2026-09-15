@@ -12,6 +12,11 @@
 # JSON. Rough but cheap: tool results dominate transcript growth, so file
 # size tracks how much work has happened better than prompt count would.
 # Unknown/missing transcript falls back to the mid pool.
+# A maintenance chore runs headless inside this same plugin: it needs no
+# preload (its prompt names its targets), no recall, and above all no chore
+# dispatch of its own. The runner exports KG_CHORE=1 — stay silent.
+[ -n "${KG_CHORE:-}" ] && exit 0
+
 STDIN_JSON=$(cat 2>/dev/null)
 
 # Server-side deterministic pass (v0.9.24+): POST the whole hook payload to
@@ -73,6 +78,7 @@ mid=(
   "KG capture pulse: did the last exchange reveal anything worth keeping? Write it before moving on."
   "Did user express a preference, style, or constraint? Capture it as a user-level node now."
   "User corrected your approach? Capture the signal you missed, not just the fix."
+  "User had to tell you something the graph already knew? That is a miss — kg_search for the node, kg_read it to promote it, and kg_useful it now. Nothing else corrects a wrong archival."
   "User just agreed on an approach? Capture the methodology as a node — decisions alone aren't enough."
   "Just resolved something that took 10+ minutes? Root cause node before moving on."
   "Explained something non-obvious? That explanation is a node. Write it before context scrolls away."
@@ -90,7 +96,7 @@ deep=(
   "Any edges missing between nodes you've used today? One edge makes both nodes far more durable."
   "Any architectural decision made this session? Node with rationale in notes — not just the conclusion."
   "KG is your twin across sessions — what would future-you wish was recorded from this conversation?"
-  "Wrapping up? Look back at actual results: which nodes truly changed the outcome? kg_useful(session_id, ids=[...]) — up to 5, judged by experience, not promise."
+  "Wrapping up? Two questions, not one: which nodes truly changed the outcome — and what did you re-derive, or get corrected on, that the graph already held and never showed you? Both earn kg_useful(session_id, ids=[...]) — five is guidance, not a quota, so send every one that genuinely earned it, judged by what happened rather than by promise."
   "KG capture pulse: did the last exchange reveal anything worth keeping? Write it before moving on."
 )
 

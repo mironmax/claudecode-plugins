@@ -11,6 +11,7 @@ Origin here because browsers do not apply CORS to WebSocket upgrades.
 """
 
 import logging
+import threading
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -238,7 +239,23 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         staged random pools. Any hint of hookSpecificOutput in the body is
         printed by the hook verbatim.
         """
+        from . import chore_dispatch
         from .ambient import build_prompt_recall
+
+        # A prompt is the signal that the machine is awake and this graph is
+        # in use — the only moment a maintenance chore both can and should
+        # run. Considered off the request thread: the hook allows itself one
+        # second for the whole round trip, and the decision reads graphs.
+        try:
+            if chore_dispatch.enabled():
+                threading.Thread(
+                    target=chore_dispatch.maybe_dispatch,
+                    args=(store, session_manager, payload.get("cwd") or None),
+                    daemon=True, name="kg-chore-dispatch",
+                ).start()
+        except Exception:
+            logger.debug("chore dispatch not started", exc_info=True)
+
         try:
             text = build_prompt_recall(
                 store, session_manager,

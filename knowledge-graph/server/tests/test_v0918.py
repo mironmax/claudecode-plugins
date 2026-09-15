@@ -44,7 +44,7 @@ def check(name, cond, detail=""):
 # --- 1. kg_useful ------------------------------------------------------------
 def test_mark_useful():
     print("kg_useful:")
-    from core.constants import MAX_LIKES_PER_SESSION
+    from core.constants import LIKES_GUIDANCE_PER_SESSION, MAX_LIKES_PER_SESSION
 
     with tempfile.TemporaryDirectory(dir=os.path.expanduser("~")) as tmp:
         os.environ["KG_STORAGE_ROOT"] = tmp
@@ -58,7 +58,7 @@ def test_mark_useful():
             store = MultiProjectGraphStore(config, sm)
             sid = sm.register(os.path.expanduser("~"))["session_id"]
 
-            for i in range(7):
+            for i in range(MAX_LIKES_PER_SESSION + 3):
                 store.put_node("user", f"n{i}", f"gist {i}", session_id=sid)
             version_before = dict(store._versions["user"])
 
@@ -71,9 +71,21 @@ def test_mark_useful():
             check("second vote same session rejected", r2["accepted"] == [] and "already" in r2["rejected"]["n0"], r2)
             check("node keeps single timestamp", len(store.graphs["user"]["nodes"]["n0"]["_useful_ts"]) == 1)
 
-            r3 = store.mark_useful(["n2", "n3", "n4", "n5"], sid)
-            check("budget cap enforced", r3["accepted"] == ["n2", "n3", "n4"] and "exhausted" in r3["rejected"]["n5"], r3)
-            check("remaining zero", r3["remaining"] == 0)
+            # Guidance is advice: the 6th endorsement is ACCEPTED and merely flagged.
+            r3 = store.mark_useful(["n2", "n3", "n4", "n5", "n6"], sid)
+            check("guidance is not a wall — past 5 still accepted",
+                  r3["accepted"] == ["n2", "n3", "n4", "n5", "n6"] and not r3["rejected"], r3)
+            check("how far past the guidance is reported",
+                  r3["over_guidance"] == 7 - LIKES_GUIDANCE_PER_SESSION, r3)
+
+            # The hard cap is a flood stop, and it does refuse.
+            over = [f"n{i}" for i in range(7, MAX_LIKES_PER_SESSION + 3)]
+            r3b = store.mark_useful(over, sid)
+            capped = over[:MAX_LIKES_PER_SESSION - 7]
+            check("hard cap refuses beyond MAX", r3b["accepted"] == capped, r3b)
+            check("refusal names the cap, not a budget",
+                  "hard cap" in r3b["rejected"][over[-1]], r3b)
+            check("remaining zero at the cap", r3b["remaining"] == 0)
 
             r4 = store.mark_useful(["nope"], sm.register(os.path.expanduser("~"))["session_id"])
             check("unknown id rejected", r4["rejected"].get("nope") == "not found", r4)

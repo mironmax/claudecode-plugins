@@ -19,9 +19,12 @@ description: |
   Search for more — the read/sync shows the top of graph,
   not all of it. In a rich graph the fact you need is often
   buried under fresher work; search reaches every tier.
-  Endorse at wrap-up: kg_useful(ids) on the ≤5 nodes that demonstrably
-  changed this session's outcome. That credit is what keeps a node alive —
-  it is never earned by being read, only by being named at the end.
+  Endorse with kg_useful — the nodes that helped, judged at wrap-up against
+  results, and the ones that were MISSING when they should have been there,
+  sent the moment the gap shows. Five is the guidance, not a wall: never leave
+  a real endorsement unsent because a count says so. That credit is the only
+  thing keeping a node alive, and a miss is the only signal that corrects a
+  wrong archival.
 
   Mechanics live in the kg_* tool descriptions; operations in /kg-ops.
 ---
@@ -68,10 +71,11 @@ built for it, reaching all tiers at once.
 
 So before asserting an assumption, before re-deriving from files, when the work
 enters territory this project has plausibly visited before: search first. The
-cost is one call. And retrieval is only half the value — surfacing a node at the moment it is truly needed feeds
-its usefulness score, which is what makes it more prominent. A graph that is
-only ever written to silts up; one that is searched keeps its most-needed
-facts on top.
+cost is one call. And retrieval is only half the value: a node you had to
+dig for is a node the surface should have shown you. Say so with kg_useful —
+being found feeds nothing by itself. A graph that is only ever written to
+silts up; one that is searched, and that reports its misses, keeps its
+most-needed facts on top.
 
 ## Capture
 
@@ -121,6 +125,50 @@ node carry the doc's path in `touches`. That direction survives both.
 
 Other memory systems (CLAUDE.md, auto-memory) are supplementary — their
 exclusion rules govern their own storage. When in doubt, record here.
+
+## Endorsement
+
+`kg_useful(session_id, ids=[...])` is the only input that keeps a node alive:
+archival scoring counts endorsements, and nothing else an agent does — not
+reading, not searching, not citing — feeds that signal. One vote per node.
+
+Five per session is guidance, not a quota. It is set where it is because
+endorsement that costs nothing means nothing, and a number you have to spend
+carefully is what keeps this from becoming traffic. But it is the wrong number
+often enough — a session that gets corrected three times in a row has three
+real misses to report before it has praised a single hit — and a refusal there
+would destroy exactly the evidence the signal exists to carry. So keep sending
+when each one genuinely earned it; the reply tells you how far past the
+guidance you are, and only a flood hits the hard cap.
+
+Two different things earn it.
+
+**It helped.** The node was on the surface, you used it, and the work went
+differently for it. Judge these at wrap-up, against actual results — what
+looked promising mid-flight and led nowhere is not an endorsement.
+
+**It was missing.** The node existed, this session needed it, and nothing put
+it in front of you: you re-derived what the graph already held, took a wrong
+turn it would have prevented, or the user had to say it themselves. Send this
+one the *moment* the gap is established, not at wrap-up — the correction in
+front of you is the evidence, and a session that ends abruptly still records
+it. Late feedback counts too: if it only becomes clear afterwards that a node
+belonged in this conversation, that is still a miss, and saying so then is
+worth more than staying silent because the moment passed.
+
+The asymmetry between the two is the point. A hit confirms a decision the
+scorer already made right; a miss is the only evidence that ever reaches it
+about one it got wrong. Without it the loop is one-sided — nodes that surface
+earn credit and stay up, while a node archived too early has no way to report
+the sessions it should have been in, and sinks further with each one. Whenever
+you are rationing — choosing what the guidance is worth spending on — a miss
+outranks a hit.
+
+An endorsement alone does not put a node back on the surface. Read it in full
+as well — `kg_read(session_id, ids=[...])` promotes it out of archived or
+orphaned — and let the endorsement be what stops it sinking again on the next
+pass. If it was stale as well as absent, sharpen the gist while the context is
+live: being right and being reachable are separate problems.
 
 ## Levels
 

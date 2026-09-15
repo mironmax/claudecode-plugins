@@ -1,0 +1,20 @@
+{
+  "enabled": false,
+  "model": "claude-sonnet-5",
+
+  "min_interval_s": 2700,
+  "graph_cooldown_s": 21600,
+  "max_per_day": 8,
+  "debt_floor": 0.12,
+  "max_5h": 55,
+  "max_7d": 80,
+  "gauge_max_age_s": 5400,
+  "timeout_s": 420,
+
+  "pass_interval_days": 21,
+  "pass_max_per_day": 1,
+  "pass_max_5h": 40,
+  "pass_max_7d": 70,
+  "pass_pace_max": 1.0,
+  "pass_timeout_s": 1500
+}

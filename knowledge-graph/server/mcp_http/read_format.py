@@ -374,3 +374,36 @@ def format_node_full(node_id: str, result: dict) -> str:
         lines.append("  edges:")
         lines.extend(f"  {render_edge_line(e['from'], e['rel'], e['to'])}" for e in edges)
     return "\n".join(lines)
+
+
+def build_maintain_read(snapshot: dict, session_id: str) -> str:
+    """Render the maintenance memory — the chore agent's own craft lessons.
+
+    Deliberately unlike build_full_read: no budget ladder, no archived
+    anchors, no debt line. This graph is small by construction (a lesson is
+    only written when a chore learned something a future chore would act on),
+    and it is read by someone deciding whether a lesson still holds — so it
+    shows the notes, which the graph render never does.
+    """
+    nodes = snapshot.get("nodes") or []
+    edges = snapshot.get("edges") or []
+    active = [n for n in nodes if not n.get("_archived")]
+    archived = [n for n in nodes if n.get("_archived")]
+
+    lines = [f"=== MAINTENANCE MEMORY — {len(active)} lesson(s), "
+             f"{len(archived)} archived ==="]
+    if not active and not archived:
+        lines.append("  (empty — chores write here only when one of them learns "
+                     "something a later chore would act on differently)")
+    for n in active:
+        lines.append(f"  {n['id']}: {n.get('gist', '')}")
+        for note in (n.get("notes") or []):
+            lines.append(f"    - {note}")
+    if edges:
+        lines.append("  edges:")
+        for e in edges:
+            lines.append(f"    {e['from']} --{e['rel']}--> {e['to']}")
+    if archived:
+        lines.append("  archived: " + ", ".join(n["id"] for n in archived))
+    lines.append(f"\nSession: {session_id}")
+    return "\n".join(lines)

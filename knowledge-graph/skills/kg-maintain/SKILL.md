@@ -6,6 +6,11 @@ description: |
   graph's DEBT line (rendered after HEALTH in every kg_read). Run it when
   invoked, when DEBT shows HIGH, or as a dispatched maintenance subagent.
 
+  The same work also arrives in a smaller shape: a CHORE, one category and
+  one or two named targets, dispatched by the server while someone is
+  working. Chores carry their own runbook in their prompt — this skill is
+  the full pass, and the place the chore memory is described.
+
   Always-on reactive triggers (no pass needed, act mid-conversation):
     User correction → update the stale node before continuing.
     Node just proved useful → add one edge to current context.
@@ -103,10 +108,16 @@ dropped. Then stamp — **mandatory, the stamp is what resets staleness; an
 unstamped pass didn't happen**:
 
     kg_progress(session_id, task_id="maintain", level=<target>,
-        state={"last_ts": <unix now>, "entities_consolidated": N,
-               "gists_tightened": N, "ids_renamed": N, "edges_added": N,
-               "merges": N, "notes_rewritten": N,
+        state={"entities_consolidated": N, "gists_tightened": N,
+               "ids_renamed": N, "edges_added": N, "merges": N,
+               "notes_rewritten": N,
                "declined": ["<what you considered and did not do, and why>"]})
+
+Do not supply a timestamp. You have no clock, and passes that were asked for
+one demonstrably invented it — measured on the live graphs, every stamp was a
+round hour, one landed six days in the future and one a year in the past,
+while staleness is the leading term of the debt score that decides which
+graph gets tended next. The server writes `last_ts` itself.
 
 `declined` is the half that compounds. A pass that examined a merge and
 decided against it has done real work; without recording it, the next pass
@@ -135,6 +146,99 @@ context-switching. Subagents get NO preload — the prompt must carry:
     kg_progress task "maintain" — counts plus a `declined` list of what you
     considered and refused — and report counts.
     Do not invent facts; sharpen wording, not meaning. ~25 kg_* calls max.
+
+# Chores — maintenance in a unit that fits a working day
+
+A pass is the right shape for a scheduled run and the wrong shape for a
+laptop. Measured over the 45 days after the systemd dispatcher was armed: 28
+passes across 12 graphs, one per graph per ~19 days, against a staleness
+horizon of 14. Its gate is a conjunction of five conditions whose terms fight
+each other — the quota gauge is only fresh while someone is working, which is
+exactly when the usage gate is shut, and the machine is suspended the rest of
+the time.
+
+A **chore** is the same work re-cut: ONE category, one or two targets the
+server names up front, and no orientation at all. The server computes every
+debt factor already, so choosing what to do is free; what remains is five or
+six tool calls. It is dispatched on the signal that actually correlates with
+opportunity — a prompt arriving — as a detached headless agent, so it costs
+the live session no context.
+
+Three rules shape which nodes a chore may touch, and each is a bug that would
+otherwise be:
+
+- **Never RENAME a node a live session is holding.** The session keeps the
+  old id, so the rename turns its next read into a NOT FOUND. Rewriting a
+  gist does not break it (the meaning is preserved, only the phrasing ages)
+  and an added edge is invisible to it — so the seen-set bars renames and
+  merely demotes the other kinds. A blanket veto looks safer and is not: a
+  session that did the loud full read holds every active node, so it would
+  refuse every chore in the project actually being worked on.
+- **Never a node an earlier pass declined.** The `declined` lines are
+  decisions; re-proposing them is the work the trail exists to prevent.
+- **Never the same category forever.** Categories rank by the weight the debt
+  formula gives them, so gists lead — but three chores of one kind yield to
+  the next non-empty category, or thirteen long ids rot while gists get
+  tightened two at a time.
+
+Chores never do the two judgement-heavy categories: entity consolidation and
+duplicate merges stay in the full pass, where there is context to weigh them.
+
+# When the full pass happens
+
+Not when debt says so — debt cannot answer this question. Chores pay down
+exactly the terms debt counts, and the deficit factor bottoms out at the
+formula's own constant: a groomed, fully-active graph caps at **0.25**, under
+the 0.3 the scheduled dispatcher selects on. Left on debt alone, a
+well-chored graph would never see a pass again, and the two structural
+categories would never happen on it at all. A health metric says the state is
+correct; it never says there is work left.
+
+So the pass is triggered by **time since the last stamped pass** (default 21
+days) on a graph in use — and paid for out of the **weekly surplus**:
+
+    pace = seven_day_pct / (100 × fraction of the 7-day window elapsed)
+
+`pace ≤ 1.0` means the week is running under the burn it would need to finish
+at 100%, so quota is on course to expire unspent. The 5h gauge is what the
+day's own work needs and is protected hard (a pass needs it under 40%); the
+weekly allowance is the one routinely left over, and that is what funds the
+expensive tier. The test is self-adjusting, which is why no day-of-week rule
+appears anywhere: a real working day early in the week puts usage above the
+line and the pass waits, while a quiet week drifts further under it each day,
+so firings concentrate near the reset by arithmetic. An absolute 7d ceiling
+(70%) backstops it, because at 6.5 days elapsed the linear line sits at 93%
+and would otherwise wave through a nearly spent week.
+
+Operations — enabling it, the config, the log — live in `/kg-ops`.
+
+# The maintenance memory (`level="maintain"`)
+
+Chores accumulate craft, and it is kept in a third graph: `maintain.json`,
+one per machine, shared by every chore in every project. Isolated by
+construction — absent from the preload, from `kg_read`'s graph render, from
+search, and from the debt survey — so a gardening lesson can never surface as
+prompt recall. Read it with `kg_read(session_id, level="maintain")`; the
+dispatcher renders it into every chore prompt so no chore has to spend a call
+fetching it.
+
+What belongs there is the craft of maintenance, never the subject matter of
+the graph being gardened:
+
+    rename-keeps-prompt-terms: A rename that drops the term prompts actually
+    use costs recall even when the new id is objectively better.
+
+    thin-gists-rarely-have-honest-edges: An unconnected node with a one-line
+    gist usually needs sharpening first — the edge becomes obvious afterwards.
+
+The trail (`kg_progress` task "chore" / "maintain") records what was DONE and
+DECLINED per graph; the maintain graph records what was LEARNED, across all
+of them. A lesson is written only when a future chore would act on it
+differently, and reinforced by writing to its existing id rather than minting
+a near-duplicate. Learning nothing is the normal outcome of a routine chore.
+
+During a full pass, read the maintenance memory in step 0 and, at step 4,
+consider whether the pass earned a lesson — the same bar.
 
 # Reference: what the DEBT factors mean
 

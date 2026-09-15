@@ -150,6 +150,7 @@ The system is designed to work without being asked. Four ambient behaviors, all 
 - **Recall at the moment of relevance** — each prompt you type is matched against the graph server-side; when unseen nodes fit, their gists arrive with the prompt. Precision is deliberate: nothing injects twice, weak matches stay silent, and machine records (notifications, pasted images and paths) never trigger it — the channel only speaks when a human asked something.
 - **Capture when re-derivation is proven** — reading a file a second session in a row (or fetching the same URL twice) with no node covering it earns a one-time nudge to write the bottom line down. First-time reads never nudge; hard throttles keep it rare.
 - **Self-aware maintenance** — every read carries a `DEBT:` line per graph (oversized gists, unconnected nodes, time since last tended, weighted by how actively the graph is used). When it reads HIGH, `/kg-maintain` runs a bounded pass — or Claude spawns a maintenance subagent with the dispatch prompt the skill provides.
+- **Chores, if you switch them on** — the server can also pay debt down while you work: one category, one or two targets it names itself, a handful of tool calls, run as a detached headless agent under an MCP-only allowlist, so your session spends no context on it. Every dispatch and every refusal is logged. Off by default because it spends quota — `/kg-ops` has the switch and the gates.
 
 ## Usage Tips
 

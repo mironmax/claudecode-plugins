@@ -174,13 +174,26 @@ ARCHIVED_BUDGET_RATIO = 0.30
 # Resurrection: minimum score delta for an archived node to displace a freshly-archived one.
 RESURRECTION_MARGIN = 0.05
 # Usefulness signal ("likes"): explicit endorsement via kg_useful — the agent marks
-# the nodes that actually helped a session. Reads deliberately do NOT feed this: a
-# well-formed gist is self-sufficient, so counting reads would reward weak gists.
+# the nodes that helped a session, AND the ones that should have been surfaced and
+# were not. The second kind is what keeps the signal two-sided: credit earned only
+# by nodes the surface already showed would confirm every archival decision that
+# went right and hear about none that went wrong. Reads deliberately do NOT feed
+# this: a well-formed gist is self-sufficient, so counting reads would reward weak
+# gists.
 # Each like decays with a half-life so past usefulness fades unless renewed.
 USEFUL_HALF_LIFE_DAYS = 90
-# At most this many likes per session — endorsement, not traffic. One vote per
-# node per session.
-MAX_LIKES_PER_SESSION = 5
+# The budget is two numbers, not one. GUIDANCE is what the doctrine asks for: five
+# is enough to name what mattered, and a number that must be spent carefully is what
+# keeps endorsement from decaying into traffic. But it is advice, not a wall — a
+# session that keeps turning up real signal (a run of misses after the user corrects
+# it, a long session that genuinely used ten nodes) must be able to report all of it,
+# and refusing there destroys exactly the evidence the signal exists to carry. So MAX
+# is a flood stop rather than a budget, set high enough that no honest session reaches
+# it; past the guidance every response says how far over it is, which keeps the
+# pressure to be selective without ever making a real endorsement impossible.
+# One vote per node per session either way.
+LIKES_GUIDANCE_PER_SESSION = 5
+MAX_LIKES_PER_SESSION = 10
 # Archival score blend (percentile ranks): recency / connectedness / usefulness.
 SCORE_WEIGHT_RECENCY = 0.25
 SCORE_WEIGHT_CONNECTEDNESS = 0.40
@@ -200,12 +213,9 @@ ARCHIVED_EDGE_WEIGHT = 0.2
 # ---------------------------------------------------------------------------
 # Recall injection log (v0.9.36)
 #
-# build_prompt_recall used to compute what it injected and then keep nothing:
-# every ambient-recall number — fire rate, payload, per-node frequency — was
-# reconstructed after the fact by devdocs/audit/recall-audit.py from Claude
-# Code transcripts, which expire in 30 days. The measurement therefore had a
-# shorter memory than the graph it measured, and week 1 of the audit series
-# is already unrecoverable.
+# build_prompt_recall used to compute what it injected and then keep nothing;
+# recall metrics could only be reconstructed from Claude Code transcripts,
+# which expire in 30 days.
 #
 # Every decision point now appends one JSON line here, SILENCES INCLUDED: a
 # log of injections alone gives no denominator and, worse, no near-misses —
@@ -235,6 +245,94 @@ PROGRESS_TRAIL_MAX = 20          # entries kept per task
 PROGRESS_TRAIL_VALUE_CHARS = 240  # per string value in an entry
 PROGRESS_TRAIL_LIST_ITEMS = 8     # per list value in an entry
 
+# ---------------------------------------------------------------------------
+# Maintenance chores (v0.9.37)
+#
+# Maintenance used to exist only as a full 25-call PASS fired by a systemd
+# timer. Measured over the 45 days after arming: 28 firings across 12 graphs —
+# one pass per graph per ~19 days, against a staleness horizon of 14. The fire
+# condition is a five-way conjunction (machine awake AND quota gauge fresh AND
+# 5h<60% AND 7d<85% AND inside the last 75 min of the moving 5h window), and
+# its terms are anti-correlated: the gauge is fresh only while an interactive
+# session renders the statusline, i.e. while the user is working — which is
+# exactly when the 5h gate is closed. The laptop is suspended the rest of the
+# time. The schedule was aiming at hours that barely exist.
+#
+# A CHORE is the same work in a unit that fits a live session: ONE debt
+# category, one or two targets the server names up front, ~5 kg_* calls, no
+# orientation pass. It is dispatched on the signal that actually correlates
+# with opportunity — the user typing a prompt — as a detached headless
+# process, so it costs the live session no context and needs no cooperation
+# from the model running it.
+#
+# Off unless switched on: spawning agent processes spends the user's quota,
+# which is never a default. Enable per machine in ~/.knowledge-graph/chores.json
+# ({"enabled": true}) or with KG_CHORES=1.
+CHORE_CONFIG_NAME = "chores.json"
+CHORE_LOG_NAME = "chores.jsonl"
+CHORE_LOG_MAX_BYTES = 4 * 1024 * 1024
+CHORE_TASK_ID = "chore"           # kg_progress task the chore stamps
+# Global spacing: a chore at most this often across ALL graphs, so a busy day
+# of prompts cannot turn into a queue of agents.
+CHORE_MIN_INTERVAL_SECONDS = 45 * 60
+# Per-graph spacing: one graph should not absorb every chore. Six hours still
+# lets a neglected graph get 3-4 chores a day when nothing else needs them.
+CHORE_GRAPH_COOLDOWN_SECONDS = 6 * 3600
+CHORE_MAX_PER_DAY = 8
+CHORE_DEBT_FLOOR = 0.12           # below this a graph is tended enough to skip
+# Quota gates. Deliberately tighter than the full pass on the 5h gauge:
+# a chore fires WHILE the user is working, so it must stay far from the
+# ceiling their own session needs. A stale gauge is not a fresh one — unlike
+# the timer's blind night window there is no starvation to compensate for
+# here, because prompts only arrive when the machine is awake anyway.
+CHORE_GAUGE_MAX_AGE_SECONDS = 90 * 60
+CHORE_GAUGE_MAX_5H = 55
+CHORE_GAUGE_MAX_7D = 80
+CHORE_TIMEOUT_SECONDS = 420       # a chore that takes 7 min is wedged, not slow
+CHORE_MODEL = "claude-sonnet-5"
+# Targets per chore, by kind. Small on purpose: the point is that a chore
+# always finishes, so the graph moves a little on most days instead of a lot
+# on the rare day every gate opens at once.
+CHORE_TARGETS = {"gist": 2, "id": 2, "edge": 1, "notes": 1}
+# Lessons carried into the chore prompt (the maintain graph's own memory).
+# Rendered inline rather than read by a tool call: it costs the chore nothing
+# and cannot be skipped.
+CHORE_LESSONS_MAX = 8
+CHORE_LESSONS_CHAR_BUDGET = 1400
+
+# ---------------------------------------------------------------------------
+# The pass tier
+#
+# Chores pay down countable wear, and doing that well creates a trap: the
+# scheduled dispatcher selects graphs scoring >= 0.3, and the deficit term
+# bottoms out at the debt formula's own constant 0.25. Measured — a groomed,
+# fully-active graph caps at 0.25 debt no matter how long it goes untended,
+# so a well-chored graph would never be selected for a full pass AGAIN, and
+# the two categories chores refuse (entity consolidation, duplicate merges)
+# would never happen on it. Debt says the graph is CORRECT; it cannot say
+# there is structural work waiting.
+#
+# So the pass is triggered by TIME SINCE THE LAST PASS, not by debt — the one
+# question debt cannot answer. And it is paid for out of the weekly surplus.
+PASS_INTERVAL_DAYS = 21           # since the last stamped "maintain" pass
+PASS_MAX_PER_DAY = 1
+PASS_MIN_ACTIVE_NODES = 8         # too small to have structure worth restructuring
+PASS_TIMEOUT_SECONDS = 1500       # a full runbook, not a chore
+# A pass runs long, so it keeps further from the 5h ceiling than a chore does.
+PASS_GAUGE_MAX_5H = 40
+# A pass is funded by weekly SURPLUS, not absolute headroom: usage is compared
+# against the linear burn that would end the week at 100%, and the pass runs
+# only while the week is under that pace. Self-adjusting — no day-of-week rule.
+#
+#     pace = seven_day_pct / (100 * fraction_of_week_elapsed)
+#
+# pace <= PASS_PACE_MAX means "on track to leave quota unused — take some".
+PASS_PACE_MAX = 1.0
+# Absolute backstop: never fund a pass out of the last of the week, however
+# far under pace the arithmetic says we are (at 6.5 days elapsed the linear
+# line sits at 93%, which would otherwise wave through a nearly spent week).
+PASS_GAUGE_MAX_7D = 70
+
 # Session
 SESSION_ID_LENGTH = 8
 SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 hours
@@ -244,7 +342,15 @@ GRACE_PERIOD_DAYS = 5
 ORPHAN_GRACE_DAYS = 365
 
 # Graph levels
-LEVELS = ("user", "project")
+#
+# "maintain" is the maintenance agent's OWN memory — craft learned from doing
+# maintenance ("this merge has been proposed and refused three times"), kept
+# deliberately apart from the knowledge the graphs are for. It is reachable
+# only by an explicit level: never preloaded, never rendered by a full
+# kg_read, never searched, never surveyed for debt. Isolation is by
+# construction — read_graphs/search/survey_debt each name their graphs — so a
+# gardening note can never surface as prompt recall.
+LEVELS = ("user", "project", "maintain")
 
 # ---------------------------------------------------------------------------
 # Graph namespaces
@@ -257,6 +363,7 @@ LEVELS = ("user", "project")
 # hand-build "project:..." strings at call sites.
 # ---------------------------------------------------------------------------
 USER_NAMESPACE = "user"
+MAINTAIN_NAMESPACE = "maintain"
 
 
 def project_namespace(project_root: str) -> str:
@@ -317,8 +424,8 @@ def project_slug(project_root: str) -> str:
     Uses last path component.
 
     Examples:
-        /home/maxim/DevProj/comra-wordpress -> comra-wordpress
-        /home/maxim/DevProj/heilpraktiker -> heilpraktiker
+        ~/projects/my-app -> my-app
+        /srv/work/api-server -> api-server
     """
     # Extract the last component from the string before any Path operations
     # so the slug is derived from validated string manipulation, not a tainted Path
@@ -356,7 +463,7 @@ def project_graph_path(project_root: str) -> Path:
     Handles renames: if slug has no graph but an alias or old slug does,
     migrates the old graph to the new slug location.
 
-    Example: ~/.knowledge-graph/projects/comra-wordpress/graph.json
+    Example: ~/.knowledge-graph/projects/my-app/graph.json
     """
     slug = project_slug(project_root)   # slug is validated — no separators, no traversal
     storage = get_storage_root()
@@ -448,6 +555,11 @@ def _migrate_slug(old_path: Path, new_path: Path, old_slug: str, new_slug: str):
 def user_graph_path() -> Path:
     """Get centralized user graph path."""
     return get_storage_root() / "user.json"
+
+
+def maintain_graph_path() -> Path:
+    """Get the maintenance-lessons graph path (the chore agent's own memory)."""
+    return get_storage_root() / "maintain.json"
 
 
 def sessions_file_path() -> Path:

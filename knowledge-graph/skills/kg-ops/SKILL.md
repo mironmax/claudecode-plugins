@@ -22,7 +22,9 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
 - Logs: `~/.local/state/knowledge-graph/mcp_server.log`. PID file:
   `server/.mcp_server.pid` next to `manage_server.sh`.
 - Data: `~/.knowledge-graph/` (plain JSON — `user.json`,
-  `projects/<slug>/graph.json`, `sessions.json`). Survives uninstall.
+  `projects/<slug>/graph.json`, `sessions.json`, plus `maintain.json`: the
+  maintenance agent's own craft memory, never preloaded or searched). Survives
+  uninstall.
 - Plugin cache dirs are **versioned** (`~/.claude/plugins/cache/maxim-plugins/knowledge-graph/<version>/`)
   and change on every update. Anything that must survive updates goes through
   the stable shims in `~/.local/bin/`: `kg-memory`, `kg-visual`,
@@ -146,6 +148,63 @@ Headless/scheduled sessions don't reliably render a frame at all. Anchor
 quota-sensitive scheduling to `five_hour_resets_at` (the window drifts with
 first use), not to wall-clock times. Pace so the session ends on a checkpoint —
 handover letter + KG writes cost budget too; stop near ~90%, not at 100%.
+
+## Maintenance chores (activity-triggered gardening)
+
+The server can run small maintenance chores while you work: one debt category,
+one or two nodes it names itself, a detached headless agent, ~6 tool calls. It
+fires on a prompt arriving, because that is the only signal that reliably means
+"machine awake and this graph in use" — the systemd tick's gate needs the quota
+gauge fresh AND usage low, and those two are almost never true together.
+
+**Off unless switched on** — it spends your quota.
+
+- **Enable**: `cp <plugin>/chores/chores.example.json ~/.knowledge-graph/chores.json`
+  and set `"enabled": true`. `KG_CHORES=1` in the server's environment does the
+  same. Config is re-read when the file changes; no restart needed.
+- **Two tiers.** A *chore* is the small unit above. A *pass* is the full
+  `/kg-maintain` runbook, dispatched the same way but on a different trigger:
+  **time since the last stamped pass** (`pass_interval_days`, default 21) on a
+  graph you are using — never on debt, because chores drive debt down to the
+  formula's floor and a groomed graph would otherwise never qualify again.
+  It is funded by the **weekly surplus**: `pace = seven_day_pct ÷ (100 ×
+  fraction of the 7-day window elapsed)`, and it runs only when `pace ≤
+  pass_pace_max` (1.0) — i.e. when the week is on course to leave quota
+  unspent. Firings drift toward the weekly reset on their own; there is no
+  day-of-week rule. Backstops: `pass_max_5h` 40, `pass_max_7d` 70,
+  `pass_max_per_day` 1, `pass_timeout_s` 1500.
+- **Permissions**: chores run under `<plugin>/chores/settings.json` — a scoped
+  MCP-only allowlist (read/search/put_node/put_edge/rename_node/progress), with
+  Bash, edits, web and node deletion denied. Passes use
+  `chores/pass-settings.json`, which adds `kg_delete_node`/`kg_delete_edge`
+  because merges need them — two files so the small, frequent unit stays
+  strictly non-destructive. Both ship with the plugin on purpose: the previous
+  dispatcher kept its settings in `~/.config`, never gained `kg_rename_node`
+  when v0.9.35 added it, and its one id pass recorded `ids_renamed: 0`.
+  Override with `"settings"` / `"pass_settings"` only if you must.
+- **Watch**: `tail -f ~/.knowledge-graph/chores.jsonl | jq .` — one line per
+  decision, refusals included (`{"event":"skip","reason":"5h 71%"}`), so "why
+  did nothing run" is always answerable. Dispatches log the targets; the
+  `done` line logs the return code and the debt before/after.
+- **Tune**: `min_interval_s` (global spacing, default 45 min),
+  `graph_cooldown_s` (6 h), `max_per_day` (8), `debt_floor` (0.12),
+  `max_5h`/`max_7d` (55/80 — deliberately stricter than the scheduled pass,
+  because a chore fires while you are working), `timeout_s` (420).
+- **Safety**: a chore never renames a node a recently-active session is
+  holding (that would turn its next read into a NOT FOUND; gist and edge work
+  is safe and only demotes such nodes), never touches one an earlier pass
+  recorded as `declined`, and never does entity consolidation or duplicate
+  merges — those need a full pass's context.
+  Hooks are suppressed inside a chore run via `KG_CHORE=1`, so a chore cannot
+  preload a graph it does not need, nor dispatch another chore.
+- **Disable**: set `"enabled": false` (or delete the config). A chore already
+  running finishes.
+
+The scheduled `kg-maintain.timer` keeps one job: dormant graphs, whose projects
+nobody has opened, are never reached by an activity trigger. Note its prompt and
+`~/.config/kg-maintain/settings.json` predate v0.9.35 — no id refinement, no
+`kg_rename_node` in the allowlist — so if you keep it, bring them in line with
+`chores/pass-settings.json` and the pass prompt in `core/chores.py`.
 
 ## Renaming nodes (and why never by hand)
 

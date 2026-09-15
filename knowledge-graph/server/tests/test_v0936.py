@@ -10,10 +10,9 @@ record of it, so the questions that matter could only be answered from
 sources that erase themselves.
 
   RECALL LOG. build_prompt_recall computed what it injected and then kept
-  nothing. Every ambient-recall number — fire rate, payload, per-node
-  frequency — was reconstructed after the fact by devdocs/audit/recall-audit.py
-  from Claude Code transcripts, which expire in 30 days: the measurement had a
-  shorter memory than the graph it measured. Silences are logged too, and
+  nothing; recall metrics could only be reconstructed from Claude Code
+  transcripts, which expire in 30 days — the measurement had a shorter memory
+  than the graph it measured. Silences are logged too, and
   deliberately: injections alone give no denominator, and the prompts that
   scored just under the bar are the only evidence a threshold change can be
   argued from — nothing had ever seen them.
@@ -219,11 +218,15 @@ def main():
         state = store.get_progress("maintain", level="user")
         trail = state.get(PROGRESS_TRAIL_KEY, [])
         check("both stamps survive", len(trail) == 2, trail)
-        check("newest is last", trail[-1]["last_ts"] == 200.0, trail)
+        # last_ts became server-owned in v0.9.37 (an MCP-only agent has no
+        # clock and was demonstrably guessing), so ordering is asserted on a
+        # field the caller still owns.
+        check("newest is last", trail[-1]["gists_tightened"] == 5, trail)
         check("the earlier stamp is still readable",
               trail[0]["gists_tightened"] == 2, trail)
         check("top-level state is the latest stamp (core.debt reads it directly)",
-              state["last_ts"] == 200.0 and state["gists_tightened"] == 5, state)
+              state["gists_tightened"] == 5 and state["last_ts"] >= trail[0]["last_ts"],
+              state)
 
         # --- 8. the ring bounds ----------------------------------------------
         for i in range(PROGRESS_TRAIL_MAX + 5):

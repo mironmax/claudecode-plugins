@@ -186,6 +186,23 @@ class HTTPSessionManager:
         session = self._sessions.get(session_id)
         return set(session.get("seen_ids", [])) if session else set()
 
+    def recently_seen_ids(self, max_age_seconds: float) -> set:
+        """Every node id a recently-active session holds in context.
+
+        Maintenance chores subtract this: rewriting a gist or renaming a node
+        while a live session has it in context makes that session's memory
+        quietly wrong, which is the one way in-session gardening could be
+        worse than none at all.
+        """
+        cutoff = time.time() - max_age_seconds
+        out: set = set()
+        for session in self._sessions.values():
+            if (session.get("last_activity") or 0) < cutoff:
+                continue
+            out.update(session.get("seen_ids", []))
+            out.update(session.get("preloaded_ids", []))
+        return out
+
     def set_preloaded(self, session_id: str, node_ids) -> None:
         """Record which node gists the session-start preload actually rendered.
 

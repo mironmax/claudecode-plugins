@@ -6,6 +6,11 @@
 # posts the raw hook payload and prints whatever hook output comes back.
 # Silent on every failure — a hook must never slow or break the session.
 
+# A maintenance chore runs headless inside this same plugin: it needs no
+# preload (its prompt names its targets), no recall, and above all no chore
+# dispatch of its own. The runner exports KG_CHORE=1 — stay silent.
+[ -n "${KG_CHORE:-}" ] && exit 0
+
 STDIN_JSON=$(cat 2>/dev/null)
 [ -z "$STDIN_JSON" ] && exit 0
 

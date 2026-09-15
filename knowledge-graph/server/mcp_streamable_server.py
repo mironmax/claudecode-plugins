@@ -27,7 +27,15 @@ from mcp_http.session_manager import HTTPSessionManager
 from mcp_http.store import MultiProjectGraphStore, GraphConfig
 from mcp_http.websocket import ConnectionManager
 from mcp_http.rest import create_rest_api
-from mcp_http.read_format import build_full_read, format_node_full, format_search
+from mcp_http.read_format import (build_full_read, build_maintain_read,
+                                  format_node_full, format_search)
+
+# Repeated in every level enum: what the third graph is, and who may write it.
+MAINTAIN_LEVEL_DOC = (
+    "The 'maintain' level is the maintenance agent's own craft memory — never "
+    "preloaded, searched or rendered with the graphs; write there only from a "
+    "maintenance chore or pass."
+)
 from mcp_http.security import host_allowed
 from core.autocommit import AutoCommitter
 from core.exceptions import (
@@ -139,8 +147,8 @@ def create_mcp_server() -> Server:
                         },
                         "level": {
                             "type": "string",
-                            "enum": ["user", "project"],
-                            "description": "Hint which graph the node is in. If omitted, searches both."
+                            "enum": ["user", "project", "maintain"],
+                            "description": "Which graph. Omitted: searches user and project. Pass 'maintain' with no id/ids to render the maintenance memory instead of the graphs. " + MAINTAIN_LEVEL_DOC
                         }
                     },
                     "required": []
@@ -148,7 +156,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_search",
-                description="Full-text search across node IDs, gists, notes, and touches in both graphs — reaches archived and orphaned nodes that no render shows. Use when a problem feels familiar, before asserting an assumption, and whenever a mature graph plausibly covers the topic: in a long-lived graph the needed fact is often buried under fresher work, and finding it when it matters also feeds the usefulness signal that keeps it alive.",
+                description="Full-text search across node IDs, gists, notes, and touches in both graphs — reaches archived and orphaned nodes that no render shows. Use when a problem feels familiar, before asserting an assumption, and whenever a mature graph plausibly covers the topic: in a long-lived graph the needed fact is often buried under fresher work. Search is what reaches it, but being found feeds nothing on its own — a node you had to dig for, and that should have been on the surface, is a miss worth kg_useful.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -176,8 +184,8 @@ def create_mcp_server() -> Server:
                         },
                         "level": {
                             "type": "string",
-                            "enum": ["user", "project"],
-                            "description": "Storage level"
+                            "enum": ["user", "project", "maintain"],
+                            "description": "Storage level. " + MAINTAIN_LEVEL_DOC
                         },
                         "id": {
                             "type": "string",
@@ -213,8 +221,8 @@ def create_mcp_server() -> Server:
                         },
                         "level": {
                             "type": "string",
-                            "enum": ["user", "project"],
-                            "description": "Storage level"
+                            "enum": ["user", "project", "maintain"],
+                            "description": "Storage level. " + MAINTAIN_LEVEL_DOC
                         },
                         "from": {
                             "type": "string",
@@ -257,8 +265,8 @@ def create_mcp_server() -> Server:
                         },
                         "level": {
                             "type": "string",
-                            "enum": ["user", "project"],
-                            "description": "Optional storage level hint; auto-resolved when omitted"
+                            "enum": ["user", "project", "maintain"],
+                            "description": "Optional storage level hint; auto-resolved when omitted (a maintain-level node must name its level — that graph is never auto-resolved)"
                         }
                     },
                     "required": ["session_id", "old_id", "new_id"]
@@ -310,7 +318,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_useful",
-                description="Mark the nodes that actually HELPED this session — explicit usefulness endorsement that feeds archival scoring (useful nodes stay active longer). Up to 5 per session, one vote per node; endorsement, not traffic — reads don't count. Call this toward the END of the session (wrap-up), judging against actual results: which knowledge demonstrably changed the outcome — not what merely seemed promising mid-flight.",
+                description="Endorse the nodes that earned their place — the usefulness signal feeding archival scoring (endorsed nodes stay active longer). TWO things earn it, both judged on what happened rather than on promise. It HELPED: it was in front of you and the work went differently for it — judge these at wrap-up against actual results, not on what seemed promising mid-flight. Or it was MISSING: it existed, this session needed it, and nothing surfaced it — you re-derived what the graph already held, took a wrong turn it would have prevented, or the user had to supply it. Send a miss the MOMENT you establish it, mid-session: the correction in front of you is the evidence, and only a miss can correct a wrong archival decision — a hit merely confirms a right one. If the missing node was archived, kg_read it as well: the read promotes it, the endorsement is what stops it sinking again. Five per session is the guidance, not a wall — spend them carefully, but if a session keeps turning up real signal (a run of misses after a correction), keep sending: a hard cap of 10 stops a flood, and past five the reply tells you how far over you are. One vote per node; reads alone never count.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -321,7 +329,7 @@ def create_mcp_server() -> Server:
                         "ids": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Node IDs that proved genuinely useful (session budget: 5 total)"
+                            "description": "Node IDs that helped, or that should have been surfaced and were not (session budget: 5 total)"
                         }
                     },
                     "required": ["session_id", "ids"]
@@ -361,7 +369,7 @@ def create_mcp_server() -> Server:
                         },
                         "level": {
                             "type": "string",
-                            "enum": ["user", "project"],
+                            "enum": ["user", "project", "maintain"],
                             "description": "Storage level (default: user)"
                         }
                     },
@@ -425,6 +433,15 @@ def create_mcp_server() -> Server:
                     return [TextContent(
                         type="text",
                         text="\n\n".join(blocks) + f"\n\nSession: {session_id}"
+                    )]
+
+                # The maintenance memory is addressed only by naming it: it is
+                # never part of a graph read, so it can never leak into recall
+                # or into a session's working context by accident.
+                if level == "maintain":
+                    return [TextContent(
+                        type="text",
+                        text=build_maintain_read(store.maintain_snapshot(), session_id),
                     )]
 
                 # Full graph read — rendering + inline-guarantee degradation
@@ -544,6 +561,7 @@ def create_mcp_server() -> Server:
                 )]
 
             elif name == "kg_useful":
+                from core.constants import LIKES_GUIDANCE_PER_SESSION
                 sid = arguments["session_id"]
                 session_manager.increment_ops(sid)
                 result = store.mark_useful(arguments["ids"], sid)
@@ -551,7 +569,14 @@ def create_mcp_server() -> Server:
                 if result["accepted"]:
                     parts.append("Marked useful: " + ", ".join(result["accepted"]))
                 parts.extend(f"Skipped {nid}: {why}" for nid, why in result["rejected"].items())
-                parts.append(f"{result['remaining']} like(s) remaining this session.")
+                over = result.get("over_guidance", 0)
+                if over:
+                    parts.append(
+                        f"{over} past the guidance of {LIKES_GUIDANCE_PER_SESSION} — fine if each "
+                        f"one earned it; {result['remaining']} left before the hard cap."
+                    )
+                else:
+                    parts.append(f"{result['remaining']} like(s) remaining this session.")
                 return [TextContent(type="text", text="\n".join(parts))]
 
             elif name == "kg_rename_node":

@@ -1,7 +1,7 @@
 {
   "name": "knowledge-graph",
-  "version": "0.9.36",
-  "description": "Extract and remember patterns, insights, and relationships worth preserving across sessions. Unlike flat-file memory, knowledge is a graph — nodes gain meaning through edges. Auto-compaction, multi-session sync, visual editor.",
+  "version": "0.9.37",
+  "description": "Extract and remember patterns, insights, and relationships worth preserving across sessions. Unlike flat-file memory, knowledge is a graph \u2014 nodes gain meaning through edges. Auto-compaction, multi-session sync, visual editor.",
   "author": {
     "name": "Maxim",
     "url": "https://github.com/mironmax"

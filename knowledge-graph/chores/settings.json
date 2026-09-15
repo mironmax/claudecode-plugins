@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "mcp__plugin_knowledge-graph_kg__kg_read",
+      "mcp__plugin_knowledge-graph_kg__kg_search",
+      "mcp__plugin_knowledge-graph_kg__kg_put_node",
+      "mcp__plugin_knowledge-graph_kg__kg_put_edge",
+      "mcp__plugin_knowledge-graph_kg__kg_rename_node",
+      "mcp__plugin_knowledge-graph_kg__kg_progress"
+    ],
+    "deny": [
+      "Bash",
+      "Write",
+      "Edit",
+      "NotebookEdit",
+      "Task",
+      "Agent",
+      "WebFetch",
+      "WebSearch",
+      "mcp__plugin_knowledge-graph_kg__kg_delete_node"
+    ]
+  }
+}

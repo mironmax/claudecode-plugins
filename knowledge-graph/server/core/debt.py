@@ -19,7 +19,7 @@ subagent, or scheduled tick): of all graphs, which one repays tending FIRST?
               occasional pass (notes rot invisibly), but never urgently.
 
 All three factors stay legible on purpose — the DEBT line names the raw
-numbers so a model (or Maxim) can sanity-check the verdict at a glance.
+numbers so a model or a person can sanity-check the verdict at a glance.
 """
 
 import json
@@ -36,9 +36,8 @@ GIST_OVERSIZE_CHARS = 300
 
 # --- Smear detection -------------------------------------------------------
 # A term is "smeared" when many nodes re-describe one entity in prose instead
-# of edging to the node that owns it (measured live 2026-07-28: "oxygen" in
-# 48 comra node texts, "megamenu" in 38, while the hub nodes held 3 edges).
-# Smearing is what makes project-central vocabulary useless to search — IDF
+# of edging to the node that owns it — dozens of node texts naming a product
+# feature while the hub node that owns it holds three edges. Smearing is what makes project-central vocabulary useless to search — IDF
 # sees a saga, not a signal. The detector names the worst offenders so the
 # maintain pass can consolidate one entity at a time.
 SMEAR_MIN_TERM_LEN = 5
@@ -78,8 +77,8 @@ def smeared_terms(nodes: list[dict], edges: list[dict], n_top: int = 3,
     [{term, df, hub, hub_edges}] worst-first, at most n_top.
     """
     # The project's own name prefixes half the ids by convention — that is a
-    # namespace, not a smeared entity ("comra×126" is noise, "oxygen×48" is
-    # the finding). Slug tokens and their singular/plural kin are skipped.
+    # namespace, not a smeared entity ("my-app×126" is noise, a feature name
+    # ×48 is the finding). Slug tokens and their singular/plural kin are skipped.
     slug_tokens = set((slug or "").lower().replace("_", "-").split("-")) - {""}
 
     def _is_slug_term(term: str) -> bool:

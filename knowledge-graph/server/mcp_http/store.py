@@ -27,6 +27,8 @@ from core import (
     SessionNotFoundError,
     KGError,
     validate_level,
+    MAINTAIN_NAMESPACE,
+    maintain_graph_path,
     validate_node_id,
     validate_new_node_id,
     validate_rel,
@@ -274,12 +276,38 @@ class MultiProjectGraphStore:
 
         logger.info(f"Loaded project graph for {project_root}: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges (path: {graph_path})")
 
+    def _ensure_maintain_loaded(self):
+        """Load the maintenance-lessons graph if not already loaded.
+
+        Lazy on purpose: this graph is the chore agent's own memory, touched
+        only by maintenance work, so the overwhelming majority of sessions
+        never pay for it. Caller must hold the lock.
+        """
+        if MAINTAIN_NAMESPACE in self.graphs:
+            return
+        persistence = GraphPersistence(maintain_graph_path())
+        graph, versions, progress = self._load_with_fallback(persistence)
+        self._clean_orphaned_edges(graph)
+        self.graphs[MAINTAIN_NAMESPACE] = graph
+        self._versions[MAINTAIN_NAMESPACE] = versions
+        self._progress[MAINTAIN_NAMESPACE] = progress
+        self._persistence[MAINTAIN_NAMESPACE] = persistence
+        self.dirty[MAINTAIN_NAMESPACE] = False
+        logger.info(f"Loaded maintain graph: {len(graph['nodes'])} lesson(s)")
+
     def _get_graph_key(self, level: str, session_id: str | None) -> str:
         """Get the graph storage key for a level and session."""
         validate_level(level)
 
         if level == "user":
             return "user"
+        elif level == "maintain":
+            # No session or project needed — one maintenance memory per machine,
+            # shared by every chore in every project. That sharing is the point:
+            # a lesson learned gardening one graph is worth nothing if it cannot
+            # reach the next.
+            self._ensure_maintain_loaded()
+            return MAINTAIN_NAMESPACE
         else:  # level == "project"
             if not session_id:
                 raise ValueError("session_id required for project-level operations")
@@ -428,9 +456,19 @@ class MultiProjectGraphStore:
     def mark_useful(self, node_ids: list, session_id: str) -> dict:
         """Record explicit usefulness endorsements ("likes") on nodes.
 
-        The usefulness signal that feeds the scorer: an agent marks the nodes
-        that actually helped this session. Endorsement, not traffic — at most
-        MAX_LIKES_PER_SESSION per session, one vote per node per session; the
+        The usefulness signal that feeds the scorer, and the only writer of
+        _useful_ts. Two kinds of endorsement share it: a node that HELPED (it
+        was on the surface and the work went differently for it, judged at
+        wrap-up) and a node that was MISSING (it existed, the session needed
+        it, and nothing surfaced it — sent as soon as the gap is established).
+        The second is what lets a wrong archival decision be corrected at all;
+        without it the scorer only ever hears about its hits.
+
+        Endorsement, not traffic — but the budget is guidance backed by a
+        flood stop, not a wall: LIKES_GUIDANCE_PER_SESSION is what the doctrine
+        asks for, MAX_LIKES_PER_SESSION is where it actually refuses, and the
+        gap between them exists because a session that keeps finding real
+        signal must be able to report it. One vote per node per session; the
         per-session ledger lives on the session record, the decaying timestamps
         on the node (_useful_ts). Reads deliberately don't feed this signal.
 
@@ -438,9 +476,10 @@ class MultiProjectGraphStore:
         never resets recency or sync state.
 
         Returns {"accepted": [ids], "rejected": {id: reason},
-                 "remaining": budget left this session}.
+                 "remaining": endorsements left before the hard cap,
+                 "over_guidance": how far past the guidance this session is}.
         """
-        from core.constants import MAX_LIKES_PER_SESSION
+        from core.constants import LIKES_GUIDANCE_PER_SESSION, MAX_LIKES_PER_SESSION
 
         with self.lock:
             session = self.session_manager.lookup(session_id)
@@ -456,7 +495,10 @@ class MultiProjectGraphStore:
                     rejected[node_id] = "already liked this session"
                     continue
                 if len(liked) >= MAX_LIKES_PER_SESSION:
-                    rejected[node_id] = f"session like budget ({MAX_LIKES_PER_SESSION}) exhausted"
+                    rejected[node_id] = (
+                        f"hard cap reached — {MAX_LIKES_PER_SESSION} nodes already "
+                        f"endorsed this session"
+                    )
                     continue
                 found = self.find_node_level(node_id, session_id)
                 if not found:
@@ -474,6 +516,7 @@ class MultiProjectGraphStore:
                 "accepted": accepted,
                 "rejected": rejected,
                 "remaining": max(0, MAX_LIKES_PER_SESSION - len(liked)),
+                "over_guidance": max(0, len(liked) - LIKES_GUIDANCE_PER_SESSION),
             }
 
     def scores_for_read(self, session_id: str | None = None) -> dict:
@@ -502,6 +545,37 @@ class MultiProjectGraphStore:
                     include_archived=True,
                 )
             return result
+
+    def maintain_lessons(self, include_archived: bool = False) -> list[dict]:
+        """The maintenance memory's lessons, best-scored first.
+
+        Read by the chore dispatcher, which renders them INTO the chore prompt
+        rather than making the chore fetch them: a lesson that costs a tool
+        call is a lesson that gets skipped, and this memory only earns its
+        keep if every chore starts with it already in front of them.
+        """
+        with self.lock:
+            self._ensure_maintain_loaded()
+            graph = self.graphs[MAINTAIN_NAMESPACE]
+            scores = self.scorer.score_all(
+                graph["nodes"], graph["edges"],
+                self._versions.get(MAINTAIN_NAMESPACE, {}),
+                include_archived=True,
+            )
+            nodes = [
+                dict(n) for n in graph["nodes"].values()
+                if include_archived or not n.get("_archived")
+            ]
+        nodes.sort(key=lambda n: -scores.get(n["id"], 0.0))
+        return nodes
+
+    def maintain_snapshot(self) -> dict:
+        """{"nodes": [...best-scored first...], "edges": [...]} for rendering."""
+        nodes = self.maintain_lessons(include_archived=True)
+        with self.lock:
+            self._ensure_maintain_loaded()
+            edges = [dict(e) for e in self.graphs[MAINTAIN_NAMESPACE]["edges"].values()]
+        return {"nodes": nodes, "edges": edges}
 
     def put_node(
         self,
@@ -1471,7 +1545,7 @@ class MultiProjectGraphStore:
     def get_progress(self, task_id: str, level: str = "user", session_id: str | None = None) -> dict:
         """Read persistent progress for a task from _meta.progress."""
         with self.lock:
-            graph_key = self._get_graph_key(level, session_id) if level == "project" else "user"
+            _lvl, graph_key = self._resolve_graph_key(level, session_id, None)
             return self._progress.get(graph_key, {}).get(task_id, {})
 
     def set_progress(self, task_id: str, state: dict, level: str = "user", session_id: str | None = None) -> dict:
@@ -1490,11 +1564,24 @@ class MultiProjectGraphStore:
         Top-level keys are written through unchanged, so readers that reach for
         state["last_ts"] (core.debt) are unaffected. A caller passing its own
         _trail key has it ignored — the ring is server-owned.
+
+        `last_ts` is server-owned too: an MCP-only agent has no clock, so a
+        caller-supplied value is a guess, and staleness — the leading term of
+        the debt score — must not run on guesses. A supplied value is replaced
+        by the server clock in both the stamp and its trail copy.
         """
         with self.lock:
-            graph_key = self._get_graph_key(level, session_id) if level == "project" else "user"
+            # Resolve, don't just name: _resolve_graph_key LOADS a project
+            # graph that is not in memory yet. Naming it alone wrote the stamp
+            # into a dict the next lazy load overwrote from disk, and
+            # _write_through skipped it for having no persistence entry — so a
+            # stamp made before anything read the graph vanished twice over.
+            _lvl, graph_key = self._resolve_graph_key(level, session_id, None)
             if graph_key not in self._progress:
                 self._progress[graph_key] = {}
+
+            state = dict(state)
+            state["last_ts"] = time.time()
 
             prior = self._progress[graph_key].get(task_id) or {}
             trail = list(prior.get(PROGRESS_TRAIL_KEY, []))
@@ -1613,8 +1700,14 @@ class MultiProjectGraphStore:
             if "/" in ref or "~" in ref:
                 return True  # artifact/file path — always "present"
             # Cross-level reference resolvable in another loaded graph level
+            # Cross-level references point BETWEEN user and project graphs.
+            # The maintain graph is excluded in both directions: its lessons
+            # must not keep a dead user/project edge alive, and a lesson's own
+            # edges are resolved against its own nodes above.
             return any(
-                ref in other["nodes"] for other in self.graphs.values() if other is not graph
+                ref in other["nodes"]
+                for gk, other in self.graphs.items()
+                if other is not graph and gk != MAINTAIN_NAMESPACE
             )
 
         # Find orphaned edges
