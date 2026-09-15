@@ -4,6 +4,9 @@ updates:
     directory: "/knowledge-graph"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
+    # Version updates off: requirements are floors, so a fresh install already
+    # resolves to current releases and a floor bump only forces older venvs to
+    # upgrade. Security updates are not subject to this limit and still open.
+    open-pull-requests-limit: 0
     labels:
       - "dependencies"

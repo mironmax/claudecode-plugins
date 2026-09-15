@@ -24,11 +24,23 @@ _KG_SID_PATTERNS = (
 )
 
 
+def safe_transcript_path(transcript_path: str) -> str | None:
+    """A Claude Code transcript: a .jsonl file under the user's home."""
+    home = str(Path.home().resolve())
+    resolved = os.path.realpath(transcript_path)
+    if not (resolved + "/").startswith(home + "/") or not resolved.endswith(".jsonl"):
+        return None
+    return resolved
+
+
 def recover_kg_sid_from_transcript(transcript_path: str) -> str | None:
     """Last KG session id our renders left in a (possibly forked) transcript."""
+    resolved = safe_transcript_path(transcript_path)
+    if resolved is None:
+        return None
     last = None
     try:
-        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(resolved, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
                 if "ession" not in line:
                     continue

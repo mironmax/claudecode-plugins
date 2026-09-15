@@ -1,10 +1,12 @@
 # mcp 2.x is a breaking rewrite: the lowlevel Server drops the
-# @server.list_tools()/@server.call_tool() decorators this server is built on.
-# 2.x replaces them with Server(on_list_tools=…, on_call_tool=…) constructor
-# callbacks — measured, with a working PoC, in
-# devdocs/ops/2026-08-05-mcp2-migration-scope.md. Cap until that lands; 1.29.0
-# shipped four minutes before 2.0.0, so the 1.x line is current, not abandoned.
-mcp>=1.27.1,<2.0.0
+# @server.list_tools()/@server.call_tool() decorators this server is built on
+# in favour of Server(on_list_tools=…, on_call_tool=…) constructor callbacks.
+# Capped until that migration lands; the 1.x line is still maintained.
+# Floor 1.28.1: the last advisory fixed in 1.x (CVE-2026-59950).
+mcp>=1.28.1,<2.0.0
 uvicorn[standard]>=0.48.0
 pydantic>=2.13.4
 fastapi>=0.136.3
+# Transitive of fastapi and mcp, listed only as an advisory floor: neither
+# parent bounds it, and an older venv keeps whatever it first installed.
+starlette>=1.3.1

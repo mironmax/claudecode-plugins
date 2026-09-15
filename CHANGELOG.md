@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.38] - 2026-09-15
+
+A security release. Nothing in it changes what the server does; all of it changes what the server will accept and what it runs on.
+
+### Security
+- **Every path a hook sends is contained before it is used.** Hook payloads arrive as HTTP requests, so the paths they carry — the working directory behind a tool event, the transcript behind a session resume — are untrusted input however they were produced. Two of them reached the filesystem on trust. A tool event's `cwd` named the file the event counters live in through a slug sanitizer that is sound but sits several calls deep; the request handler now resolves it through the same home-directory containment every other entry point uses, and a `cwd` outside home is ignored rather than written. A resume's `transcript_path` was opened as given; it is now accepted only as a `.jsonl` file under the user's home, which is the only place the harness writes one, so a request naming anything else reads nothing. Neither change alters behaviour for a real hook payload.
+
+- **The prompt scrubbers are linear.** Recall strips `[Image: …]` placeholders and quoted paths from the prompt before matching it, and did so with two regular expressions whose unbounded character class precedes a closing delimiter — quadratic whenever that delimiter never arrives, on input that is by nature unbounded. Both are now hand scans that visit each character once; behaviour is unchanged and pinned by tests, and a half-megabyte prompt of unclosed delimiters scans in well under a second.
+
+- **Dependency floors carry the advisories, and an old venv follows them.** Two libraries the server runs on had published fixes it could not pick up: `mcp` below 1.28.1 (CVE-2026-59950) and `starlette` below 1.3.1 (five advisories, two rated high). `starlette` is transitive — `fastapi` and `mcp` both leave it unbounded — so it gains an explicit advisory floor of its own. The larger gap was mechanical: dependencies were installed without `--upgrade`, so a venv kept every transitive at whatever version its first install happened to resolve, and a floor bump moved only the package it named. The install now runs `--upgrade --upgrade-strategy eager` whenever `requirements.txt` changes, so an existing environment converges on what a fresh install would resolve, guarded by the smoke test from 0.9.34. Verified on a clean tree: the resolved set carries no known advisories and passes the full suite.
+
+### Changed
+- Dependabot version updates are switched off (`open-pull-requests-limit: 0`); security updates are unaffected. Requirements are floors, so a fresh install already resolves to current releases, and a floor bump only forces older environments to upgrade — which is now a release decision, made when an advisory calls for it, rather than a weekly stream of pull requests.
+- The environment setup message distinguishes a first run from a requirements change.
+
+21 test files, 534 assertions, suite green.
+
 ## [0.9.37] - 2026-09-15
 
 Maintenance existed in one shape — a 25-call pass fired by a systemd timer — and that shape does not fit a laptop. This release re-cuts it into something that runs while you work, and gives the agent doing it a memory of its own.

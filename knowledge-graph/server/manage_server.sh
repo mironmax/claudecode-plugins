@@ -103,15 +103,19 @@ ensure_venv() {
         write_breadcrumb "python3 not found on PATH — install Python 3.10+"
         return 1
     fi
-    echo "First run: setting up Python environment (one-time, ~1 min)..."
     if [ ! -x "$VENV_PYTHON" ]; then
+        echo "First run: setting up Python environment (one-time, ~1 min)..."
         "$py" -m venv "$SCRIPT_DIR/venv" || {
             echo "ERROR: could not create venv"
             write_breadcrumb "could not create the Python venv at $SCRIPT_DIR/venv"
             return 1
         }
+    else
+        echo "Requirements changed: updating Python environment (~1 min)..."
     fi
-    if ! "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check -r "$REQUIREMENTS"; then
+    # Eager: the tree converges on what a fresh install resolves, so a venv
+    # never keeps a transitive that only the first install chose.
+    if ! "$VENV_PYTHON" -m pip install --quiet --disable-pip-version-check --upgrade --upgrade-strategy eager -r "$REQUIREMENTS"; then
         echo "ERROR: dependency install failed — will retry on next start"
         write_breadcrumb "pip install from requirements.txt failed"
         return 1

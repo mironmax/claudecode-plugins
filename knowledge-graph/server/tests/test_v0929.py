@@ -79,7 +79,7 @@ def main():
 
         # --- 2. transcript recovery ------------------------------------------
         print("transcript recovery:")
-        tf = Path(tempfile.mkdtemp(prefix="kg-test-tr-")) / "t.jsonl"
+        tf = Path(tempfile.mkdtemp(prefix="kg-test-tr-", dir=str(Path.home() / ".cache"))) / "t.jsonl"
         tf.write_text(
             '{"x":"KG MEMORY PRELOADED ... session_id: deadbeef (pass it to every kg_* call)"}\n'
             '{"x":"...\\nSession: cafe0123"}\n'

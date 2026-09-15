@@ -76,10 +76,58 @@ _TERM_RE = re.compile(r"[a-z0-9][a-z0-9_\-./]*")
 
 # Harness-generated records that reach UserPromptSubmit without a human ask.
 _NOTIFICATION_MARKERS = ("<task-notification>", "[SYSTEM NOTIFICATION")
-_IMAGE_PLACEHOLDER_RE = re.compile(r"\[Image:[^\]]*\]")
-# Drag-and-dropped paths with spaces arrive quoted ('/a dir/file.pdf') —
-# one path, several whitespace tokens; swallow the span whole.
-_QUOTED_PATH_RE = re.compile(r"'[^']*/[^']*'|\"[^\"]*/[^\"]*\"")
+
+
+# The two scrubbers below are hand scans rather than regexes: they run over
+# the raw prompt, which is unbounded input, and a regex with an unbounded
+# class before a closing delimiter is quadratic when that delimiter is absent.
+def _strip_image_placeholders(p: str) -> str:
+    """Replace every '[Image: ...]' token with a space."""
+    out, i = [], 0
+    while True:
+        j = p.find("[Image:", i)
+        if j < 0:
+            out.append(p[i:])
+            return "".join(out)
+        k = p.find("]", j)
+        if k < 0:
+            out.append(p[i:])
+            return "".join(out)
+        out.append(p[i:j])
+        out.append(" ")
+        i = k + 1
+
+
+def _swallow_quoted_paths(p: str, kept: list[str]) -> str:
+    """Replace each quoted span containing '/' with a space; its basename
+    goes to `kept`. Drag-and-dropped paths with spaces arrive quoted
+    ('/a dir/file.pdf') — one path, several whitespace tokens."""
+    out, i, n = [], 0, len(p)
+    nxt = {"'": p.find("'"), '"': p.find('"')}   # next occurrence of each quote
+    while i < n:
+        for q in nxt:
+            if 0 <= nxt[q] < i:
+                nxt[q] = p.find(q, i)
+        found = [x for x in nxt.values() if x >= 0]
+        if not found:
+            out.append(p[i:])
+            break
+        j = min(found)
+        q = p[j]
+        out.append(p[i:j])
+        k = p.find(q, j + 1)
+        inner = p[j + 1:k] if k > 0 else ""
+        if k > 0 and "/" in inner:
+            base = inner.rstrip("/").rsplit("/", 1)[-1]
+            if base:
+                kept.append(base)
+            out.append(" ")
+            i = k + 1
+        else:
+            out.append(q)
+            nxt[q] = k          # the closing quote (or none) is the next opener
+            i = j + 1
+    return "".join(out)
 
 
 def _prompt_text(prompt: str) -> str | None:
@@ -95,16 +143,9 @@ def _prompt_text(prompt: str) -> str | None:
     p = (prompt or "").strip()
     if not p or any(marker in p for marker in _NOTIFICATION_MARKERS):
         return None
-    p = _IMAGE_PLACEHOLDER_RE.sub(" ", p)
+    p = _strip_image_placeholders(p)
     kept: list[str] = []
-
-    def _swallow_quoted(match) -> str:
-        base = match.group(0).strip("'\"").rstrip("/").rsplit("/", 1)[-1]
-        if base:
-            kept.append(base)
-        return " "
-
-    p = _QUOTED_PATH_RE.sub(_swallow_quoted, p)
+    p = _swallow_quoted_paths(p, kept)
     floor_chars = 0
     for tok in p.split():
         core = tok.strip("'\"()[]<>,")
@@ -510,6 +551,10 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
     tool_input = payload.get("tool_input") or {}
     if not project_path or not tool:
         return None
+    try:
+        project_path = str(safe_project_path(project_path))
+    except ValueError:
+        return None  # outside home — not a graph-bearing project
 
     extracted = _extract_target(tool, tool_input if isinstance(tool_input, dict) else {})
     if not extracted:
@@ -523,11 +568,7 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
     else:
         needle = target
 
-    try:
-        path = _events_path(project_path)
-    except ValueError:
-        return None  # path outside home — not a graph-bearing project
-
+    path = _events_path(project_path)
     now = time.time()
     key = f"{kind}:{needle}"
 

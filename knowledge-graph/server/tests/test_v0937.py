@@ -40,8 +40,8 @@ Covers:
  11. The prompt names targets, level and lessons, and forbids a self-supplied ts
  12. The agent reads user settings only, from the store directory, in an
      environment stripped of the session that launched the server
- 12. Weekly pace funds the pass tier; each tier's gates refuse independently
- 13. recently_seen_ids unions seen + preloaded for active sessions only
+ 13. Weekly pace funds the pass tier; each tier's gates refuse independently
+ 14. recently_seen_ids unions seen + preloaded for active sessions only
 """
 
 import json

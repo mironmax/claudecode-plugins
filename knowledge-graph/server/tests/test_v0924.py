@@ -20,6 +20,7 @@ real graphs under ~/.knowledge-graph.
 
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -193,7 +194,8 @@ def main():
 
         check("first fetch silent", web_event("https://docs.example.com/api") is None)
         wn = web_event("https://docs.example.com/api")
-        check("2nd fetch of same URL nudges", wn is not None and "docs.example.com" in wn, wn)
+        check("2nd fetch of same URL nudges",
+              wn is not None and re.search(r"docs\.example\.com", wn) is not None, wn)
 
         check("unknown tool ignored",
               handle_tool_event(store, session_manager, {

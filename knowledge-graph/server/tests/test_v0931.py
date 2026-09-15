@@ -207,7 +207,7 @@ def main():
         check("fresh startup preloads in full",
               r["reused"] is False and "KG MEMORY PRELOADED" in r["context"], r)
 
-        tf = Path(tempfile.mkdtemp(prefix="kg-test-tr-")) / "forked.jsonl"
+        tf = Path(tempfile.mkdtemp(prefix="kg-test-tr-", dir=str(Path.home() / ".cache"))) / "forked.jsonl"
         tf.write_text(f'{{"x":"KG MEMORY PRELOADED ... session_id: {kg_sid} (pass it)"}}\n')
 
         r = client.get("/api/session_bootstrap", params={
