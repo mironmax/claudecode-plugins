@@ -176,22 +176,34 @@ class HTTPSessionManager:
 
         return len(expired)
 
-    def mark_seen(self, session_id: str, node_ids) -> None:
+    def mark_seen(self, session_id: str, node_ids, via: str) -> None:
         """Record node ids whose GIST this session has already been shown.
 
         Feeds search dedup: a hit the session has already seen renders as a
         one-line gist reminder, never a repeated notes dump. Stored as a list
-        (JSON-serializable), deduped on insert.
+        (JSON-serializable), deduped on insert. `via` is kept per node for the
+        FIRST route only (preload, full_read, ambient, search, read) — the
+        endorsement log reads it to tell surfaced nodes from dug-up ones.
         """
         session = self._sessions.get(session_id)
         if session is None:
             return
         seen = session.setdefault("seen_ids", [])
+        seen_via = session.setdefault("seen_via", {})
         seen_set = set(seen)
         for nid in node_ids:
             if nid not in seen_set:
                 seen.append(nid)
                 seen_set.add(nid)
+            seen_via.setdefault(nid, via)
+
+    def mark_promoted(self, session_id: str, node_ids) -> None:
+        """Record nodes this session pulled out of the archive by reading them."""
+        session = self._sessions.get(session_id)
+        if session is None or not node_ids:
+            return
+        promoted = session.setdefault("promoted_ids", [])
+        promoted.extend(nid for nid in node_ids if nid not in promoted)
 
     def get_seen(self, session_id: str) -> set:
         """Set of node ids this session has already seen gists for."""
@@ -233,7 +245,7 @@ class HTTPSessionManager:
         return set(session.get("preloaded_ids", [])) if session else set()
 
     def rename_node_ref(self, old_id: str, new_id: str) -> int:
-        """Carry a renamed node through every session's seen/preload state.
+        """Carry a renamed node through every session's seen/preload/promoted state.
 
         Without this a session that has already seen the node under its old
         name loses dedup: the renamed node reads as unseen and gets re-dumped
@@ -242,7 +254,7 @@ class HTTPSessionManager:
         """
         touched = 0
         for session in self._sessions.values():
-            for field in ("seen_ids", "preloaded_ids"):
+            for field in ("seen_ids", "preloaded_ids", "promoted_ids"):
                 ids = session.get(field)
                 if not ids or old_id not in ids:
                     continue
@@ -250,6 +262,9 @@ class HTTPSessionManager:
                     new_id if nid == old_id else nid for nid in ids
                 ))
                 touched += 1
+            seen_via = session.get("seen_via")
+            if seen_via and old_id in seen_via:
+                seen_via.setdefault(new_id, seen_via.pop(old_id))
         return touched
 
     def mark_full_read(self, session_id: str) -> None:

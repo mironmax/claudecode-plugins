@@ -164,7 +164,7 @@ def main():
                        rel="mentions", session_id=sid_c)
 
         # Session state that must follow the rename.
-        session_manager.mark_seen(sid_a, [long_id])
+        session_manager.mark_seen(sid_a, [long_id], via="search")
         session_manager.set_preloaded(sid_a, [long_id, "oauth-refresh-daemon"])
 
         # Unload proj_b so its edge lives only on disk at rename time.

@@ -4,10 +4,36 @@ import json
 import logging
 import os
 import shutil
+import threading
 from pathlib import Path
 from .utils import edge_storage_key, version_key_edge
 
 logger = logging.getLogger(__name__)
+
+# One lock for every observation log: concurrent sessions share each file, and
+# the size check and the rotation must not interleave with another append.
+_jsonl_lock = threading.Lock()
+
+
+def append_jsonl(path: Path, record: dict, max_bytes: int) -> None:
+    """Append one JSON line, rolling the file to <name>.prev past max_bytes.
+
+    Never raises: the observation logs are written from request and hook paths
+    that must not fail because a log could not be written.
+    """
+    try:
+        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+        with _jsonl_lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                if path.stat().st_size + len(line) + 1 > max_bytes:
+                    os.replace(path, path.with_name(path.name + ".prev"))
+            except FileNotFoundError:
+                pass
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(line + "\n")
+    except Exception:
+        logger.debug("append to %s failed", path, exc_info=True)
 
 
 class GraphPersistence:

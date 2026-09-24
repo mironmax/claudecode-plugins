@@ -422,14 +422,18 @@ def create_mcp_server() -> Server:
                 if ids:
                     blocks = []
                     read_ok = []
+                    promoted = []
                     for nid in ids:
                         try:
                             result = store.read_node(nid, level=level, session_id=session_id)
                             blocks.append(format_node_full(nid, result))
                             read_ok.append(nid)
+                            if result.get("was_archived"):
+                                promoted.append(nid)
                         except NodeNotFoundError:
                             blocks.append(f"▸ {nid}: NOT FOUND (try kg_search — it reaches all tiers)")
-                    session_manager.mark_seen(session_id, read_ok)
+                    session_manager.mark_seen(session_id, read_ok, via="read")
+                    session_manager.mark_promoted(session_id, promoted)
                     return [TextContent(
                         type="text",
                         text="\n\n".join(blocks) + f"\n\nSession: {session_id}"
@@ -461,7 +465,7 @@ def create_mcp_server() -> Server:
                     for n in graphs[lvl]["nodes"]
                     if not n.get("_archived") and "_orphaned_ts" not in n
                 ]
-                session_manager.mark_seen(session_id, shown)
+                session_manager.mark_seen(session_id, shown, via="full_read")
                 # The announce ritual belongs to the FULL read, not the preload:
                 # a session that only scanned the compact core has not recalled
                 # its memories yet. First full read carries the instruction;
@@ -507,7 +511,7 @@ def create_mcp_server() -> Server:
                         + [m["id"] for m in result["more"]]
                         + [c["id"] for c in result["connectors"]]
                     )
-                    session_manager.mark_seen(sid, shown)
+                    session_manager.mark_seen(sid, shown, via="search")
 
                 return [TextContent(type="text", text=text)]
 

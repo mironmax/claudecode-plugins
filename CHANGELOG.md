@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.39] - 2026-09-24
+
+### Added
+- **Endorsements say how the node reached the session.** `kg_useful` credits two different things: a node that helped from the surface, and a node the session needed and had to dig for. Both landed in the same usefulness timestamps, so whether archival retires nodes too early could not be read from any data. The session now remembers the first route by which each gist reached it — preload, full read, ambient recall, search, or a read by id — and which nodes it pulled out of the archive. Every id passed to `kg_useful` appends one line to `~/.knowledge-graph/useful.jsonl` with that route, a `surfaced` flag, the node's level and archive state, and, for a refusal, its reason. Records carry the KG and Claude session ids, so they join the recall decision log. The route is what the server observed, not what the agent meant: a gist that was on screen and overlooked still counts as surfaced. A session that spans the upgrade logs its earlier sightings as `unknown` rather than never shown. No tool signature changes.
+
+### Changed
+- The recall, chore and endorsement logs share one append-and-rotate helper under one lock, replacing two copies of the same code.
+
+22 test files, 563 assertions, suite green.
+
 ## [0.9.38] - 2026-09-15
 
 A security release. Nothing in it changes what the server does; all of it changes what the server will accept and what it runs on.

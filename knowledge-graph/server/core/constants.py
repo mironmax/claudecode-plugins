@@ -228,6 +228,20 @@ RECALL_LOG_NAME = "recall.jsonl"
 RECALL_LOG_MAX_BYTES = 8 * 1024 * 1024
 
 # ---------------------------------------------------------------------------
+# Endorsement log (v0.9.39)
+#
+# Hits and misses land in one undifferentiated _useful_ts list, so "is archival
+# too aggressive?" could not be answered from the graph. Each kg_useful id now
+# appends one line saying how the node first reached the session: put there by
+# the surface (preload, full read, ambient recall) or dug up by the agent
+# (search, read by id). Refusals are logged too — a session pressing against the
+# cap is evidence about the budget. Joins recall.jsonl on kg_session.
+USEFUL_LOG_NAME = "useful.jsonl"
+USEFUL_LOG_MAX_BYTES = 2 * 1024 * 1024
+# Routes by which a gist arrives without being asked for by name or query.
+SURFACE_VIAS = frozenset({"preload", "full_read", "ambient"})
+
+# ---------------------------------------------------------------------------
 # kg_progress trail (v0.9.36)
 #
 # set_progress assigned the state dict, so each stamp destroyed the previous

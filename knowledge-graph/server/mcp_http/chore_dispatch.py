@@ -61,6 +61,7 @@ from core.constants import (
     project_namespace,
 )
 from core.debt import MAINTAIN_TASK_ID, activity_days, compute_debt
+from core.persistence import append_jsonl
 
 logger = logging.getLogger(__name__)
 
@@ -198,20 +199,8 @@ def _log(record: dict) -> None:
     that nothing ran, which is exactly the state the old dispatcher was in
     for weeks before anyone measured why.
     """
-    try:
-        record = {"ts": round(time.time(), 3), **record}
-        path = get_storage_root() / CHORE_LOG_NAME
-        path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-        try:
-            if path.stat().st_size + len(line) + 1 > CHORE_LOG_MAX_BYTES:
-                os.replace(path, path.with_suffix(path.suffix + ".prev"))
-        except FileNotFoundError:
-            pass
-        with open(path, "a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
-    except Exception:
-        logger.debug("chore log write failed", exc_info=True)
+    append_jsonl(get_storage_root() / CHORE_LOG_NAME,
+                 {"ts": round(time.time(), 3), **record}, CHORE_LOG_MAX_BYTES)
 
 
 # --------------------------------------------------------------------------

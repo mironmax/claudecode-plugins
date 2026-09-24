@@ -44,6 +44,7 @@ from core.constants import (
     project_namespace,
     safe_project_path,
 )
+from core.persistence import append_jsonl
 
 logger = logging.getLogger(__name__)
 
@@ -180,11 +181,6 @@ def _terms(prompt: str, cap: int = 24) -> list[str]:
 # Injection log
 # --------------------------------------------------------------------------
 
-# One lock for the append; recall runs on the request thread and concurrent
-# sessions in different projects share the single file.
-_recall_log_lock = threading.Lock()
-
-
 def _recall_log_path():
     return get_storage_root() / RECALL_LOG_NAME
 
@@ -199,34 +195,20 @@ def log_recall(reason: str, project_path: str, claude_sid: str | None,
     now nothing has ever seen them. Never raises: a hook must not break a
     session, so a failed write is a debug line and nothing more.
     """
-    try:
-        record = {
-            "ts": round(time.time(), 3),
-            "reason": reason,
-            "project": project_path or None,
-            "claude_session": claude_sid,
-            "kg_session": sid,
-        }
-        if terms is not None:
-            # Terms, not the prompt: enough to replay the ranking after the
-            # transcript that held the prompt has expired, without keeping a
-            # second copy of everything the user typed.
-            record["terms"] = list(terms)
-        record.update(extra)
-        line = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
-        path = _recall_log_path()
-        with _recall_log_lock:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                oversize = path.stat().st_size + len(line) + 1 > RECALL_LOG_MAX_BYTES
-            except FileNotFoundError:
-                oversize = False
-            if oversize:
-                os.replace(path, path.parent / (path.name + ".prev"))
-            with open(path, "a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
-    except Exception:
-        logger.debug("recall log write failed", exc_info=True)
+    record = {
+        "ts": round(time.time(), 3),
+        "reason": reason,
+        "project": project_path or None,
+        "claude_session": claude_sid,
+        "kg_session": sid,
+    }
+    if terms is not None:
+        # Terms, not the prompt: enough to replay the ranking after the
+        # transcript that held the prompt has expired, without keeping a
+        # second copy of everything the user typed.
+        record["terms"] = list(terms)
+    record.update(extra)
+    append_jsonl(_recall_log_path(), record, RECALL_LOG_MAX_BYTES)
 
 
 def _hit_record(r: dict) -> dict:
@@ -412,7 +394,7 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
         log_recall("trimmed_to_seen", project_path, claude_sid, sid, terms=terms,
                    threshold=threshold)
         return None
-    session_manager.mark_seen(sid, shown_unseen)
+    session_manager.mark_seen(sid, shown_unseen, via="ambient")
     injected = assemble()
     log_recall("injected", project_path, claude_sid, sid, terms=terms,
                threshold=threshold,

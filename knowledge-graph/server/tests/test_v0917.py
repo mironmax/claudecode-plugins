@@ -172,11 +172,11 @@ def test_seen_tracking():
             sm = HTTPSessionManager()
             sid = sm.register(os.path.expanduser("~"))["session_id"]
             check("fresh session sees nothing", sm.get_seen(sid) == set())
-            sm.mark_seen(sid, ["a", "b"])
-            sm.mark_seen(sid, ["b", "c"])
+            sm.mark_seen(sid, ["a", "b"], via="search")
+            sm.mark_seen(sid, ["b", "c"], via="search")
             check("seen accumulates deduped", sm.get_seen(sid) == {"a", "b", "c"})
             check("stored JSON-serializable", isinstance(sm.lookup(sid)["seen_ids"], list))
-            sm.mark_seen("unknown-session", ["x"])
+            sm.mark_seen("unknown-session", ["x"], via="search")
             check("unknown session is a no-op", sm.lookup("unknown-session") is None)
         finally:
             del os.environ["KG_STORAGE_ROOT"]

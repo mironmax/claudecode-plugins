@@ -170,7 +170,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 debt = None
             result = build_bootstrap(graphs, scores, session_id, debt=debt)
             session_manager.set_preloaded(session_id, result["shown_ids"])
-            session_manager.mark_seen(session_id, result["shown_ids"])
+            session_manager.mark_seen(session_id, result["shown_ids"], via="preload")
             return {
                 "session_id": session_id,
                 "reused": reused,

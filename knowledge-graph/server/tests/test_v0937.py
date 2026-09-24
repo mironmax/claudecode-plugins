@@ -347,13 +347,13 @@ def main():
 
     # --- 13. what a live session is holding -----------------------------------
     print("live context:")
-    session_manager.mark_seen(sid, ["seen-a", "seen-b"])
+    session_manager.mark_seen(sid, ["seen-a", "seen-b"], via="search")
     session_manager.set_preloaded(sid, ["preloaded-c"])
     live = session_manager.recently_seen_ids(3600)
     check("seen and preloaded ids both count as in-context",
           {"seen-a", "seen-b", "preloaded-c"} <= live, live)
     stale_sid = session_manager.register(project_dir)["session_id"]
-    session_manager.mark_seen(stale_sid, ["stale-node"])
+    session_manager.mark_seen(stale_sid, ["stale-node"], via="search")
     session_manager._sessions[stale_sid]["last_activity"] = time.time() - 86400
     check("a session idle past the window no longer protects its nodes",
           "stale-node" not in session_manager.recently_seen_ids(3600))

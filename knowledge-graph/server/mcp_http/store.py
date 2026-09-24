@@ -45,7 +45,7 @@ from core.constants import (
     PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
     PROGRESS_TRAIL_VALUE_CHARS,
 )
-from core.persistence import rewrite_edge_refs_on_disk
+from core.persistence import append_jsonl, rewrite_edge_refs_on_disk
 from .session_manager import HTTPSessionManager
 
 logger = logging.getLogger(__name__)
@@ -475,49 +475,87 @@ class MultiProjectGraphStore:
         A like is not a content write: node versions are untouched, so liking
         never resets recency or sync state.
 
+        Every id, accepted or refused, also appends a line to useful.jsonl
+        naming how the node first reached the session (constants: USEFUL_LOG_NAME).
+
         Returns {"accepted": [ids], "rejected": {id: reason},
                  "remaining": endorsements left before the hard cap,
                  "over_guidance": how far past the guidance this session is}.
         """
-        from core.constants import LIKES_GUIDANCE_PER_SESSION, MAX_LIKES_PER_SESSION
+        from core.constants import (LIKES_GUIDANCE_PER_SESSION, MAX_LIKES_PER_SESSION,
+                                    SURFACE_VIAS, USEFUL_LOG_MAX_BYTES, USEFUL_LOG_NAME)
 
         with self.lock:
             session = self.session_manager.lookup(session_id)
             if session is None:
                 raise SessionNotFoundError(session_id)
             liked = session.setdefault("liked_ids", [])
+            seen_via = session.get("seen_via", {})
+            seen = set(session.get("seen_ids", []))
+            promoted = set(session.get("promoted_ids", []))
 
             accepted: list = []
             rejected: dict = {}
+            records: list = []
             now = time.time()
+
+            def record(node_id, refused=None, level=None, node=None):
+                # Seen with no route: the sighting predates route tracking
+                # (a session that spans the upgrade). Not the same as never shown.
+                via = seen_via.get(node_id) or ("unknown" if node_id in seen else None)
+                rec = {
+                    "ts": round(now, 3),
+                    "kg_session": session_id,
+                    "claude_session": session.get("claude_sid"),
+                    "project": session.get("project_path"),
+                    "id": node_id,
+                    "level": level,
+                    "via": via,
+                    "surfaced": via in SURFACE_VIAS,
+                    "promoted": node_id in promoted,
+                    "archived": node is not None and (is_archived(node) or "_orphaned_ts" in node),
+                    "session_likes": len(liked),
+                }
+                if refused:
+                    rec["refused"] = refused
+                records.append(rec)
+
             for node_id in node_ids:
                 if node_id in liked:
                     rejected[node_id] = "already liked this session"
+                    record(node_id, "duplicate")
                     continue
                 if len(liked) >= MAX_LIKES_PER_SESSION:
                     rejected[node_id] = (
                         f"hard cap reached — {MAX_LIKES_PER_SESSION} nodes already "
                         f"endorsed this session"
                     )
+                    record(node_id, "cap")
                     continue
                 found = self.find_node_level(node_id, session_id)
                 if not found:
                     rejected[node_id] = "not found"
+                    record(node_id, "not_found")
                     continue
-                _level, graph_key = found
+                level, graph_key = found
                 node = self.graphs[graph_key]["nodes"][node_id]
                 node.setdefault("_useful_ts", []).append(now)
                 liked.append(node_id)
                 accepted.append(node_id)
+                record(node_id, level=level, node=node)
                 self.dirty[graph_key] = True
                 self._write_through(graph_key)
 
-            return {
-                "accepted": accepted,
-                "rejected": rejected,
-                "remaining": max(0, MAX_LIKES_PER_SESSION - len(liked)),
-                "over_guidance": max(0, len(liked) - LIKES_GUIDANCE_PER_SESSION),
-            }
+        log_path = get_storage_root() / USEFUL_LOG_NAME
+        for rec in records:
+            append_jsonl(log_path, rec, USEFUL_LOG_MAX_BYTES)
+
+        return {
+            "accepted": accepted,
+            "rejected": rejected,
+            "remaining": max(0, MAX_LIKES_PER_SESSION - len(liked)),
+            "over_guidance": max(0, len(liked) - LIKES_GUIDANCE_PER_SESSION),
+        }
 
     def scores_for_read(self, session_id: str | None = None) -> dict:
         """Node scores per level for kg_read's degradation ladder.
