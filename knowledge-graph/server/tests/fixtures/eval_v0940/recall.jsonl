@@ -1,0 +1,9 @@
+{"ts":1000,"reason":"full_read_nudge","project":"/home/dev/demo","claude_session":"cc-1","kg_session":"kg-s1"}
+{"ts":1010,"reason":"injected","project":"/home/dev/demo","claude_session":"cc-1","kg_session":"kg-s1","terms":["cache","invalidation","schema"],"threshold":0.02,"chars":140,"hits":[{"id":"demo-cache-invalidation","level":"project","score":0.05,"seen":false,"title_match":true,"matched_terms":3,"max_term_idf":1.0}],"connectors":[],"edges":0}
+{"ts":1020,"reason":"no_hits","project":"/home/dev/demo","claude_session":"cc-1","kg_session":"kg-s1","terms":["login","parallel"],"threshold":0.02,"best":[]}
+{"ts":1030,"reason":"all_seen","project":"/home/dev/demo","claude_session":"cc-1","kg_session":"kg-s1","terms":["deploy","script"],"threshold":0.02,"hits":[{"id":"demo-deploy-script","level":"project","score":0.04,"seen":true,"title_match":true,"matched_terms":2,"max_term_idf":1.0},{"id":"demo-cache-invalidation","level":"project","score":0.02,"seen":true,"title_match":false,"matched_terms":1,"max_term_idf":0.5}]}
+{"ts":1035,"reason":"not_a_prompt","project":"/home/dev/demo","claude_session":"cc-1","kg_session":"kg-s1"}
+{"ts":2000,"reason":"injected","project":"/home/dev/demo","claude_session":"cc-2","kg_session":"kg-s2","terms":["venv","requirements"],"threshold":0.02,"chars":100,"hits":[{"id":"python-venv-selfheal","level":"user","score":0.05,"seen":false,"title_match":true,"matched_terms":2,"max_term_idf":1.0}],"connectors":[],"edges":0}
+{"ts":2010,"reason":"no_terms","project":"/home/dev/demo","claude_session":"cc-2","kg_session":"kg-s2"}
+{"ts":2020,"reason":"no_hits","project":"/home/dev/demo","claude_session":"cc-2","kg_session":"kg-s2","terms":["rebase","autosquash"],"threshold":0.02,"best":[{"id":"demo-flaky-login-test","level":"project","score":0.001,"seen":true,"title_match":false,"matched_terms":1,"max_term_idf":0.2}]}
+{"ts":3000,"reason":"full_read_nudge","project":null,"claude_session":"cc-3","kg_session":"kg-s3"}

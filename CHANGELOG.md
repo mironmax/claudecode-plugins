@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.40] - 2026-09-24
+
+### Added
+- **A retrieval evaluation harness.** `python -m eval` (in `knowledge-graph/server`) replays the recall decision log against the graphs as they were at each prompt, read from the storage root's git history, and scores the result by the endorsement log. The descriptive half reports fire rate, payload size, the route by which endorsed nodes reached the session, the share of endorsements that were dug up, and how often an injected node was endorsed afterwards, overall and per project. The replay half runs named ranking variants and reports, for each, how many dug-up endorsements it would have surfaced earlier in the same session, how many ambient endorsements it would still surface, and how many injections it adds or drops against production. A variant is a function from terms, graphs and seen-set to ranked ids, so a new ranking idea takes a few lines. The baseline is the production search and recall decision code, not a copy of it, and a consistency check prints whether it reproduces the logged decisions wherever git proves the graph state. Text by default, `--json` for machine use; read-only on every input, and it never starts the server. The report says what it measures in the logs' own terms: endorsement is the only label, an injected node nobody endorsed is a weak negative, and the seen-set is reconstructed, with its agreement rate printed. See "Retrieval evaluation harness" in `ARCHITECTURE.md`.
+
+### Changed
+- Prompt recall's decision, everything after the search, is a pure function (`ambient.decide_recall`) that the harness calls too. Behaviour and log records are unchanged.
+- `GraphPersistence.parse` turns on-disk graph JSON into the in-memory shape, for graphs that come from somewhere other than their file.
+
+23 test files, 617 assertions, suite green.
+
 ## [0.9.39] - 2026-09-24
 
 ### Added

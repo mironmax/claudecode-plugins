@@ -1,0 +1,7 @@
+{"ts":999,"kg_session":"kg-s1","claude_session":"cc-1","project":"/home/dev/demo","id":"demo-deploy-script","level":"project","via":"read","surfaced":false,"promoted":false,"archived":false,"session_likes":0}
+{"ts":1040,"kg_session":"kg-s1","claude_session":"cc-1","project":"/home/dev/demo","id":"demo-cache-invalidation","level":"project","via":"ambient","surfaced":true,"promoted":false,"archived":true,"session_likes":1}
+{"ts":1050,"kg_session":"kg-s1","claude_session":"cc-1","project":"/home/dev/demo","id":"demo-flaky-login-test","level":"project","via":"search","surfaced":false,"promoted":false,"archived":true,"session_likes":2}
+{"ts":1051,"kg_session":"kg-s1","claude_session":"cc-1","project":"/home/dev/demo","id":"demo-flaky-login-test","level":null,"via":"search","surfaced":false,"promoted":false,"archived":false,"session_likes":3,"refused":"duplicate"}
+{"ts":1060,"kg_session":"kg-s1","claude_session":"cc-1","project":"/home/dev/demo","id":"git-rebase-autosquash","level":"user","via":"unknown","surfaced":false,"promoted":false,"archived":false,"session_likes":3}
+{"ts":2030,"kg_session":"kg-s2","claude_session":"cc-2","project":"/home/dev/demo","id":"git-rebase-autosquash","level":"user","via":"preload","surfaced":true,"promoted":false,"archived":false,"session_likes":0}
+{"ts":2032,"kg_session":"kg-s2","claude_session":"cc-2","project":"/home/dev/demo","id":"demo-deploy-script","level":"project","via":null,"surfaced":false,"promoted":false,"archived":false,"session_likes":1}

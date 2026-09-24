@@ -228,6 +228,48 @@ hook for any dispatcher, from an in-session subagent to a cron tick. A pass
 stamps itself via `kg_progress` task `"maintain"`; only stamped passes reset
 staleness.
 
+### Retrieval evaluation harness
+
+`server/eval/` replays the logged recall decisions (`recall.jsonl`) against the
+graphs as they were at each prompt and scores them by the endorsement log
+(`useful.jsonl`), so a change to ranking, thresholds or channels can be judged
+against real use:
+
+```
+cd knowledge-graph/server
+./venv/bin/python -m eval [--root DIR] [--since T] [--until T] [--variant NAME]... [--json]
+```
+
+It reports, overall and per project: fire rate, payload size, the route by
+which endorsed nodes reached the session, the share of endorsements that were
+dug up, and how often an injected node was endorsed afterwards. Then, per
+variant: how many dug-up endorsements it would have surfaced earlier in the
+same session, how many ambient endorsements it would still surface, and how
+many injections it adds or drops against the baseline. A variant is a function
+`(terms, graphs, seen) -> ranked ids` (`eval/variants.py`); the baseline runs
+the store's own `search` and `ambient.decide_recall`, not a copy, so it cannot
+drift from production. A consistency check replays every record whose graph
+state is provable and reports whether the baseline reproduces the logged
+decision.
+
+It is read-only: logs and graph files are only read, git only through
+`log`/`show` with optional locks off, and nothing it imports starts the
+server.
+
+**What it cannot measure.** An endorsement is the only explicit label, and it
+is sparse. A dug-up endorsement (reached by search, a read by id, or never
+shown) is a miss recall should have prevented; an injected node nobody
+endorsed is a weak negative, not proof of noise, so the harness reports no
+precision or recall. The seen-set is not logged and is reconstructed (nodes
+active at the session's full read, plus ids logged records flag as seen);
+the report prints how often that reconstruction agrees with the logged
+speak/silent decision. "Earlier in the session" means before the endorsement,
+since the log does not record when a node was dug up. Graph state is *known*
+only when git proves the file unchanged between the snapshot and the prompt
+(autocommit stages the whole tree, so a later commit that leaves the file
+alone proves it); otherwise it is *approx* or, with no history, *current*,
+and only *known* prompts enter the consistency check.
+
 ---
 
 ## Storage Layer
@@ -274,6 +316,7 @@ staleness.
 - **Extract Skill** (`/skill kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
 - **Ranked Search** — `kg_search` and prompt recall share one core (RRF, k=60): whitespace tokens plus their `./_-` subtokens, light stemming (schedule ≈ scheduling), adjacent-subtoken bigram terms with their own co-occurrence IDF, field-weighted occurrences (id ×3, gist ×2, notes ×1) and sharpened IDF so one term naming the right node isn't outvoted by several dull ones. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent. Write-side, the same pipeline powers `put_node`'s near-duplicate and hub-mention nudges.
 - **Ambient recall & capture** — prompt-matched gist injection per prompt and re-derivation capture nudges on tool traffic; all decisions server-side behind thin hooks (see "The Ambient Loop").
+- **Retrieval evaluation** — `python -m eval` replays logged recall decisions under ranking variants and scores them by endorsements (see "Retrieval evaluation harness").
 - **Maintenance debt** — per-graph `DEBT:` line, disk-wide survey endpoint, and `/kg-maintain` as a bounded, resumable, self-stamping pass.
 
 ### Planned Features
