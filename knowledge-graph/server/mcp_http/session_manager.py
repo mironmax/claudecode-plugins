@@ -182,7 +182,7 @@ class HTTPSessionManager:
         Feeds search dedup: a hit the session has already seen renders as a
         one-line gist reminder, never a repeated notes dump. Stored as a list
         (JSON-serializable), deduped on insert. `via` is kept per node for the
-        FIRST route only (preload, full_read, ambient, search, read) — the
+        FIRST route only (preload, full_read, ambient, file, search, read) — the
         endorsement log reads it to tell surfaced nodes from dug-up ones.
         """
         session = self._sessions.get(session_id)

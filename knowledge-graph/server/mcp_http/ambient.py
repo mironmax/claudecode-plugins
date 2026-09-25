@@ -8,9 +8,11 @@ parses anything:
                          gists (unseen nodes only) ride the hook's
                          additionalContext. Returns None when the staged
                          random pools should speak instead.
-  handle_tool_event    — PostToolUse (Read|WebFetch|WebSearch): counts targets
-                         across sessions and returns a capture nudge only on
-                         proven re-derivation of an uncovered target.
+  handle_tool_event    — PostToolUse: file recall (file_recall.py) for the
+                         file a tool touched when nodes cover it; otherwise,
+                         for Read/WebFetch/WebSearch, counts targets across
+                         sessions and returns a capture nudge only on proven
+                         re-derivation of an uncovered target.
 
 Both return plain text; the REST layer wraps it in hook-output JSON. Every
 failure path returns None — a hook must never break a session.
@@ -292,6 +294,14 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
     return injected
 
 
+def render_node_line(rec: dict, indent: str = "") -> str:
+    """One node in an injection: its gist when unseen, a bare anchor when
+    the session already holds it. Shared by prompt and file recall."""
+    if rec.get("seen"):
+        return f"{indent}- [{rec['level']}] {rec['id']} (in context)"
+    return f"{indent}- [{rec['level']}] {rec['id']}: {rec['gist']}"
+
+
 # top_k above MAX_HITS on purpose: the evidence gate filters the widened list,
 # so one sharp hit ranked 6th by accumulation still gets its turn.
 RECALL_SEARCH_TOP_K = 10
@@ -395,13 +405,8 @@ def decide_recall(result: dict, terms: list[str]) -> dict:
     # the header doesn't water down the payload.
     header = "KG recall — memory matching this prompt:"
 
-    def node_line(rec, indent=""):
-        if rec.get("seen"):
-            return f"{indent}- [{rec['level']}] {rec['id']} (in context)"
-        return f"{indent}- [{rec['level']}] {rec['id']}: {rec['gist']}"
-
-    hit_lines = [node_line(r) for r in hits]
-    conn_lines = [node_line(c, indent="  ") for c in connectors]
+    hit_lines = [render_node_line(r) for r in hits]
+    conn_lines = [render_node_line(c, indent="  ") for c in connectors]
     edge_lines = [f"  {e['from']} --{e['rel']}--> {e['to']}" for e in edges]
 
     def assemble():
@@ -498,16 +503,21 @@ def _extract_target(tool: str, tool_input: dict) -> tuple[str, str] | None:
     return None
 
 
-def _normalize_file(target: str, project_path: str) -> str | None:
-    """Project-relative path when inside the project; None for noise paths."""
-    real = os.path.realpath(target)
-    probe = real + "/"
-    if any(frag in probe for frag in _NOISE_FRAGMENTS):
-        return None
+def file_key(target: str, project_path: str) -> str:
+    """Project-relative path when inside the project, else the real path."""
+    real = os.path.realpath(os.path.expanduser(target))
     root = os.path.realpath(project_path)
     if (real + "/").startswith(root + "/"):
         return os.path.relpath(real, root)
     return real
+
+
+def _normalize_file(target: str, project_path: str) -> str | None:
+    """file_key, or None for paths too transient to be worth a capture nudge."""
+    probe = os.path.realpath(target) + "/"
+    if any(frag in probe for frag in _NOISE_FRAGMENTS):
+        return None
+    return file_key(target, project_path)
 
 
 def _target_covered(store, project_path: str, needle: str) -> bool:
@@ -557,11 +567,15 @@ def _nudge_text(kind: str, needle: str, entry: dict, kg_sid: str) -> str:
 
 
 def handle_tool_event(store, session_manager, payload: dict) -> str | None:
-    """Record a Read/WebFetch/WebSearch event; return a capture nudge or None."""
+    """One PostToolUse event: file recall for a file the memory covers, else
+    (Read/WebFetch/WebSearch only) count the target and maybe nudge capture.
+    Never both in one response."""
     project_path = payload.get("cwd")
     tool = payload.get("tool_name")
     claude_sid = payload.get("session_id") or "unknown"
     tool_input = payload.get("tool_input") or {}
+    if not isinstance(tool_input, dict):
+        tool_input = {}
     if not project_path or not tool:
         return None
     try:
@@ -569,15 +583,25 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
     except ValueError:
         return None  # outside home — not a graph-bearing project
 
-    extracted = _extract_target(tool, tool_input if isinstance(tool_input, dict) else {})
+    recall, covered = None, False
+    try:
+        from .file_recall import build_file_recall, file_targets
+        paths = file_targets(tool, tool_input, project_path)
+        if paths:
+            recall, covered = build_file_recall(store, session_manager, project_path,
+                                                tool, paths, payload.get("session_id"))
+    except Exception:
+        logger.exception("file recall failed")
+
+    extracted = _extract_target(tool, tool_input)
     if not extracted:
-        return None
+        return recall
     kind, target = extracted
 
     if kind == "read":
         needle = _normalize_file(target, project_path)
         if not needle:
-            return None
+            return recall
     else:
         needle = target
 
@@ -593,16 +617,17 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
             entry["sessions"] = (entry["sessions"] + [claude_sid])[-10:]
         entry["last_ts"] = now
 
-        try:
-            nudge = _decide_nudge(store, session_manager, data, entry,
-                                  project_path, kind, needle, now,
-                                  claude_sid=claude_sid)
-        except Exception:
-            logger.exception("tool_event nudge decision failed")
-            nudge = None
+        nudge = None
+        if not covered:
+            try:
+                nudge = _decide_nudge(store, session_manager, data, entry,
+                                      project_path, kind, needle, now,
+                                      claude_sid=claude_sid)
+            except Exception:
+                logger.exception("tool_event nudge decision failed")
         _save_events(path, data)
 
-    return nudge
+    return recall or nudge
 
 
 def _decide_nudge(store, session_manager, data, entry, project_path, kind, needle, now,

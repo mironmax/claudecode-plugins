@@ -66,6 +66,10 @@ one targeted read away.
      memory arrives exactly when it is relevant, with zero model round-trips.
      Harness records (task notifications, image-paste placeholders, dragged
      paths) carry no user intent and stay silent
+   - **Recall at the file**: when a tool reads or edits a file (Read, Edit,
+     Write, MultiEdit, NotebookEdit, and Bash commands that plainly read one),
+     the unseen nodes whose touches name it ride the tool hook's output —
+     archived ones too, without promoting them
    - **Capture on proven re-derivation**: tool traffic (Read/WebFetch/WebSearch)
      is counted per target; an uncovered file read in a second distinct session
      earns a one-time capture nudge — first reads never do
@@ -210,7 +214,11 @@ the hook layer parses nothing and can never break a session:
 |------|----------|----------------|
 | SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week); compact re-renders the core (the summary squeezed it), every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
 | UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), run through the shared search core (subtokens, stems, bigrams, field-weighted, sharpened IDF — ubiquitous words carry no signal), seen-deduped, corroboration threshold plus an evidence gate (a hit speaks only corroborated, near-unique, or named by the node's id/gist — lexical strays stay silent), hits injected in evidence-quality order: unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
-| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap) |
+| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | file recall (`mcp_http/file_recall.py`): the file a tool touched is looked up in a touches reverse index (user + project graph, rebuilt only when that graph's write generation moves; `path:12-40 (anchor)`, `./`, `~` and absolute touches normalise to the file they name), unseen nodes injected as gist lines — archived included, never promoted — at most 3 within 1,200 chars, ranked by node score then recency, marked seen via `file`, throttled per session (3 per 10 min); Bash counts only for `cat`/`head`/`tail`/`less`/`sed -n`/`grep`/`jq` operands that exist as files. Otherwise, for Read/WebFetch/WebSearch: per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap). A covered file never nudges |
+
+Both recall channels log every decision to `recall.jsonl`, silences
+included: prompt recall under its own reasons with the prompt's terms, file
+recall under reason `file_recall` with an `outcome` and the files it looked up.
 
 Precision is the design constraint on this whole loop: an ambient channel that
 speaks too often trains the model to ignore it. Thresholds make silence the
@@ -252,6 +260,11 @@ drift from production. A consistency check replays every record whose graph
 state is provable and reports whether the baseline reproduces the logged
 decision.
 
+File recall records (reason `file_recall`) carry files, not terms, so they
+are not replayed. The descriptive block reports them on their own line, apart
+from the prompt statistics; what they injected counts as seen in the
+reconstructed seen-set, from the record's time on.
+
 It is read-only: logs and graph files are only read, git only through
 `log`/`show` with optional locks off, and nothing it imports starts the
 server.
@@ -280,6 +293,8 @@ and only *known* prompts enter the consistency check.
 ~/.knowledge-graph/
   ├── user.json                          # Cross-project insights (singleton)
   ├── sessions.json                      # Session registry
+  ├── recall.jsonl                       # Recall decisions, prompt and file (+ .prev)
+  ├── useful.jsonl                       # Endorsements with their route (+ .prev)
   └── projects/
       └── <slug>/
           ├── graph.json                 # Project-specific knowledge

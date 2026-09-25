@@ -181,6 +181,10 @@ class MultiProjectGraphStore:
         # Thread safety
         self.lock = threading.RLock()
         self.dirty: dict[str, bool] = {}
+        # Per-graph write generation: bumped on every write-through, prune and
+        # load, so derived indexes (file recall's touches index) know when to
+        # rebuild without being told about each mutation path.
+        self.write_gen: dict[str, int] = {}
 
         # Background saver
         self.running = True
@@ -229,6 +233,7 @@ class MultiProjectGraphStore:
             healed = self._heal_corrupt_nodes(graph)
 
             self.graphs[user_key] = graph
+            self._bump_gen(user_key)
             self._versions[user_key] = versions
             self._progress[user_key] = progress
             self._persistence[user_key] = persistence
@@ -265,6 +270,7 @@ class MultiProjectGraphStore:
         healed = self._heal_corrupt_nodes(graph)
 
         self.graphs[project_key] = graph
+        self._bump_gen(project_key)
         self._versions[project_key] = versions
         self._progress[project_key] = progress
         self._persistence[project_key] = persistence
@@ -372,8 +378,13 @@ class MultiProjectGraphStore:
         except Exception as e:
             logger.error(f"Error broadcasting: {e}")
 
+    def _bump_gen(self, graph_key: str):
+        """Mark a graph changed for derived indexes. Caller must hold lock."""
+        self.write_gen[graph_key] = self.write_gen.get(graph_key, 0) + 1
+
     def _write_through(self, graph_key: str):
         """Immediately save a graph to disk after mutation. Caller must hold lock."""
+        self._bump_gen(graph_key)
         if graph_key in self._persistence:
             self._save_to_disk(graph_key)
             self.dirty[graph_key] = False
@@ -1832,6 +1843,7 @@ class MultiProjectGraphStore:
                 del edges[key]
             del nodes[node_id]
             self.dirty[graph_key] = True
+            self._bump_gen(graph_key)
             logger.info(f"Permanently deleted orphaned node '{node_id}' from {graph_key}")
 
     def _save_to_disk(self, graph_key: str) -> bool:
