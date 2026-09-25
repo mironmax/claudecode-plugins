@@ -13,6 +13,8 @@ class Node(TypedDict):
     _orphaned_ts: NotRequired[float]
     _created_ts: NotRequired[float]
     _last_read_ts: NotRequired[float]
+    _useful_ts: NotRequired[list[float]]
+    _gist_ts: NotRequired[list[float]]   # gist rewrites, bounded (churn guard)
 
 
 # Functional syntax because the runtime key really is "from" (a Python keyword).

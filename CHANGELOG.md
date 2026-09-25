@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+- **Anchor chores repair `touches` that no longer resolve.** Files move, get renamed and get deleted, and nothing repaired the pointer. The DEBT line now counts dangling touches: relative entries resolve against the project root, `~` against home, absolute paths as themselves, with `path:lines (anchor)` suffixes understood. Detection is one stat per entry and never walks a tree, so it is cheap enough for every read. A chore has no filesystem, so before an anchor chore is chosen the server works out where each dangling entry went, off the request thread: the rename git recorded (following a chain of renames), or the one file in the project tree with the same basename. It refuses to guess. Two same-named files is `ambiguous`, an incomplete walk is `unknown`, and neither gets a replacement. The chore is shown each entry with its verdict and applies only that: `moved` becomes the replacement exactly as given, in the entry's original form and with its suffix kept; `gone` is removed; the rest are left and declined. It re-sends the gist verbatim and leaves notes out of the call. `core/anchors.py`.
+- **Lift chores write down the lesson several episodes share.** Many nodes are instance-shaped: a dated record, a session, a review, a status snapshot. Those are episodes stored in the tier meant for durable knowledge. The server groups instance-shaped active nodes that touch the same file, share an edge, or share at least three neighbours and terms. A group becomes a candidate only when it has at least two members, because one episode is not a principle. The chore reads one whole cluster and writes the claim that holds outside it once, as a principle node: notes on when it matters and what goes wrong, and touches taken from the members' own. It then edges each supporting member to the principle with `instance-of`. It must cite at least two members and never edits, renames or deletes one; archiving them is left to the scorer. A lifted member is not offered for lifting again, and neither a lifted member nor one waiting in a cluster is offered as a rename, since renaming would strip the date that marks it as an episode. `core/lift.py`.
+- **A churn guard on every chore that rewrites a node in place.** Repeated in-place rewriting of the same stored text is the one maintenance pattern measured to degrade memory (`docs/research/cards/2605.12978-consolidation-degradation.md`; see also the synthesis, Conflict 1). `put_node` now records each real gist change on the node, in `_gist_ts`, keeping the last eight. A create, a put that re-sends the same gist, and a promotion from the archive do not count; the version counter could not tell these apart, because it also bumps on promotion. The field rides along with a rename, like `_useful_ts`. A node whose gist changed more than twice in 30 days is left out of gist, notes and anchor chores. Edge, rename and lift chores do not rewrite the node's text and are unaffected.
+- **Every lift decision is in `chores.jsonl`.** The dispatch line carries the cluster and its evidence. The `done` line carries an `outcome`: the principle nodes the members were edged to, whether they were created by this run, which members were linked, and the chore's own stamp (`done`, `principle`, `declined`). This is enough to line a lift up against the endorsement and recall logs and ask whether the touched nodes fared worse afterwards (synthesis, open question 4). Anchor dispatches log each entry's verdict and replacement.
+
+### Changed
+- The DEBT line prints `N dangling touch(es)` and `N lift cluster(s)`, and both raise the deficit term (weights 0.5 and 0.25 of the share of active nodes, alongside the existing factors). A dated id waiting in a lift cluster, or already lifted, counts toward lift and no longer toward long ids. The disk survey resolves each project graph's touches against its own `_meta.project_path`.
+- Chores rank anchor at the weight of edges and ids, and lift between those and notes.
+
+24 test files, 692 assertions, suite green.
+
 ## [0.9.40] - 2026-09-25
 
 ### Added

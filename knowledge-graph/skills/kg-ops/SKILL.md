@@ -185,7 +185,11 @@ gauge fresh AND usage low, and those two are almost never true together.
 - **Watch**: `tail -f ~/.knowledge-graph/chores.jsonl | jq .` — one line per
   decision, refusals included (`{"event":"skip","reason":"5h 71%"}`), so "why
   did nothing run" is always answerable. Dispatches log the targets; the
-  `done` line logs the return code and the debt before/after.
+  `done` line logs the return code and the debt before/after. An anchor
+  dispatch also logs each dangling entry with the server's verdict; a lift
+  dispatch logs the cluster and its evidence, and its `done` line logs the
+  `outcome` — the principle node, which members were edged to it, and the
+  chore's own stamp — so a later audit can check how the touched nodes fared.
 - **Tune**: `min_interval_s` (global spacing, default 45 min),
   `graph_cooldown_s` (6 h), `max_per_day` (8), `debt_floor` (0.12),
   `max_5h`/`max_7d` (55/80 — deliberately stricter than the scheduled pass,
@@ -194,7 +198,10 @@ gauge fresh AND usage low, and those two are almost never true together.
   holding (that would turn its next read into a NOT FOUND; gist and edge work
   is safe and only demotes such nodes), never touches one an earlier pass
   recorded as `declined`, and never does entity consolidation or duplicate
-  merges — those need a full pass's context.
+  merges — those need a full pass's context. A node whose gist was rewritten
+  more than twice in 30 days is left out of every chore that rewrites text in
+  place (gist, notes, anchor): repeated rewriting of the same memory is the
+  one maintenance pattern measured to degrade it.
   Hooks are suppressed inside a chore run via `KG_CHORE=1`, so a chore cannot
   preload a graph it does not need, nor dispatch another chore.
 - **Disable**: set `"enabled": false` (or delete the config). A chore already

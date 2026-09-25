@@ -32,8 +32,17 @@ import threading
 import time
 from pathlib import Path
 
-from core.chores import build_chore_prompt, build_pass_prompt, pick_chore
+from core.anchors import anchor_candidates, dangling_touches
+from core.chores import (
+    build_chore_prompt,
+    build_pass_prompt,
+    declined_ids,
+    is_churning,
+    pick_chore,
+    recent_chore_targets,
+)
 from core.constants import (
+    ANCHOR_RESOLVE_MAX_NODES,
     CHORE_CONFIG_NAME,
     CHORE_DEBT_FLOOR,
     CHORE_GAUGE_MAX_5H,
@@ -49,6 +58,7 @@ from core.constants import (
     CHORE_MODEL,
     CHORE_TASK_ID,
     CHORE_TIMEOUT_SECONDS,
+    LIFT_EDGE_REL,
     PASS_GAUGE_MAX_5H,
     PASS_GAUGE_MAX_7D,
     PASS_INTERVAL_DAYS,
@@ -310,8 +320,13 @@ def _ensure_loaded(store, project_path: str | None) -> None:
         logger.debug("could not load project graph for %s", project_path, exc_info=True)
 
 
-def _graph_debt(store, graph_key: str, now: float) -> tuple[dict, list, list]:
-    """(debt, nodes, edges) for a loaded graph. Caller holds no lock."""
+def _graph_debt(store, graph_key: str, now: float,
+                project_path: str | None = None) -> tuple[dict, list, list]:
+    """(debt, nodes, edges) for a loaded graph. Caller holds no lock.
+
+    project_path: the project root its touches resolve against; None for the
+    user graph, whose anchors resolve against home only.
+    """
     with store.lock:
         graph = store.graphs.get(graph_key)
         if not graph:
@@ -322,7 +337,8 @@ def _graph_debt(store, graph_key: str, now: float) -> tuple[dict, list, list]:
     last_maintain = (progress.get(MAINTAIN_TASK_ID) or {}).get("last_ts")
     ts_pool = [n.get("_last_read_ts") for n in nodes]
     debt = compute_debt(nodes, edges, last_maintain,
-                        activity_days(ts_pool, now=now), now=now)
+                        activity_days(ts_pool, now=now), now=now,
+                        project_root=project_path, home=Path.home())
     return debt, nodes, edges
 
 
@@ -396,19 +412,68 @@ def _spawn(cfg: dict, job: dict, prompt: str, store) -> None:
         finally:
             _running.clear()
         try:
-            debt_after, _n, _e = _graph_debt(store, job["graph"], time.time())
+            debt_after, _n, _e = _graph_debt(store, job["graph"], time.time(),
+                                             job.get("project_path"))
         except Exception:
             debt_after = {}
-        _log({
+        record = {
             "event": "done", "tier": job["tier"], "graph": job["graph"],
             "level": job["level"], "kind": job.get("kind"),
             "targets": job.get("targets"), "rc": rc,
             "elapsed_s": round(time.time() - started, 1),
             "debt_before": job["debt_before"], "debt_after": debt_after.get("score"),
             "tail": tail.strip().replace("\n", " ")[-400:],
-        })
+        }
+        if job.get("kind") == "lift":
+            try:
+                record["outcome"] = lift_outcome(store, job)
+            except Exception:
+                logger.debug("lift outcome not read", exc_info=True)
+        _log(record)
 
     threading.Thread(target=watch, daemon=True, name="kg-run-watch").start()
+
+
+def _lift_edges(store, graph_key: str, members) -> list[str]:
+    """Keys of the member -> principle edges that exist right now."""
+    members = set(members or [])
+    with store.lock:
+        graph = store.graphs.get(graph_key) or {"edges": {}}
+        return sorted(f"{e['from']}->{e['to']}" for e in graph["edges"].values()
+                      if e.get("rel") == LIFT_EDGE_REL and e.get("from") in members)
+
+
+def lift_outcome(store, job: dict) -> dict:
+    """What a lift chore actually did, as the server can observe it.
+
+    Every lift decision lands in chores.jsonl, so an audit can line a lift up
+    against the endorsement and recall logs and ask whether the touched nodes
+    fared worse afterwards — the "maintenance shock" AgingBench measures
+    (docs/research/synthesis.md, open question 4). The chore's own stamp says
+    what it meant to do; the edges say what it did, and a stamp can be
+    missing when a run is cut short.
+    """
+    graph_key = job["graph"]
+    before = set(job.get("lift_edges_before") or [])
+    new_edges = [k for k in _lift_edges(store, graph_key, job.get("targets"))
+                 if k not in before]
+    principles = sorted({k.split("->", 1)[1] for k in new_edges})
+    since = job.get("dispatched_ts") or 0
+    with store.lock:
+        nodes = (store.graphs.get(graph_key) or {"nodes": {}})["nodes"]
+        created = [p for p in principles
+                   if (nodes.get(p) or {}).get("_created_ts", 0) >= since]
+        trail = ((store._progress.get(graph_key, {}).get(CHORE_TASK_ID) or {})
+                 .get(PROGRESS_TRAIL_KEY) or [])
+    stamp = next((dict(e) for e in reversed(trail)
+                  if (e.get("_ts") or 0) >= since and e.get("kind") == "lift"), None)
+    return {
+        "principles": principles,
+        "created": created,
+        "linked": sorted({k.split("->", 1)[0] for k in new_edges}),
+        "stamp": ({k: stamp.get(k) for k in ("done", "principle", "declined")}
+                  if stamp else None),
+    }
 
 
 def _days_since_pass(store, graph_key: str, now: float) -> float:
@@ -442,7 +507,7 @@ def _pick_target(store, session_manager, state, cfg, now, candidates):
 
     due = []
     for level, graph_key, ppath in candidates:
-        debt, nodes, _edges = _graph_debt(store, graph_key, now)
+        debt, nodes, _edges = _graph_debt(store, graph_key, now, ppath)
         # A graph too small to have structure does not repay a full pass.
         if not debt or debt.get("active_nodes", 0) < PASS_MIN_ACTIVE_NODES:
             continue
@@ -461,7 +526,7 @@ def _pick_target(store, session_manager, state, cfg, now, candidates):
         last = (state.get("graphs") or {}).get(graph_key, 0)
         if now - last < cooldown:
             continue
-        debt, nodes, edges = _graph_debt(store, graph_key, now)
+        debt, nodes, edges = _graph_debt(store, graph_key, now, ppath)
         if not debt or debt["score"] < floor:
             continue
         scored.append((debt["score"], level, graph_key, ppath, debt, nodes, edges))
@@ -471,9 +536,23 @@ def _pick_target(store, session_manager, state, cfg, now, candidates):
     scored.sort(key=lambda r: -r[0])
     _score, level, graph_key, ppath, debt, nodes, edges = scored[0]
     chore_trail, maintain_trail = _trails(store, graph_key)
+    # Anchor candidates walk the project tree and ask git, which is why they
+    # are found here, off the request thread, and only for this one graph.
+    anchors = {}
+    if ppath:
+        try:
+            dangling = dangling_touches(nodes, ppath, Path.home())
+            # The resolve cap must not be spent on nodes no chore may take.
+            skip = recent_chore_targets(chore_trail) | declined_ids(maintain_trail, dangling)
+            skip |= {n["id"] for n in nodes if n["id"] in dangling and is_churning(n, now)}
+            dangling = {k: v for k, v in dangling.items() if k not in skip}
+            anchors = anchor_candidates(dangling, ppath, Path.home(),
+                                        max_nodes=ANCHOR_RESOLVE_MAX_NODES)
+        except Exception:
+            logger.debug("anchor discovery failed", exc_info=True)
     chore = pick_chore(nodes, edges, in_context=_live_seen(session_manager),
                        chore_trail=chore_trail, maintain_trail=maintain_trail,
-                       now=now)
+                       anchors=anchors, now=now)
     if not chore:
         return None, f"no eligible target in {graph_key} (debt {debt['score']})"
     chore.level = level
@@ -584,7 +663,18 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
                    "debt_before": payload.debt,
                    "timeout_s": cfg.get("timeout_s", CHORE_TIMEOUT_SECONDS)}
             record = {"pool": payload.pool}
+            if payload.kind == "lift":
+                record["cluster"] = {"members": payload.targets,
+                                     "evidence": payload.context.get("evidence")}
+                job["lift_edges_before"] = _lift_edges(store, payload.graph,
+                                                       payload.targets)
+            elif payload.kind == "anchor":
+                record["anchors"] = {
+                    nid: [{k: r.get(k) for k in ("entry", "verdict", "replacement")}
+                          for r in recs]
+                    for nid, recs in (payload.context.get("anchors") or {}).items()}
         job.update({"level": level, "graph": graph_key, "project": cwd,
+                    "project_path": ppath, "dispatched_ts": now,
                     "claude_bin": claude_bin, "settings": settings})
 
         with _lock:

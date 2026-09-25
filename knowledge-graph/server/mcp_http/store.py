@@ -41,7 +41,7 @@ from core import (
     is_project_namespace,
 )
 from core.constants import (
-    IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
+    GIST_TS_FIELD, GIST_TS_MAX, IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
     PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
     PROGRESS_TRAIL_VALUE_CHARS,
 )
@@ -650,6 +650,13 @@ class MultiProjectGraphStore:
             if is_new:
                 validate_new_node_id(node_id)
             node = nodes.get(node_id, {"id": node_id})
+            # A real gist change is a rewrite; the churn guard counts these
+            # (core.chores.is_churning). Not the version counter: that also
+            # bumps when a read promotes the node out of the archive, and a
+            # put that re-sends the same gist changes nothing.
+            if not is_new and node.get("gist") != gist:
+                stamps = list(node.get(GIST_TS_FIELD) or []) + [time.time()]
+                node[GIST_TS_FIELD] = stamps[-GIST_TS_MAX:]
             node["gist"] = gist
             if notes is not None:
                 node["notes"] = notes
@@ -921,7 +928,7 @@ class MultiProjectGraphStore:
         """Rename a node, carrying every reference with it.
 
         put_node(new) + delete_node(old) is NOT a rename. It drops _created_ts,
-        _useful_ts, _last_read_ts and the version history, and it strips the
+        _useful_ts, _gist_ts, _last_read_ts and the version history, and it strips the
         node of every edge. Worse, cross-level edges live in PROJECT graphs and
         point up to user nodes (see _clean_orphaned_edges) — those graphs are
         not loaded during the write, so nothing rewrites them and the next load
@@ -1682,8 +1689,10 @@ class MultiProjectGraphStore:
                         slug = project_graph_path(project_path).parent.name
                     except Exception:
                         pass
-                result[label] = compute_debt(nodes, edges, last_maintain,
-                                             activity_days(ts_pool), slug=slug)
+                result[label] = compute_debt(
+                    nodes, edges, last_maintain, activity_days(ts_pool), slug=slug,
+                    project_root=project_path if label == "project" else None,
+                    home=Path.home())
         return result
 
     # ========================================================================
