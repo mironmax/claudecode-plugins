@@ -1,0 +1,8 @@
+{
+ "nodes": {
+  "git-rebase-autosquash": {"gist": "git rebase --autosquash folds fixup commits into their targets", "notes": [], "touches": [], "_created_ts": 100},
+  "python-venv-selfheal": {"gist": "a venv rebuilds itself when the requirements hash changes", "notes": [], "touches": [], "_created_ts": 100, "_archived": true}
+ },
+ "edges": {},
+ "_meta": {"versions": {}}
+}

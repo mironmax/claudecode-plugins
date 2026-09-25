@@ -55,23 +55,8 @@ class GraphPersistence:
         try:
             with open(self.path) as f:
                 data = json.load(f)
-
-            # Extract versions and progress from _meta
-            meta = data.get("_meta", {})
-            versions = meta.get("versions", {})
-            progress = meta.get("progress", {})
-
-            # Load nodes
-            nodes = {k: v for k, v in data.get("nodes", {}).items() if k != "_meta"}
-
-            # Load edges (convert string keys to tuple keys internally)
-            edges_data = data.get("edges", {})
-            edges = {}
-            for key, edge in edges_data.items():
-                tuple_key = (edge["from"], edge["to"], edge["rel"])
-                edges[tuple_key] = edge
-
-            graph = {"nodes": nodes, "edges": edges}
+            graph, versions, progress = self.parse(data)
+            nodes, edges = graph["nodes"], graph["edges"]
 
             logger.info(f"Loaded graph from {self.path}: {len(nodes)} nodes, {len(edges)} edges")
             return graph, versions, progress
@@ -79,6 +64,30 @@ class GraphPersistence:
         except Exception as e:
             logger.error(f"Failed to load graph from {self.path}: {e}")
             raise
+
+    @staticmethod
+    def parse(data: dict) -> tuple[dict, dict, dict]:
+        """On-disk JSON -> (graph, versions, progress), as load() returns them.
+
+        Separate from load() so a graph read from somewhere other than its
+        file (the eval harness reads old versions out of git) parses the same.
+        """
+        # Extract versions and progress from _meta
+        meta = data.get("_meta", {})
+        versions = meta.get("versions", {})
+        progress = meta.get("progress", {})
+
+        # Load nodes
+        nodes = {k: v for k, v in data.get("nodes", {}).items() if k != "_meta"}
+
+        # Load edges (convert string keys to tuple keys internally)
+        edges_data = data.get("edges", {})
+        edges = {}
+        for key, edge in edges_data.items():
+            tuple_key = (edge["from"], edge["to"], edge["rel"])
+            edges[tuple_key] = edge
+
+        return {"nodes": nodes, "edges": edges}, versions, progress
 
     def save(self, graph: dict, versions: dict, progress: dict | None = None) -> bool:
         """

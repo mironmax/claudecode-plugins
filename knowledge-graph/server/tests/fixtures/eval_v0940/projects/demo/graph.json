@@ -1,0 +1,11 @@
+{
+ "nodes": {
+  "demo-deploy-script": {"gist": "the deploy script needs DEMO_ENV set before it runs", "notes": [], "touches": ["deploy.sh"], "_created_ts": 100},
+  "demo-cache-invalidation": {"gist": "cache invalidation is keyed by the schema version", "notes": [], "touches": [], "_created_ts": 100, "_archived": true},
+  "demo-flaky-login-test": {"gist": "the login test is flaky under parallel runs; serialize it", "notes": [], "touches": [], "_created_ts": 100, "_archived": true}
+ },
+ "edges": {
+  "demo-deploy-script->demo-cache-invalidation:clears": {"from": "demo-deploy-script", "to": "demo-cache-invalidation", "rel": "clears"}
+ },
+ "_meta": {"versions": {}, "project_path": "/home/dev/demo"}
+}

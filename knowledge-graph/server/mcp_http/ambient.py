@@ -256,11 +256,60 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
         return None
 
     seen = session_manager.get_seen(sid)
-    # top_k above MAX_HITS on purpose: the evidence gate filters the widened
-    # list, so one sharp hit ranked 6th by accumulation still gets its turn.
-    result = store.search(" ".join(terms), session_id=sid, seen=seen, top_k=10)
-    threshold = PROMPT_RECALL_SCORE_MULTI if len(terms) >= 2 else PROMPT_RECALL_SCORE_SINGLE
+    result = store.search(" ".join(terms), session_id=sid, seen=seen,
+                          top_k=RECALL_SEARCH_TOP_K)
+    decision = decide_recall(result, terms)
+    reason = decision["reason"]
+    threshold = decision["threshold"]
+    if reason == "no_hits":
+        # The near-miss record: what the search DID find, and how close it
+        # came. This is the only place the cost of the threshold and the
+        # evidence gate is visible.
+        log_recall("no_hits", project_path, claude_sid, sid, terms=terms,
+                   threshold=threshold,
+                   best=[_hit_record(r) for r in decision["best"]])
+        return None
+    if reason == "all_seen":
+        log_recall("all_seen", project_path, claude_sid, sid, terms=terms,
+                   threshold=threshold,
+                   hits=[_hit_record(r) for r in decision["hits"]])
+        return None
+    if reason == "trimmed_to_seen":
+        log_recall("trimmed_to_seen", project_path, claude_sid, sid, terms=terms,
+                   threshold=threshold)
+        return None
 
+    hits, connectors = decision["hits"], decision["connectors"]
+    session_manager.mark_seen(sid, decision["shown_unseen"], via="ambient")
+    injected = decision["text"]
+    log_recall("injected", project_path, claude_sid, sid, terms=terms,
+               threshold=threshold,
+               chars=len(injected),
+               hits=[_hit_record(r) for r in hits],
+               connectors=[{"id": c.get("id"), "level": c.get("level"),
+                            "seen": bool(c.get("seen"))} for c in connectors],
+               edges=decision["edges"])
+    return injected
+
+
+# top_k above MAX_HITS on purpose: the evidence gate filters the widened list,
+# so one sharp hit ranked 6th by accumulation still gets its turn.
+RECALL_SEARCH_TOP_K = 10
+
+
+def decide_recall(result: dict, terms: list[str]) -> dict:
+    """What recall does with one search result — pure, no session, no log.
+
+    Split out of build_prompt_recall so the evaluation harness (server/eval)
+    replays the production decision rather than a copy of it. Returns
+    {"reason", "threshold"} plus, by reason:
+      no_hits          — "best": the top search records (near misses)
+      all_seen         — "hits": the gated hits, every one already seen
+      trimmed_to_seen  — nothing more
+      injected         — "hits", "connectors", "edges" (count), "text",
+                         "shown_unseen" (ids the session now has seen)
+    """
+    threshold = PROMPT_RECALL_SCORE_MULTI if len(terms) >= 2 else PROMPT_RECALL_SCORE_SINGLE
     # Gate 1 — speak at all: enough match quality among the top hits, and the
     # match must be evidence, not a lexical stray: corroborated by a second
     # term, or near-unique in the graph, or naming the node's id/gist. A
@@ -301,14 +350,8 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
                              r.get("score", 0.0)), reverse=True)
     hits = hits[:PROMPT_RECALL_MAX_HITS]
     if not hits:
-        # The near-miss record: what the search DID find, and how close it
-        # came. This is the only place the cost of the threshold and the
-        # evidence gate is visible.
-        top = result.get("top", [])
-        log_recall("no_hits", project_path, claude_sid, sid, terms=terms,
-                   threshold=threshold,
-                   best=[_hit_record(r) for r in top[:3]])
-        return None
+        return {"reason": "no_hits", "threshold": threshold,
+                "best": result.get("top", [])[:3]}
 
     # The whole neighbourhood rides along: connector nodes on the paths
     # between hits, and the path edges themselves (already deduped cite-once
@@ -345,10 +388,7 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
     def _unseen(records):
         return [r for r in records if not r.get("seen")]
     if not _unseen(hits) and not _unseen(connectors):
-        log_recall("all_seen", project_path, claude_sid, sid, terms=terms,
-                   threshold=threshold,
-                   hits=[_hit_record(r) for r in hits])
-        return None
+        return {"reason": "all_seen", "threshold": threshold, "hits": list(hits)}
 
     # Week-1 audit: the "depth: kg_read(ids=[...])" invitation that used to
     # live here was followed 0/46 times — gists inline suffice. Trimmed so
@@ -391,19 +431,10 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
 
     shown_unseen = [r["id"] for r in _unseen(hits)] + [c["id"] for c in _unseen(connectors)]
     if not shown_unseen:
-        log_recall("trimmed_to_seen", project_path, claude_sid, sid, terms=terms,
-                   threshold=threshold)
-        return None
-    session_manager.mark_seen(sid, shown_unseen, via="ambient")
-    injected = assemble()
-    log_recall("injected", project_path, claude_sid, sid, terms=terms,
-               threshold=threshold,
-               chars=len(injected),
-               hits=[_hit_record(r) for r in hits],
-               connectors=[{"id": c.get("id"), "level": c.get("level"),
-                            "seen": bool(c.get("seen"))} for c in connectors],
-               edges=len(edges))
-    return injected
+        return {"reason": "trimmed_to_seen", "threshold": threshold}
+    return {"reason": "injected", "threshold": threshold, "hits": hits,
+            "connectors": connectors, "edges": len(edges), "text": assemble(),
+            "shown_unseen": shown_unseen}
 
 
 # --------------------------------------------------------------------------
