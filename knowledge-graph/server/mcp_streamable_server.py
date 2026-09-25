@@ -6,6 +6,7 @@ Uses Streamable HTTP transport (replaces deprecated SSE).
 
 import asyncio
 import contextlib
+import inspect
 import json
 import logging
 import os
@@ -13,9 +14,10 @@ import signal
 import sys
 from pathlib import Path
 
+import jsonschema
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-from mcp.types import Tool, TextContent
+from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.websockets import WebSocketClose
 
@@ -81,18 +83,19 @@ def _mcp_requirement() -> str:
 def _preflight_mcp_surface() -> None:
     """Fail legibly when the installed mcp is not the one this server is written against.
 
-    mcp 2.x keeps Server, StreamableHTTPSessionManager, Tool and TextContent
-    importable but drops the @list_tools()/@call_tool() decorators the tool
-    surface is built on. An unbounded resolution therefore died with a bare
-    AttributeError raised from inside a decorator call — a traceback naming
-    neither the package nor its version, which is why a broken install could
-    sit undiagnosed for days. Check the surface first and say what is wrong.
+    The tool surface is registered through Server's mcp 2.x constructor
+    callbacks (on_list_tools / on_call_tool). A venv still on 1.x imports
+    every name this module uses and only fails when the server is built, with
+    a TypeError naming neither the package nor its version — the same class
+    of silent breakage the 1.x -> 2.0 release caused the other way round.
+    Check the surface first and say what is wrong.
 
     Exits non-zero rather than raising: this is also the tripwire manage_server.sh
     smoke-tests before latching the dependency marker, and its "KG PREFLIGHT:"
     prefix is the string both that script and the session-start hook classify on.
     """
-    missing = [name for name in ("list_tools", "call_tool") if not hasattr(Server, name)]
+    params = inspect.signature(Server.__init__).parameters
+    missing = [name for name in ("on_list_tools", "on_call_tool") if name not in params]
     if not missing:
         return
     try:
@@ -102,7 +105,7 @@ def _preflight_mcp_surface() -> None:
         installed = "unknown"
     logger.error(
         "KG PREFLIGHT: installed mcp %s is incompatible with this server — "
-        "mcp.server.Server is missing %s. Required: %s. "
+        "mcp.server.Server does not accept %s. Required: %s. "
         "Rebuild with: rm -rf server/venv && kg-memory start",
         installed, ", ".join(missing), _mcp_requirement(),
     )
@@ -112,14 +115,12 @@ def _preflight_mcp_surface() -> None:
 def create_mcp_server() -> Server:
     """Create and configure MCP server with all tools."""
     _preflight_mcp_surface()
-    server = Server("knowledge-graph-mcp")
 
     # ========================================================================
     # Tool Definitions
     # ========================================================================
 
-    @server.list_tools()
-    async def list_tools() -> list[Tool]:
+    def tool_definitions() -> list[Tool]:
         """List all available tools."""
         return [
             Tool(
@@ -382,7 +383,6 @@ def create_mcp_server() -> Server:
     # Tool Handlers
     # ========================================================================
 
-    @server.call_tool()
     async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         """Handle tool calls."""
         global store, session_manager
@@ -695,7 +695,29 @@ def create_mcp_server() -> Server:
             logger.error(f"Tool error: {e}", exc_info=True)
             return [TextContent(type="text", text=f"Internal error: {str(e)}")]
 
-    return server
+    tools = tool_definitions()
+    schemas = {t.name: t.input_schema for t in tools}
+
+    async def on_list_tools(ctx, params) -> ListToolsResult:
+        return ListToolsResult(tools=tools)
+
+    async def on_call_tool(ctx, params) -> CallToolResult:
+        # mcp 1.x validated arguments against the tool's schema before the
+        # handler ran; the 2.x lowlevel server does not, so the check is here.
+        arguments = params.arguments or {}
+        schema = schemas.get(params.name)
+        if schema is not None:
+            try:
+                jsonschema.validate(instance=arguments, schema=schema)
+            except jsonschema.ValidationError as e:
+                return CallToolResult(
+                    content=[TextContent(type="text", text=f"Input validation error: {e.message}")],
+                    is_error=True,
+                )
+        return CallToolResult(content=await call_tool(params.name, arguments))
+
+    return Server("knowledge-graph-mcp", version=__version__,
+                  on_list_tools=on_list_tools, on_call_tool=on_call_tool)
 
 
 async def main():

@@ -7,8 +7,8 @@ No pytest dependency — run directly with the project venv:
 
 Covers the venv self-heal work driven by the mcp 2.0.0 outage (2026-07-28):
   1. The dependency pin is bounded, and what is installed satisfies it
-  2. The mcp surface this server is built on is present — Server carries both
-     list_tools and call_tool
+  2. The mcp surface this server is built on is present — Server accepts the
+     on_list_tools and on_call_tool constructor callbacks (mcp 2.x)
   3. create_mcp_server() returns without raising. This is the real tripwire:
      it fails on ANY future API removal, not just the decorators, and it is
      the same check manage_server.sh runs before latching the deps marker
@@ -87,9 +87,11 @@ def main():
     # 2-3. The surface exists, and the wiring actually builds
     # ==================================================================
     print("mcp surface:")
+    import inspect
     from mcp.server import Server
-    check("Server exposes list_tools", hasattr(Server, "list_tools"))
-    check("Server exposes call_tool", hasattr(Server, "call_tool"))
+    init_params = inspect.signature(Server.__init__).parameters
+    check("Server accepts on_list_tools", "on_list_tools" in init_params)
+    check("Server accepts on_call_tool", "on_call_tool" in init_params)
 
     import mcp_streamable_server as mss
     built = None
@@ -100,6 +102,20 @@ def main():
         raised = exc
     check("create_mcp_server() returns without raising", raised is None, repr(raised))
     check("built server is an mcp Server", isinstance(built, Server) if built else False)
+
+    print("tool handlers:")
+    import asyncio
+    from mcp import types
+    listed = asyncio.run(built.get_request_handler("tools/list").handler(None, None))
+    check("all ten tools listed", len(listed.tools) == 10 and listed.tools[0].name == "kg_read",
+          [t.name for t in listed.tools])
+    call = built.get_request_handler("tools/call").handler
+    bad = asyncio.run(call(None, types.CallToolRequestParams(name="kg_useful", arguments={"ids": []})))
+    check("arguments are validated against the tool schema, as mcp 1.x did",
+          bad.is_error and "session_id" in bad.content[0].text, bad)
+    unknown = asyncio.run(call(None, types.CallToolRequestParams(name="kg_nope", arguments={})))
+    check("an unknown tool is answered, not raised",
+          not unknown.is_error and "Unknown tool" in unknown.content[0].text, unknown)
 
     print("preflight helpers:")
     check("requirement is read from requirements.txt", mss._mcp_requirement() == spec,

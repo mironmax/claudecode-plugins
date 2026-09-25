@@ -1,9 +1,9 @@
-# mcp 2.x is a breaking rewrite: the lowlevel Server drops the
-# @server.list_tools()/@server.call_tool() decorators this server is built on
-# in favour of Server(on_list_tools=…, on_call_tool=…) constructor callbacks.
-# Capped until that migration lands; the 1.x line is still maintained.
-# Floor 1.28.1: the last advisory fixed in 1.x (CVE-2026-59950).
-mcp>=1.28.1,<2.0.0
+# Built on the 2.x lowlevel Server's constructor callbacks
+# (on_list_tools / on_call_tool); 1.x lacks them. Capped at the next major,
+# which is where the last breaking rewrite came from.
+mcp>=2.2.0,<3.0.0
+# Imported directly: tool arguments are validated against their schemas.
+jsonschema>=4.20.0
 uvicorn[standard]>=0.48.0
 pydantic>=2.13.4
 fastapi>=0.136.3

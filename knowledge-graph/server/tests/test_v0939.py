@@ -162,12 +162,11 @@ def test_handler_end_to_end():
     graph_key = store._get_graph_key("project", sid)
     store.graphs[graph_key]["nodes"]["archived-lore"]["_archived"] = True
 
-    handler = mss.create_mcp_server().request_handlers[types.CallToolRequest]
+    handler = mss.create_mcp_server().get_request_handler("tools/call").handler
 
     def call(name, **arguments):
-        req = types.CallToolRequest(method="tools/call",
-                                    params=types.CallToolRequestParams(name=name, arguments=arguments))
-        return asyncio.run(handler(req))
+        params = types.CallToolRequestParams(name=name, arguments=arguments)
+        return asyncio.run(handler(None, params))
 
     call("kg_search", query="zebra", session_id=sid)
     call("kg_read", session_id=sid, ids=["archived-lore"])

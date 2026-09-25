@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.43] - 2026-09-26
+
+### Changed
+- **The server runs on mcp 2.x.** mcp 2.0 replaced the lowlevel server's `@list_tools()`/`@call_tool()` decorators with constructor callbacks, which is why 0.9.33 capped the dependency below 2.0. The tool list and dispatcher are unchanged; two thin callbacks wrap them for `Server(on_list_tools=, on_call_tool=)`. The requirement is now `mcp>=2.2.0,<3.0.0`. An existing install moves over on its own: the venv self-heal sees the changed requirements and upgrades in place, and a plugin update builds a fresh venv. Verified against a live Claude Code client: read, search, writes, and a malformed call, with sessions restored across the restart.
+- mcp 1.x validated tool arguments against each tool's schema before the handler ran; 2.x does not. That check now runs in the server itself, with the same `Input validation error: ...` text, so a malformed call is still refused legibly rather than reaching the handler. `jsonschema` is declared, since it is now imported directly.
+- The startup preflight checks for the 2.x constructor callbacks, so a venv still on 1.x fails with a `KG PREFLIGHT` line naming the problem instead of a `TypeError`.
+
+25 test files, 817 assertions, suite green on mcp 2.2.0.
+
 ## [0.9.42] - 2026-09-26
 
 ### Added

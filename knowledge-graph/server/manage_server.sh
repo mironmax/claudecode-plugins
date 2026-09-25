@@ -44,9 +44,10 @@ mcp_requirement() {
     grep -E '^[[:space:]]*mcp[<>=!]' "$REQUIREMENTS" 2>/dev/null | head -1
 }
 
-# The cheapest check that exercises the real wiring. Import-time API drift —
-# mcp 2.x dropping the @list_tools()/@call_tool() decorators — fails exactly
-# here, while every plain import still resolves and pip still exits 0.
+# The cheapest check that exercises the real wiring. API drift between mcp
+# majors (1.0 -> 2.0 replaced the tool decorators with constructor callbacks)
+# fails exactly here, while every plain import still resolves and pip still
+# exits 0.
 venv_smoke() {
     (cd "$SCRIPT_DIR" && "$VENV_PYTHON" -c \
         'import mcp_streamable_server as m; m.create_mcp_server()') 2>&1
