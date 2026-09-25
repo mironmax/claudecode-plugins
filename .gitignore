@@ -1,7 +1,9 @@
 # Knowledge graph data (session-specific)
 .knowledge/
 
-.claude/
+# Local Claude Code state; only the shared settings are tracked
+.claude/*
+!.claude/settings.json
 
 # Temporary dev notes (not part of release)
 knowledge-graph/devdocs/
