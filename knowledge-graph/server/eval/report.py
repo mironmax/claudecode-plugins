@@ -8,7 +8,8 @@ nothing here is called precision, recall or noise.
 from collections import Counter, defaultdict
 from statistics import median
 
-from .replay import DUG_UP_VIAS, REPLAYABLE, endorsements, records_of
+from .replay import (DUG_UP_VIAS, REPLAYABLE, endorsements, file_injected_ids,
+                     is_file_record, records_of)
 
 NO_PROJECT = "(no project)"
 
@@ -37,7 +38,34 @@ def _ratio(n, d):
     return round(n / d, 4) if d else None
 
 
+def _endorsed_after(first_shown: dict, accepted: list[dict]) -> int:
+    """How many (session, id) shown at a time were endorsed after it."""
+    endorsed_ts = {(u["kg_session"], u["id"]): u.get("ts") or 0 for u in accepted}
+    return sum(1 for k, ts in first_shown.items()
+               if k in endorsed_ts and endorsed_ts[k] > ts)
+
+
+def _describe_files(files: list[dict], accepted: list[dict], logged_sessions: set) -> dict:
+    """File recall: tool events, not prompts — no terms, nothing to replay."""
+    outcomes = Counter(r.get("outcome") or "?" for r in files)
+    first_injected: dict[tuple, float] = {}
+    for r in files:
+        if r.get("kg_session") in logged_sessions:
+            for nid in file_injected_ids(r):
+                first_injected.setdefault((r.get("kg_session"), nid), r.get("ts") or 0)
+    then_endorsed = _endorsed_after(first_injected, accepted)
+    return {
+        "events": len(files),
+        "outcomes": dict(outcomes),
+        "injected_nodes": len(first_injected),
+        "injected_then_endorsed": then_endorsed,
+        "injected_then_endorsed_rate": _ratio(then_endorsed, len(first_injected)),
+    }
+
+
 def _describe(recall: list[dict], useful: list[dict], logged_sessions: set) -> dict:
+    files = [r for r in recall if is_file_record(r)]
+    recall = [r for r in recall if not is_file_record(r)]
     reasons = Counter(r.get("reason") for r in recall)
     ranked = sum(reasons[k] for k in REPLAYABLE)
     injected = reasons["injected"]
@@ -65,9 +93,7 @@ def _describe(recall: list[dict], useful: list[dict], logged_sessions: set) -> d
             for x in records_of(r.get(key)):
                 if x.get("id") and not x.get("seen"):
                     first_injected.setdefault((r.get("kg_session"), x["id"]), r.get("ts") or 0)
-    endorsed_ts = {(u["kg_session"], u["id"]): u.get("ts") or 0 for u in accepted}
-    then_endorsed = sum(1 for k, ts in first_injected.items()
-                        if k in endorsed_ts and endorsed_ts[k] > ts)
+    then_endorsed = _endorsed_after(first_injected, accepted)
 
     return {
         "prompts_logged": len(recall),
@@ -92,6 +118,7 @@ def _describe(recall: list[dict], useful: list[dict], logged_sessions: set) -> d
         "injected_nodes": len(first_injected),
         "injected_then_endorsed": then_endorsed,
         "injected_then_endorsed_rate": _ratio(then_endorsed, len(first_injected)),
+        "file_recall": _describe_files(files, accepted, logged_sessions),
     }
 
 
@@ -140,6 +167,12 @@ def _desc_lines(d: dict, indent: str = "  ") -> list[str]:
                  f"{d['injected_then_endorsed']} ({_pct(d['injected_then_endorsed_rate'])})"
                  + (f"; {d['injected_before_log']} injections in sessions before the endorsement log"
                     if d["injected_before_log"] else ""))
+    f = d["file_recall"]
+    if f["events"]:
+        outcomes = ", ".join(f"{k} {v}" for k, v in sorted(f["outcomes"].items(), key=lambda kv: -kv[1]))
+        lines.append(f"{indent}file recall (tool events, not replayable): {f['events']} ({outcomes}); "
+                     f"injected nodes {f['injected_nodes']}, endorsed afterwards "
+                     f"{f['injected_then_endorsed']} ({_pct(f['injected_then_endorsed_rate'])})")
     return lines
 
 

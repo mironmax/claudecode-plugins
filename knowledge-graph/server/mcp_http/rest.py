@@ -276,8 +276,9 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
 
     @rest_api.post("/api/tool_event")
     async def rest_tool_event(payload: dict):
-        """PostToolUse (Read|WebFetch|WebSearch): count the target; nudge
-        capture only on proven re-derivation of an uncovered target."""
+        """PostToolUse: recall the nodes covering a touched file, else count
+        the target and nudge capture only on proven re-derivation of an
+        uncovered one."""
         from .ambient import handle_tool_event
         try:
             text = handle_tool_event(store, session_manager, payload)

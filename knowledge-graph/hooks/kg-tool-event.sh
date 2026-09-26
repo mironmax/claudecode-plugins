@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# PostToolUse hook (Read|WebFetch|WebSearch): report the tool event to the KG
-# server; relay a capture nudge if — and only if — the server decides this
-# target has proven itself worth remembering (uncovered + re-derived across
-# sessions, throttled). The intelligence is entirely server-side: this script
-# posts the raw hook payload and prints whatever hook output comes back.
+# PostToolUse hook (file tools, Bash, WebFetch, WebSearch): report the tool
+# event to the KG server; relay what it decides — the memory covering the file
+# just touched (file recall), or a capture nudge for an uncovered target that
+# has proven itself worth remembering (re-derived across sessions, throttled).
+# The intelligence is entirely server-side: this script posts the raw hook
+# payload and prints whatever hook output comes back.
 # Silent on every failure — a hook must never slow or break the session.
 
 # A maintenance chore runs headless inside this same plugin: it needs no

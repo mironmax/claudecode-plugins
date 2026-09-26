@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.41] - 2026-09-26
+
+### Added
+- **Memory about a file arrives when the agent opens it.** Until now retrieval fired only at session start and on each prompt, matched on the prompt's words; nothing fired when the agent reached for a file. The file it is in is the most reliable signal of what it is about to need, and warnings about a file matter most just before an edit. The PostToolUse hook now also covers `Edit`, `Write`, `MultiEdit`, `NotebookEdit` and `Bash`. When a tool call reads or edits a file, the nodes whose `touches` name it, from the user graph and the session's project graph, archived ones included, are injected once as gist lines: at most three, within 1,200 characters, ranked by the store's own node score with ties broken by recency. They are marked seen through a new route, `file`, which counts as surfaced (`SURFACE_VIAS`), so an endorsement of such a node is not a dug-up miss. Surfacing does not promote an archived node and does not count as usefulness; only a read by id does either. A per-session throttle (three injections per ten minutes) keeps a refactor sweeping one directory from becoming a stream, and nodes it holds back stay unseen, so they arrive on a later touch. Bash counts only when a command plainly reads a file: `cat`, `head`, `tail`, `less`, `sed -n`, `grep` and `jq` at the head of a pipeline segment, operands without shell expansion, relative operands only while no `cd` has run, and only paths that exist as files. A file it misses stays silent; it never names a file the command did not read.
+- Touches are looked up through a reverse index, one per graph, rebuilt only when that graph is written. `src/a.py:12-40 (anchor)`, `./src/a.py`, `~/…` and absolute paths all match the file they name; relative touches count in the project graph only, since a user-level node has no project to resolve them against.
+- Every file recall decision for a registered session appends one line to `recall.jsonl` with reason `file_recall` and an `outcome` (`injected`, `all_seen`, `throttled`, `no_nodes`), silences included, carrying the files and node ids but no prompt terms.
+
+### Changed
+- The capture nudge is unchanged, still counting `Read` only. A file that nodes already cover gets recall and never a nudge; the two never share a response.
+- The evaluation harness reports file recall on its own line of the descriptive block (events by outcome, nodes injected, endorsed afterwards) and keeps it out of the prompt statistics, whose numbers are unchanged. File records are not replayed, since they carry no terms. What they injected counts as seen in the reconstructed seen-set, and they no longer mark a session's full read.
+
+24 test files, 740 assertions, suite green.
+
 ## [0.9.40] - 2026-09-25
 
 ### Added

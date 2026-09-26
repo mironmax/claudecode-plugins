@@ -19,12 +19,14 @@ gates, which is what "baseline reproduces production" has to mean.
 
 from collections import defaultdict
 
+from core.constants import FILE_RECALL_REASON
 from core.utils import active_node_ids
 
 from .data import KNOWN, GraphHistory, USER_GRAPH_REL, project_graph_rel
 from .variants import Graphs, baseline_decision, resolve
 
-# Records that carry the terms the ranking saw.
+# Records that carry the terms the ranking saw. File recall records carry
+# files, not terms: they are never replayed, but what they injected is seen.
 REPLAYABLE = ("injected", "no_hits", "all_seen", "trimmed_to_seen")
 # Routes that mean the endorsed node was dug up rather than put in front of
 # the session. "unknown" (seen before routes were tracked) is neither.
@@ -42,6 +44,17 @@ def _ids(recs, only_unseen=False):
             if r.get("id") and not (only_unseen and r.get("seen"))]
 
 
+def is_file_record(r: dict) -> bool:
+    return r.get("reason") == FILE_RECALL_REASON
+
+
+def file_injected_ids(r: dict) -> list:
+    """Ids a file recall record put in front of the session, else []."""
+    if not is_file_record(r) or r.get("outcome") != "injected":
+        return []
+    return _ids(r.get("nodes"), True)
+
+
 class Session:
     """One KG session's replayable prompts plus what the log says it saw."""
 
@@ -52,18 +65,25 @@ class Session:
         # registered path, when known, is what the server searched.
         self.project = project or next(
             (r.get("project") for r in records if r.get("project")), None)
-        post_nudge = [r for r in records if r.get("reason") != "full_read_nudge"]
+        # Only prompts mark the full read: file recall fires on tool calls,
+        # which run before the full read as readily as after it.
+        post_nudge = [r for r in records
+                      if r.get("reason") != "full_read_nudge" and not is_file_record(r)]
         self.full_read_ts = post_nudge[0]["ts"] if post_nudge else None
         self.steps = [r for r in records
                       if r.get("reason") in REPLAYABLE and r.get("terms")
                       and isinstance(r["terms"], list)
                       and all(isinstance(t, str) for t in r["terms"])]
         # Per step: ids seen through non-ambient routes by then (cumulative),
-        # and ids production recall surfaced before it.
+        # file recall included, and ids production recall surfaced before it.
         self.other_seen: list[frozenset] = []
         self.prod_before: list[frozenset] = []
         other, prod = set(), set()
-        for r in self.steps:
+        steps = {id(r) for r in self.steps}
+        for r in records:
+            if id(r) not in steps:
+                other |= set(file_injected_ids(r)) - prod
+                continue
             self.prod_before.append(frozenset(prod))
             flagged = {i for key in ("hits", "best", "connectors")
                        for i, seen in ((x.get("id"), x.get("seen")) for x in records_of(r.get(key)))

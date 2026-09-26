@@ -36,7 +36,7 @@ The design puts the intelligence at **capture time**: knowledge is compressed by
 # 3. Restart Claude Code
 ```
 
-**Done.** The plugin ships its hooks in `hooks/hooks.json` and they auto-load on session start — no setup script, no settings.json edits. Three hooks carry the ambient behavior: SessionStart preloads your memory into context and starts the server if it's down; UserPromptSubmit surfaces memory relevant to each prompt; PostToolUse notices when knowledge is being re-derived and nudges a capture.
+**Done.** The plugin ships its hooks in `hooks/hooks.json` and they auto-load on session start — no setup script, no settings.json edits. Three hooks carry the ambient behavior: SessionStart preloads your memory into context and starts the server if it's down; UserPromptSubmit surfaces memory relevant to each prompt; PostToolUse brings up the memory about a file when the agent reads or edits it, and notices when knowledge is being re-derived and nudges a capture.
 
 > Already in a session? Run `/reload-plugins` instead of restarting.
 

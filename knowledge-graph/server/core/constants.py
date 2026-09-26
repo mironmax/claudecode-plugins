@@ -158,6 +158,21 @@ NUDGE_COOLDOWN_SECONDS = 600       # min gap between nudges to one session
 NUDGE_MAX_PER_SESSION = 3
 NUDGE_TARGET_COOLDOWN_SECONDS = 86400  # don't re-nudge the same target within a day
 TOOL_EVENTS_MAX_KEYS = 500         # oldest-evicted bound on the counters file
+
+# File-anchored recall — the same PostToolUse hook, for the file the agent is
+# in. Nodes whose touches name a file the agent reads or edits reach its
+# context once, as gist lines, archived nodes included (surfacing never
+# promotes; only a read by id does). Deliberately small: a file usually has
+# one or two nodes, and a refactor sweeping a directory must not turn the
+# channel into a stream — the window throttle is per KG session, and nodes it
+# holds back stay unseen, so they arrive on a later touch of the same file.
+FILE_RECALL_MAX_NODES = 3
+FILE_RECALL_CHAR_BUDGET = 1200
+FILE_RECALL_MAX_PER_WINDOW = 3      # injections per session per window
+FILE_RECALL_WINDOW_SECONDS = 600
+FILE_RECALL_MAX_BASH_FILES = 8      # operands taken from one Bash command
+FILE_RECALL_REASON = "file_recall"  # recall.jsonl reason; outcome says what happened
+
 # Refill (reverse compaction): when the active graph sits below the fill ceiling
 # (COMPACTION_TARGET_RATIO × max), the highest-scored archived nodes are promoted
 # back to active to use the headroom. A single threshold — the ceiling itself —
@@ -233,13 +248,13 @@ RECALL_LOG_MAX_BYTES = 8 * 1024 * 1024
 # Hits and misses land in one undifferentiated _useful_ts list, so "is archival
 # too aggressive?" could not be answered from the graph. Each kg_useful id now
 # appends one line saying how the node first reached the session: put there by
-# the surface (preload, full read, ambient recall) or dug up by the agent
+# the surface (preload, full read, ambient or file recall) or dug up by the agent
 # (search, read by id). Refusals are logged too — a session pressing against the
 # cap is evidence about the budget. Joins recall.jsonl on kg_session.
 USEFUL_LOG_NAME = "useful.jsonl"
 USEFUL_LOG_MAX_BYTES = 2 * 1024 * 1024
 # Routes by which a gist arrives without being asked for by name or query.
-SURFACE_VIAS = frozenset({"preload", "full_read", "ambient"})
+SURFACE_VIAS = frozenset({"preload", "full_read", "ambient", "file"})
 
 # ---------------------------------------------------------------------------
 # kg_progress trail (v0.9.36)
