@@ -1,0 +1,83 @@
+$ lean --run chore-dispatch/lean/Dispatch.lean
+--- threads=2 interval=2 maxDay=1 ticks≤9 fixed=false
+✓ P1 at most one chore process: no counterexample (1545 states, exhaustive)
+✗ P2 dispatches ≥ interval apart: COUNTEREXAMPLE (221 states explored)
+    T0 fast-gate: pass
+    T0 read state (ts=0,cnt=0) at t=5: eligible
+    T1 fast-gate: pass
+    T1 read state (ts=0,cnt=0) at t=5: eligible
+    T0 lock: DISPATCH (writes ts=5, cnt=1)
+    T0 spawn FAILED -> running cleared
+    T1 lock: DISPATCH (writes ts=5, cnt=1)
+✗ P3 daily cap: COUNTEREXAMPLE (221 states explored)
+    T0 fast-gate: pass
+    T0 read state (ts=0,cnt=0) at t=5: eligible
+    T1 fast-gate: pass
+    T1 read state (ts=0,cnt=0) at t=5: eligible
+    T0 lock: DISPATCH (writes ts=5, cnt=1)
+    T0 spawn FAILED -> running cleared
+    T1 lock: DISPATCH (writes ts=5, cnt=1)
+✗ P4 stored count = dispatches: COUNTEREXAMPLE (221 states explored)
+    T0 fast-gate: pass
+    T0 read state (ts=0,cnt=0) at t=5: eligible
+    T1 fast-gate: pass
+    T1 read state (ts=0,cnt=0) at t=5: eligible
+    T0 lock: DISPATCH (writes ts=5, cnt=1)
+    T0 spawn FAILED -> running cleared
+    T1 lock: DISPATCH (writes ts=5, cnt=1)
+✗ sanity (expect ✗): two dispatches reachable: COUNTEREXAMPLE (221 states explored)
+    T0 fast-gate: pass
+    T0 read state (ts=0,cnt=0) at t=5: eligible
+    T1 fast-gate: pass
+    T1 read state (ts=0,cnt=0) at t=5: eligible
+    T0 lock: DISPATCH (writes ts=5, cnt=1)
+    T0 spawn FAILED -> running cleared
+    T1 lock: DISPATCH (writes ts=5, cnt=1)
+--- threads=3 interval=2 maxDay=3 ticks≤9 fixed=false
+✓ P1 at most one chore process: no counterexample (46291 states, exhaustive)
+✗ P2 dispatches ≥ interval apart: COUNTEREXAMPLE (636 states explored)
+    T0 fast-gate: pass
+    T0 read state (ts=0,cnt=0) at t=5: eligible
+    T1 fast-gate: pass
+    T1 read state (ts=0,cnt=0) at t=5: eligible
+    T0 lock: DISPATCH (writes ts=5, cnt=1)
+    T0 spawn FAILED -> running cleared
+    T1 lock: DISPATCH (writes ts=5, cnt=1)
+✓ P3 daily cap: no counterexample (46291 states, exhaustive)
+✗ P4 stored count = dispatches: COUNTEREXAMPLE (636 states explored)
+    T0 fast-gate: pass
+    T0 read state (ts=0,cnt=0) at t=5: eligible
+    T1 fast-gate: pass
+    T1 read state (ts=0,cnt=0) at t=5: eligible
+    T0 lock: DISPATCH (writes ts=5, cnt=1)
+    T0 spawn FAILED -> running cleared
+    T1 lock: DISPATCH (writes ts=5, cnt=1)
+✗ sanity (expect ✗): two dispatches reachable: COUNTEREXAMPLE (636 states explored)
+    T0 fast-gate: pass
+    T0 read state (ts=0,cnt=0) at t=5: eligible
+    T1 fast-gate: pass
+    T1 read state (ts=0,cnt=0) at t=5: eligible
+    T0 lock: DISPATCH (writes ts=5, cnt=1)
+    T0 spawn FAILED -> running cleared
+    T1 lock: DISPATCH (writes ts=5, cnt=1)
+--- threads=2 interval=2 maxDay=1 ticks≤9 fixed=true
+✓ P1 at most one chore process: no counterexample (1245 states, exhaustive)
+✓ P2 dispatches ≥ interval apart: no counterexample (1245 states, exhaustive)
+✓ P3 daily cap: no counterexample (1245 states, exhaustive)
+✓ P4 stored count = dispatches: no counterexample (1245 states, exhaustive)
+✓ sanity (expect ✗): two dispatches reachable: no counterexample (1245 states, exhaustive)
+--- threads=3 interval=2 maxDay=3 ticks≤9 fixed=true
+✓ P1 at most one chore process: no counterexample (30361 states, exhaustive)
+✓ P2 dispatches ≥ interval apart: no counterexample (30361 states, exhaustive)
+✓ P3 daily cap: no counterexample (30361 states, exhaustive)
+✓ P4 stored count = dispatches: no counterexample (30361 states, exhaustive)
+✗ sanity (expect ✗): two dispatches reachable: COUNTEREXAMPLE (2757 states explored)
+    T0 fast-gate: pass
+    T0 read state (ts=0,cnt=0) at t=5: eligible
+    T0 lock: DISPATCH (writes ts=5, cnt=1)
+    T0 spawn FAILED -> running cleared
+    T1 fast-gate: pass
+    tick
+    tick
+    T1 read state (ts=5,cnt=1) at t=7: eligible
+    T1 lock: DISPATCH (writes ts=7, cnt=2)

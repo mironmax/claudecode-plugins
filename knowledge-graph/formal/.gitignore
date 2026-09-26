@@ -1,0 +1,2 @@
+# Evidence logs are part of the record (knowledge-graph/.gitignore ignores *.log)
+!*/evidence/*.log

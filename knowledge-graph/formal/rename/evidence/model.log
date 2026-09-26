@@ -1,0 +1,39 @@
+$ lean --run rename/lean/Rename.lean
+✗ rename a→b in G.P1; U=(false, true) P1=(true, false, false) P2=(false, false, false)
+      edge in G.P1 to Id'.b: resolved some (G.U, Id'.b), after rename some (G.P1, Id'.b)
+✗ rename a→b in G.U; U=(true, false) P1=(false, false, false) P2=(false, true, false)
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename none
+✗ rename a→b in G.U; U=(true, false) P1=(false, false, false) P2=(false, true, true)
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.P2, Id'.b)
+✗ rename a→b in G.U; U=(true, false) P1=(false, true, false) P2=(false, false, false)
+      edge in G.P1 to Id'.a: resolved some (G.U, Id'.a), after rename none
+✗ rename a→b in G.U; U=(true, false) P1=(false, true, false) P2=(false, true, false)
+      edge in G.P1 to Id'.a: resolved some (G.U, Id'.a), after rename none
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename none
+✗ rename a→b in G.U; U=(true, false) P1=(false, true, false) P2=(false, true, true)
+      edge in G.P1 to Id'.a: resolved some (G.U, Id'.a), after rename none
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.P2, Id'.b)
+✗ rename a→b in G.U; U=(true, false) P1=(false, true, true) P2=(false, false, false)
+      edge in G.P1 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.P1, Id'.b)
+✗ rename a→b in G.U; U=(true, false) P1=(false, true, true) P2=(false, true, false)
+      edge in G.P1 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.P1, Id'.b)
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename none
+✗ rename a→b in G.U; U=(true, false) P1=(false, true, true) P2=(false, true, true)
+      edge in G.P1 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.P1, Id'.b)
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.P2, Id'.b)
+✗ rename a→b in G.P1; U=(true, false) P1=(true, false, false) P2=(false, false, false)
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename none
+✗ rename a→b in G.P1; U=(true, false) P1=(true, false, false) P2=(false, true, true)
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.P2, Id'.b)
+✗ rename a→b in G.P1; U=(true, true) P1=(true, false, false) P2=(false, false, false)
+      edge in G.P1 to Id'.b: resolved some (G.U, Id'.b), after rename some (G.P1, Id'.b)
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.U, Id'.b)
+✗ rename a→b in G.P1; U=(true, true) P1=(true, false, false) P2=(false, true, true)
+      edge in G.P1 to Id'.b: resolved some (G.U, Id'.b), after rename some (G.P1, Id'.b)
+      edge in G.P2 to Id'.a: resolved some (G.U, Id'.a), after rename some (G.P2, Id'.b)
+fixed=false: 66 of 128 accepted renames break an edge (exhaustive over 256 worlds × 2 levels)
+
+✗ rename a→b in G.P1; U=(true, true) P1=(true, false, false) P2=(false, false, false)
+      edge in G.P1 to Id'.b: resolved some (G.U, Id'.b), after rename some (G.P1, Id'.b)
+fixed=true: 12 of 72 accepted renames break an edge (exhaustive over 256 worlds × 2 levels)
+

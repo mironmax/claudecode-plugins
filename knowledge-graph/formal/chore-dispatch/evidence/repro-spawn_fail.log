@@ -1,0 +1,5 @@
+$ python3 chore-dispatch/repro/repro_stale_state.py spawn_fail
+mode=spawn_fail  min_interval=2700s  max_per_day=8
+log events: ['dispatch', 'spawn_failed', 'dispatch', 'spawn_failed']
+dispatches=2  state.count=1  state.last_ts=1790452890.996
+FAIL: two dispatches inside min_interval, and state.count lost one of them
