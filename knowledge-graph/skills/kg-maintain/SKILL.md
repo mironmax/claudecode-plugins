@@ -181,6 +181,31 @@ otherwise be:
   the next non-empty category, or thirteen long ids rot while gists get
   tightened two at a time.
 
+One guard outranks the three: **never keep rewriting the same node.**
+Repeated in-place rewriting of stored text is the one maintenance pattern
+measured to degrade memory (docs/research/cards/
+2605.12978-consolidation-degradation.md). The server stamps every real gist
+change on the node (`_gist_ts`, bounded, carried by rename), and a node
+rewritten more than twice in 30 days is skipped by every kind that writes
+text back in place — gist, notes, and anchor, which re-sends the gist.
+
+Two kinds exist only as chores, because the server has to prepare them:
+
+- **anchor** — a `touches` entry no longer resolves. The chore cannot see the
+  filesystem, so the server finds where the file went first (the rename git
+  recorded, or the ONE same-named file in the project) and the chore only
+  applies it: `moved` → the replacement as given, `gone` → drop the entry,
+  `ambiguous`/`unknown` → leave it and say so. It never writes a path it was
+  not given.
+- **lift** — two or more instance-level nodes (dated records, sessions,
+  reviews, status snapshots) that share a lesson. The chore writes that
+  lesson once as a principle node — a claim that holds outside the episodes,
+  notes saying when it matters and what goes wrong, touches to the evidence —
+  and edges each supporting member to it with `instance-of`. It never edits
+  or deletes the members; once the principle carries the lesson, archiving
+  them is the scorer's job. One episode is not a principle: fewer than two
+  supporting members means nothing is written.
+
 Chores never do the two judgement-heavy categories: entity consolidation and
 duplicate merges stay in the full pass, where there is context to weigh them.
 
@@ -252,6 +277,13 @@ consider whether the pass earned a lesson — the same bar.
   names the subject; the gist makes the claim. Fix with kg_rename_node.
 - **unconnected** — active nodes in no edge; one honest edge makes a node
   far more durable (connectedness is 40% of the archival score).
+- **dangling touch(es)** — `touches` entries that no longer resolve against
+  the project root (relative), home (`~`) or the filesystem (absolute). Paid
+  down by anchor chores, which only apply what the server found.
+- **lift cluster(s)** — groups of two or more instance-shaped active nodes
+  sharing a touched file, an edge, or neighbours and vocabulary: episodes
+  whose shared lesson has not been written down once. Paid down by lift
+  chores.
 - **untended Nd / never maintained** — days since the last stamped pass
   (saturates at 14; "never" counts as fully stale).
 - **active N/7d** — distinct days with graph reads or tracked tool traffic;

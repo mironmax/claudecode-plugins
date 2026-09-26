@@ -322,7 +322,47 @@ CHORE_MODEL = "claude-sonnet-5"
 # Targets per chore, by kind. Small on purpose: the point is that a chore
 # always finishes, so the graph moves a little on most days instead of a lot
 # on the rare day every gate opens at once.
-CHORE_TARGETS = {"gist": 2, "id": 2, "edge": 1, "notes": 1}
+CHORE_TARGETS = {"gist": 2, "id": 2, "edge": 1, "notes": 1, "anchor": 1, "lift": 5}
+
+# ---------------------------------------------------------------------------
+# Churn guard
+#
+# Repeated in-place rewriting of the same stored text is the one maintenance
+# pattern measured to degrade memory (docs/research/cards/
+# 2605.12978-consolidation-degradation.md: streamed rewrites fall from the
+# 100% no-memory ceiling to ~54%, while a one-pass consolidation stays at
+# 100%). Chores that rewrite a node in place skip it once its gist has been
+# rewritten more than CHURN_MAX_REWRITES times inside the window. The version
+# counter cannot answer this — it also bumps on promotion from the archive —
+# so put_node stamps each real gist change into a bounded list on the node.
+GIST_TS_FIELD = "_gist_ts"
+GIST_TS_MAX = 8                  # stamps kept; must exceed CHURN_MAX_REWRITES
+CHURN_WINDOW_DAYS = 30
+CHURN_MAX_REWRITES = 2           # a third rewrite inside the window makes it hot
+
+# ---------------------------------------------------------------------------
+# Anchor and lift maintenance
+#
+# ANCHOR: a `touches` entry that no longer resolves. The chore has no
+# filesystem, so the server finds candidates first and only ever offers a path
+# it found: the rename recorded in git, or the one file anywhere in the
+# project with the same basename. More than one match is refused — a guess is
+# worse than a dangling pointer, because it looks right.
+ANCHOR_WALK_MAX_ENTRIES = 50_000  # past this the tree walk is incomplete
+ANCHOR_GIT_TIMEOUT_SECONDS = 5
+ANCHOR_RESOLVE_MAX_NODES = 12     # dangling nodes resolved per chore decision
+ANCHOR_RENAME_HOPS = 3            # a -> b -> c renames followed in git
+ANCHOR_WALK_SKIP_DIRS = frozenset({
+    ".git", "node_modules", "venv", ".venv", "__pycache__", ".tox",
+    ".mypy_cache", ".pytest_cache", "dist", "build", "target", ".next",
+})
+# LIFT: instance-shaped nodes (a dated record, a session, a review, a status
+# snapshot) whose shared lesson belongs in one principle node. A cluster is
+# a candidate only with LIFT_MIN_MEMBERS — one episode is not a principle.
+LIFT_MIN_MEMBERS = 2
+LIFT_MAX_MEMBERS = 5
+LIFT_MIN_SHARED = 3               # shared neighbours + shared terms to link a pair
+LIFT_EDGE_REL = "instance-of"     # member -> principle; marks a member as lifted
 # Lessons carried into the chore prompt (the maintain graph's own memory).
 # Rendered inline rather than read by a tool call: it costs the chore nothing
 # and cannot be skipped.

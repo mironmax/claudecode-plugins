@@ -227,10 +227,20 @@ nudge.
 
 Maintenance closes the loop. `kg_read` and the preload render a `DEBT:` line
 per graph (`core/debt.py`: staleness since the last stamped pass × active
-days × oversized/unconnected/smeared wear, raw factors printed for
-sanity-checking; *smeared* = an entity re-described across many nodes' id+gist
-while one undated node plausibly owns it — the pass consolidates one such
-entity per run, prose mentions becoming edges).
+days × oversized/unconnected/smeared/dangling/lift wear, raw factors printed
+for sanity-checking; *smeared* = an entity re-described across many nodes'
+id+gist while one undated node plausibly owns it — the pass consolidates one
+such entity per run, prose mentions becoming edges; *dangling* = `touches`
+entries that no longer resolve, a stat per entry and never a walk; *lift* =
+clusters of instance-shaped nodes — dated records, sessions, reviews — whose
+shared lesson has not been written once as a principle).
+Chores (`core/chores.py`) pay the same factors down one category at a time.
+Anchor candidates are found by the server before a chore is chosen
+(`core/anchors.py`: git's recorded rename, or the one same-named file in the
+project; two is a refusal), because a chore has no filesystem; lift clusters
+come from `core/lift.py`. Every kind that rewrites text in place skips a node
+whose gist changed more than twice in 30 days (`_gist_ts` on the node), since
+repeated rewriting is the pattern measured to degrade memory.
 `GET /api/maintenance_debt` surveys every graph on disk, neediest first — the
 hook for any dispatcher, from an in-session subagent to a cron tick. A pass
 stamps itself via `kg_progress` task `"maintain"`; only stamped passes reset

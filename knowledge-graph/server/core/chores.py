@@ -37,14 +37,34 @@ Three rules shape the selection, and each is a bug that would otherwise be:
   debt formula itself gives them, so gists lead; but a graph with no
   oversized gists and thirteen long ids must get id chores, and a run of
   three identical kinds yields to the next non-empty category.
+
+And one guard that outranks all three: never rewrite a node that is being
+rewritten too often. Repeated in-place rewriting of the same stored text is
+the one maintenance pattern measured to degrade memory — streamed
+consolidation falls from a 100% no-memory ceiling to ~54% where a one-pass
+consolidation of the same material holds at 100%
+(docs/research/cards/2605.12978-consolidation-degradation.md). Every kind
+that writes a node's text back — gist, notes, and anchor, which re-sends the
+gist with the repaired touches — skips a node whose gist changed more than
+CHURN_MAX_REWRITES times inside CHURN_WINDOW_DAYS. The count comes from
+_gist_ts, stamped by put_node on every real gist change, not from the version
+counter, which also bumps when a read promotes a node out of the archive.
 """
 
 import re
 import time
 from dataclasses import dataclass, field
 
-from .constants import CHORE_TARGETS, NODE_ID_TARGET_WORDS
+from .constants import (
+    CHORE_TARGETS,
+    CHURN_MAX_REWRITES,
+    CHURN_WINDOW_DAYS,
+    GIST_TS_FIELD,
+    LIFT_EDGE_REL,
+    NODE_ID_TARGET_WORDS,
+)
 from .debt import GIST_OVERSIZE_CHARS
+from .lift import lift_clusters, lifted_ids
 from .utils import node_id_has_date, node_id_words
 
 # Notes that read as a changelog rather than as current truth. Detection is
@@ -60,7 +80,8 @@ _CHANGELOG_MARKERS = (
 # the factor the DEBT line is loudest about. notes hygiene carries no debt
 # weight (it is invisible to the formula) and therefore sorts last — it is
 # what a graph gets once its countable wear is paid down.
-_KIND_WEIGHT = {"gist": 1.0, "id": 0.5, "edge": 0.5, "notes": 0.15}
+_KIND_WEIGHT = {"gist": 1.0, "id": 0.5, "edge": 0.5, "anchor": 0.5,
+                "lift": 0.25, "notes": 0.15}
 
 _SAME_KIND_RUN = 3   # consecutive chores of one kind before yielding
 
@@ -68,12 +89,31 @@ _SAME_KIND_RUN = 3   # consecutive chores of one kind before yielding
 # it. A rename invalidates the id the session is holding; nothing else does.
 _CONTEXT_EXCLUSIVE_KINDS = ("id",)
 
+# Kinds that write a node's text back in place, and so fall under the churn
+# guard. An anchor chore is one: kg_put_node takes the gist with the touches,
+# and a gist re-sent by a model is a gist that can drift. Renames, edges and
+# lifts leave the target's text alone.
+_REWRITING_KINDS = ("gist", "notes", "anchor")
+
+
+def gist_rewrites(node, now: float | None = None,
+                  window_days: float = CHURN_WINDOW_DAYS) -> int:
+    """How many times the node's gist changed inside the window."""
+    now = now or time.time()
+    cutoff = now - window_days * 86400
+    return sum(1 for ts in node.get(GIST_TS_FIELD) or [] if ts and ts > cutoff)
+
+
+def is_churning(node, now: float | None = None) -> bool:
+    """A node rewritten often enough recently that another rewrite would hurt."""
+    return gist_rewrites(node, now) > CHURN_MAX_REWRITES
+
 
 @dataclass
 class Chore:
     """One dispatchable unit of maintenance."""
 
-    kind: str                      # gist | id | edge | notes
+    kind: str                      # gist | id | edge | notes | anchor | lift
     targets: list[str]
     reason: str                    # the debt factor, in words, for the prompt
     level: str = "user"            # user | project
@@ -82,6 +122,9 @@ class Chore:
     debt: float = 0.0
     candidates: int = 0            # how many nodes of this kind remain
     pool: dict = field(default_factory=dict)   # kind -> remaining count
+    # What the server found that the chore cannot find itself: for anchor,
+    # {"anchors": {id: [record]}}; for lift, {"evidence", "shapes", "touches"}.
+    context: dict = field(default_factory=dict)
 
 
 def _active(nodes):
@@ -105,25 +148,40 @@ def _notes_read_as_changelog(node) -> bool:
 
 
 def candidates_by_kind(nodes, edges, exclude: set | None = None,
-                      in_context: set | None = None) -> dict:
+                      in_context: set | None = None, anchors: dict | None = None,
+                      now: float | None = None) -> dict:
     """Eligible target ids per chore kind, worst-first within each kind.
 
     exclude: ids no chore may touch at all.
     in_context: ids a live session is holding — barred from the kinds that
     would break its copy, demoted (never barred) for the kinds that would not.
+    anchors: {id: [record]} from core.anchors.anchor_candidates — nodes with a
+    dangling touch the server found a fix for. Precomputed by the caller,
+    because finding one walks the tree and runs git.
     """
     exclude = exclude or set()
     in_context = in_context or set()
+    anchors = anchors or {}
     active = [n for n in _active(nodes) if n["id"] not in exclude]
     connected = _connected_ids(edges)
+    hot = {n["id"] for n in active if is_churning(n, now)}
+    active_ids = {n["id"] for n in active}
+    clusters = lift_clusters(nodes, edges, exclude=exclude)
+    lift_members = [m for c in clusters for m in c["members"]]
 
     oversized = sorted(
         (n for n in active if len(n.get("gist", "")) > GIST_OVERSIZE_CHARS),
         key=lambda n: -len(n.get("gist", "")),
     )
+    # A dated id waiting in a lift cluster is not a naming problem: the skill
+    # says a run of dated siblings wants one enduring node, not a rename each,
+    # and renaming it first would take the date that marks it as an episode.
+    # Once lifted it is evidence waiting for the scorer to archive it.
+    in_lift = set(lift_members) | lifted_ids(edges)
     long_ids = sorted(
         (n for n in active
-         if node_id_words(n["id"]) > NODE_ID_TARGET_WORDS or node_id_has_date(n["id"])),
+         if n["id"] not in in_lift
+         and (node_id_words(n["id"]) > NODE_ID_TARGET_WORDS or node_id_has_date(n["id"]))),
         # A dated id is the more damaging kind (it names an event where the
         # graph wanted an enduring subject), so it outranks mere length.
         key=lambda n: (-int(node_id_has_date(n["id"])), -node_id_words(n["id"])),
@@ -144,8 +202,17 @@ def candidates_by_kind(nodes, edges, exclude: set | None = None,
         "id": [n["id"] for n in long_ids],
         "edge": [n["id"] for n in unconnected],
         "notes": [n["id"] for n in changelog],
+        "anchor": [nid for nid in anchors if nid in active_ids],
+        "lift": lift_members,
     }
+    for kind in _REWRITING_KINDS:
+        pools[kind] = [i for i in pools[kind] if i not in hot]
     for kind, ids in pools.items():
+        if kind == "lift":
+            # Members are grouped by cluster, and a lift writes nothing to
+            # them — it adds a node and edges out of them, which a session
+            # holding a member never sees. Reordering would split clusters.
+            continue
         fresh = [i for i in ids if i not in in_context]
         # Barred for the kinds that would break a live copy, merely last for
         # the kinds that would only age it.
@@ -189,12 +256,15 @@ REASONS = {
     "id": "long or dated id(s) — the id names the subject, the gist makes the claim",
     "edge": "unconnected active node(s) — connectedness is 40% of the archival score",
     "notes": "notes that read as a changelog rather than as current truth",
+    "anchor": "touches that no longer resolve — the node points at a file that moved or is gone",
+    "lift": "instance-level nodes (dated records, sessions, reviews, snapshots) "
+            "sharing a lesson nobody has written down once",
 }
 
 
 def pick_chore(nodes, edges, *, in_context: set | None = None,
                exclude: set | None = None, chore_trail=(), maintain_trail=(),
-               now: float | None = None) -> Chore | None:
+               anchors: dict | None = None, now: float | None = None) -> Chore | None:
     """The next chore for one graph, or None when there is nothing to do.
 
     in_context: ids a recently-active session is holding — no rename may take
@@ -203,19 +273,24 @@ def pick_chore(nodes, edges, *, in_context: set | None = None,
     chore_trail / maintain_trail: the kg_progress `_trail` rings for tasks
     "chore" and "maintain" on this graph — what recent work already covered,
     and what an earlier pass considered and refused.
+    anchors: precomputed anchor candidates (see candidates_by_kind).
     """
     now = now or time.time()
     blocked = set(exclude or set())
     blocked |= recent_chore_targets(chore_trail)
 
     pools = candidates_by_kind(nodes, edges, exclude=blocked,
-                               in_context=set(in_context or set()))
+                               in_context=set(in_context or set()),
+                               anchors=anchors, now=now)
     # A declined decision blocks the node, not the category: drop the named
     # ids and let the next-worst candidate of the same kind step up.
     all_candidates = {cid for ids in pools.values() for cid in ids}
     refused = declined_ids(maintain_trail, all_candidates)
     if refused:
         pools = {k: [i for i in ids if i not in refused] for k, ids in pools.items()}
+        # A refused member can leave its cluster one episode short of a principle.
+        pools["lift"] = [m for c in lift_clusters(nodes, edges, exclude=blocked | refused)
+                         for m in c["members"]]
 
     ranked = sorted(
         ((k, ids) for k, ids in pools.items() if ids),
@@ -234,12 +309,28 @@ def pick_chore(nodes, edges, *, in_context: set | None = None,
 
     kind, ids = ranked[0]
     targets = ids[: CHORE_TARGETS.get(kind, 1)]
+    context: dict = {}
+    if kind == "anchor":
+        context = {"anchors": {t: (anchors or {})[t] for t in targets}}
+    elif kind == "lift":
+        # One whole cluster, never a slice across two: the members are the
+        # evidence, and evidence from unrelated episodes is no evidence.
+        cluster = next(c for c in lift_clusters(nodes, edges, exclude=blocked | refused)
+                       if c["members"][0] == ids[0])
+        targets = cluster["members"][: CHORE_TARGETS.get(kind, 1)]
+        by_id = {n["id"]: n for n in nodes}
+        context = {
+            "evidence": cluster["evidence"],
+            "shapes": cluster["shapes"],
+            "touches": {t: list(by_id.get(t, {}).get("touches") or []) for t in targets},
+        }
     return Chore(
         kind=kind,
         targets=targets,
         reason=REASONS[kind].format(limit=GIST_OVERSIZE_CHARS),
         candidates=len(ids),
         pool={k: len(v) for k, v in pools.items() if v},
+        context=context,
     )
 
 
@@ -287,7 +378,65 @@ _KIND_INSTRUCTIONS = {
         "conclusions they arrived at. Notes are not a changelog. Write with "
         "kg_put_node(session_id, level=\"{level}\", id=<same id>, notes=[...])."
     ),
+    "anchor": (
+        "Repair the target's touches using ONLY what the server found (listed "
+        "above). For each dangling entry: `moved` — replace it with the "
+        "replacement exactly as given; `gone` — remove it; `ambiguous` or "
+        "`unknown` — leave it as it is and say so in `declined`. Never write a "
+        "path that is not listed: you cannot see the filesystem, and a guessed "
+        "anchor looks right to every later reader. Keep every other entry as it "
+        "is. Write the whole list back with kg_put_node(session_id, "
+        "level=\"{level}\", id=<same id>, gist=<the gist EXACTLY as you read it>, "
+        "touches=[...]) and leave notes out of the call so they stay unchanged — "
+        "this chore repairs an anchor, not wording."
+    ),
+    "lift": (
+        "The targets are episodes: instance-level records the server grouped "
+        "for the reasons above. Read them and ask what holds OUTSIDE them — "
+        "the claim that would still be true next month, in a different "
+        "session. kg_search for it first: if a node already states it, use "
+        "that node as the principle instead of writing a new one. Otherwise "
+        "write ONE principle node: kg_put_node(session_id, level=\"{level}\", "
+        "id=<3-5 kebab words naming the principle, no date>, gist=<the claim>, "
+        "notes=[\"when it matters: ...\", \"what goes wrong without it: ...\"], "
+        "touches=<the evidence documents, copied from the members' touches "
+        "above — never a new path>). Then edge each member that supports it "
+        "to it: kg_put_edge(session_id, level=\"{level}\", from=<member>, "
+        "to=<principle>, rel=\"{lift_rel}\"). At least TWO members must support "
+        "the principle — one episode is not a principle, so if fewer than two "
+        "do, write nothing. Do not edit, rename or delete the members: they are "
+        "the evidence, and archiving them is the scorer's job once the "
+        "principle carries the lesson. No lesson that holds beyond these "
+        "episodes? Write nothing and say why in `declined`."
+    ),
 }
+
+
+def _context_lines(chore: Chore) -> list[str]:
+    """What the server found for this chore, rendered for a reader with no filesystem."""
+    lines: list[str] = []
+    if chore.kind == "anchor":
+        for nid, recs in (chore.context.get("anchors") or {}).items():
+            lines.append(f"Dangling touches of {nid}:")
+            for r in recs:
+                line = f"  - {r['entry']!r}: {r['verdict']}"
+                if r.get("replacement"):
+                    line += f" -> {r['replacement']!r}"
+                if r.get("evidence"):
+                    line += f" ({r['evidence']})"
+                lines.append(line)
+    elif chore.kind == "lift":
+        shapes = chore.context.get("shapes") or {}
+        touches = chore.context.get("touches") or {}
+        lines.append("Members:")
+        for t in chore.targets:
+            line = f"  - {t} ({shapes.get(t, 'instance')})"
+            if touches.get(t):
+                line += f"; touches: {', '.join(touches[t])}"
+            lines.append(line)
+        lines.append("Why they were grouped:")
+        lines += [f"  - {e}" for e in chore.context.get("evidence") or []]
+    return lines
 
 LESSON_PROTOCOL = """\
 Then, and only if this chore taught you something a FUTURE chore would act on
@@ -324,7 +473,8 @@ def render_lessons(lessons, char_budget: int) -> str:
 def build_chore_prompt(chore: Chore, cwd: str, lessons=(), lessons_budget: int = 1400) -> str:
     """The complete stdin prompt for one detached chore run."""
     targets = ", ".join(chore.targets)
-    instruction = _KIND_INSTRUCTIONS[chore.kind].format(level=chore.level)
+    instruction = _KIND_INSTRUCTIONS[chore.kind].format(level=chore.level,
+                                                        lift_rel=LIFT_EDGE_REL)
     lessons_block = render_lessons(lessons, lessons_budget)
     parts = [
         "Knowledge-graph maintenance chore — ONE small action, then stop.",
@@ -333,6 +483,9 @@ def build_chore_prompt(chore: Chore, cwd: str, lessons=(), lessons_budget: int =
         f"Debt factor: {chore.reason}",
         f"Targets: {targets}",
     ]
+    context = _context_lines(chore)
+    if context:
+        parts += [""] + context
     if lessons_block:
         parts += ["", lessons_block]
     parts += [
@@ -351,6 +504,8 @@ def build_chore_prompt(chore: Chore, cwd: str, lessons=(), lessons_budget: int =
         f'   kg_progress(session_id, task_id="chore", level="{chore.level}",',
         f'       state={{"kind": "{chore.kind}", "targets": [{", ".join(repr(t) for t in chore.targets)}],',
         '              "done": <how many you actually changed>,',
+        *(['              "principle": "<the principle id, or null>",']
+          if chore.kind == "lift" else []),
         '              "declined": ["<what you did not do, and why>"]})',
         "",
         "   `declined` is the half that compounds: a target you examined and left",
@@ -359,10 +514,16 @@ def build_chore_prompt(chore: Chore, cwd: str, lessons=(), lessons_budget: int =
         "",
         LESSON_PROTOCOL,
         "",
-        "Rules: never invent facts — sharpen wording, not meaning. Touch nothing",
-        "but the targets named above. Archived nodes stay archived. You have only",
-        "the kg_* tools: no Bash, no file edits, no web. Six or seven calls is a",
-        "whole chore — finish and stop rather than finding more to do.",
+        *(["Rules: never invent facts — state only what the members show. Write",
+           "nothing but the one principle node and its edges. Archived nodes stay",
+           "archived. You have only the kg_* tools: no Bash, no file edits, no web.",
+           "About ten calls is a whole lift — finish and stop rather than finding",
+           "more to do."]
+          if chore.kind == "lift" else
+          ["Rules: never invent facts — sharpen wording, not meaning. Touch nothing",
+           "but the targets named above. Archived nodes stay archived. You have only",
+           "the kg_* tools: no Bash, no file edits, no web. Six or seven calls is a",
+           "whole chore — finish and stop rather than finding more to do."]),
         "",
         "Finish with one line: what changed, and what you declined.",
     ]

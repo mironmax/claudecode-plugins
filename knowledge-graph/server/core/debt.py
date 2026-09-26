@@ -14,7 +14,9 @@ subagent, or scheduled tick): of all graphs, which one repays tending FIRST?
               dormant graph can wait. Weighted, not gating — floor 0.4, so a
               dormant graph's debt still grows past ignoring eventually.
   deficit   — concrete, countable wear: oversized gists (the documented
-              compactor-stall root cause) and unconnected active nodes.
+              compactor-stall root cause), unconnected active nodes, long
+              ids, touches that no longer resolve (anchor), and instance
+              nodes that cluster around an unwritten principle (lift).
               Floor 0.25: a pristine-looking graph still deserves an
               occasional pass (notes rot invisibly), but never urgently.
 
@@ -134,19 +136,38 @@ def activity_days(timestamps, now: float | None = None, window_days: int = 7) ->
 def compute_debt(nodes: list[dict], edges: list[dict],
                  last_maintain_ts: float | None,
                  active_days_7d: int, now: float | None = None,
-                 slug: str | None = None) -> dict:
-    """Debt score + factors for one graph. nodes/edges: snapshot lists."""
+                 slug: str | None = None, project_root: str | None = None,
+                 home: str | Path | None = None) -> dict:
+    """Debt score + factors for one graph. nodes/edges: snapshot lists.
+
+    project_root / home: where touches resolve. Anchors are checked only when
+    one is given (a stat per path-shaped entry, never a walk), so a caller
+    with no filesystem context gets no dangling count rather than a wrong one.
+    """
+    # Imported here: lift reuses this module's stop list.
+    from .anchors import dangling_touches
+    from .lift import lift_clusters, lifted_ids
+
     now = now or time.time()
 
     active = [n for n in nodes if not n.get("_archived")]
     oversized = sum(1 for n in active if len(n.get("gist", "")) > GIST_OVERSIZE_CHARS)
+    # Episodes sharing a lesson nobody has written down once.
+    clusters = lift_clusters(nodes, edges)
+    lift_members = sum(len(c["members"]) for c in clusters)
+    in_lift = {m for c in clusters for m in c["members"]} | lifted_ids(edges)
+
     # Ids that carry the claim instead of naming the subject, or carry a date.
     # Counted as wear because ids are load-bearing in search (weighted x3,
     # matched for the recall gate) — a wrong name is paid on every prompt, and
-    # unlike a long gist it is invisible until someone looks for it.
+    # unlike a long gist it is invisible until someone looks for it. A dated
+    # id waiting in a lift cluster is counted there instead: its fix is the
+    # principle, and chores do not rename it (core.chores). One already lifted
+    # is evidence waiting to archive, not a name to repair.
     long_ids = [
         n["id"] for n in active
-        if node_id_words(n["id"]) > NODE_ID_TARGET_WORDS or node_id_has_date(n["id"])
+        if n["id"] not in in_lift
+        and (node_id_words(n["id"]) > NODE_ID_TARGET_WORDS or node_id_has_date(n["id"]))
     ]
 
     connected: set[str] = set()
@@ -155,10 +176,15 @@ def compute_debt(nodes: list[dict], edges: list[dict],
         connected.add(e.get("to", ""))
     unconnected = sum(1 for n in active if n["id"] not in connected)
 
+    # Anchors that no longer resolve: the node points somewhere that is gone.
+    dangling = (dangling_touches(nodes, project_root, home)
+                if (project_root or home) else {})
     n_active = len(active)
     smeared = smeared_terms(nodes, edges, slug=slug)
     deficit_raw = ((oversized / n_active) + 0.5 * (unconnected / n_active)
-                   + 0.5 * (len(long_ids) / n_active)) if n_active else 0.0
+                   + 0.5 * (len(long_ids) / n_active)
+                   + 0.5 * (len(dangling) / n_active)
+                   + 0.25 * (lift_members / n_active)) if n_active else 0.0
     # Each smeared term adds a nudge toward a pass; capped so smear alone
     # never spikes HIGH — consolidation is a slow structural payoff.
     deficit_raw += min(0.25, 0.08 * len(smeared))
@@ -181,6 +207,10 @@ def compute_debt(nodes: list[dict], edges: list[dict],
         "long_ids": len(long_ids),
         "long_id_examples": sorted(long_ids, key=lambda i: -node_id_words(i))[:3],
         "unconnected_active": unconnected,
+        "dangling_nodes": len(dangling),
+        "dangling_touches": sum(len(v) for v in dangling.values()),
+        "lift_clusters": len(clusters),
+        "lift_members": lift_members,
         "active_nodes": n_active,
         "untended_days": round(untended_days, 1),
         "never_maintained": not last_maintain_ts,
@@ -196,7 +226,9 @@ def debt_line(debt: dict) -> str:
     detail = (
         f"{debt['oversized_gists']} oversized gist(s), "
         f"{debt['long_ids']} long id(s), "
-        f"{debt['unconnected_active']} unconnected, {untended}, "
+        f"{debt['unconnected_active']} unconnected, "
+        f"{debt.get('dangling_touches', 0)} dangling touch(es), "
+        f"{debt.get('lift_clusters', 0)} lift cluster(s), {untended}, "
         f"active {debt['active_days_7d']}/7d"
     )
     if debt.get("smeared"):
@@ -228,8 +260,12 @@ def _graph_debt_from_file(graph_path: Path, extra_ts=None, now: float | None = N
     last_maintain = meta.get("progress", {}).get(MAINTAIN_TASK_ID, {}).get("last_ts")
     ts_pool = [n.get("_last_read_ts") for n in nodes]
     ts_pool.extend(extra_ts or [])
+    # A project graph resolves touches against its own root; the user graph
+    # only has home, for `~` and absolute entries.
     debt = compute_debt(nodes, edges, last_maintain,
-                        activity_days(ts_pool, now=now), now=now, slug=slug)
+                        activity_days(ts_pool, now=now), now=now, slug=slug,
+                        project_root=meta.get("project_path") if slug else None,
+                        home=Path.home())
     return debt, meta
 
 
