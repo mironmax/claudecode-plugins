@@ -47,6 +47,8 @@ an agent working only from this repository.
 | 02 | [Retrieval evaluation harness](tasks/02-retrieval-eval-harness.md) | Measure every retrieval change against logged reality |
 | 03 | [Anchor repair and lift maintenance](tasks/03-anchor-and-lift-maintenance.md) | Granularity and decay: keep anchors valid, lift instances to principles |
 | 04 | [Research cards](tasks/04-research-cards.md) | Read the literature against this system's actual conditions |
+| 05 | [Harness instrument review](tasks/05-harness-instrument-review.md) | Know what supporting a second harness costs, and where core ends |
+| 06 | [Continuous integration](tasks/06-continuous-integration.md) | Every change shows whether it breaks the suite before it is folded |
 
 Also in this phase, done interactively because they are judgement calls:
 capture guidance that tests granularity and writes notes as "when this
