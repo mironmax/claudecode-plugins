@@ -1,0 +1,10 @@
+$ python3 compaction/repro/thrash_search.py
+20000 random graphs through the real Compactor
+C1: 4388 graphs
+   seed=0 max_chars=1654 tick=1 churned=['n9']
+      tick 0: archived=['n0', 'n7', 'n4', 'n9', 'n6'] refilled=[]
+      tick 1: archived=[] refilled=['n9']
+   seed=6 max_chars=2030 tick=1 churned=['n1']
+      tick 0: archived=['n9', 'n0', 'n4', 'n2', 'n1', 'n12', 'n10', 'n7', 'n3', 'n6'] refilled=[]
+      tick 1: archived=[] refilled=['n1']
+C2: 0 graphs
