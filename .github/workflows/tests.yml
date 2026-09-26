@@ -1,0 +1,64 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest supported (manage_server.sh) and the newest stable release.
+        python-version: ["3.10", "3.x"]
+    defaults:
+      run:
+        working-directory: knowledge-graph/server
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: knowledge-graph/server/requirements.txt
+
+      - name: Create a fresh virtual environment
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
+          "$RUNNER_TEMP/venv/bin/python" --version
+
+      # Tests put their temporary project dirs in ~/.cache so the projects sit
+      # under $HOME, where the server accepts them; mkdtemp needs it to exist.
+      - name: Prepare the test environment
+        run: mkdir -p "$HOME/.cache"
+
+      - name: Run every tests/test_*.py
+        run: |
+          py="$RUNNER_TEMP/venv/bin/python"
+          failed=()
+          summary=""
+          for f in tests/test_*.py; do
+            start=$EPOCHREALTIME
+            echo "::group::$f"
+            if "$py" "$f"; then result=PASS; else result=FAIL; failed+=("$f"); fi
+            echo "::endgroup::"
+            secs=$(awk -v a="$start" -v b="$EPOCHREALTIME" 'BEGIN { printf "%.1f", b - a }')
+            line=$(printf '%s  %-28s %6ss' "$result" "$f" "$secs")
+            echo "$line"
+            summary+="$line"$'\n'
+          done
+          echo
+          echo "$summary"
+          { echo '```'; echo "$summary"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ ${#failed[@]} -gt 0 ]; then
+            echo "Failed: ${failed[*]}"
+            exit 1
+          fi
+          echo "All test files passed."
