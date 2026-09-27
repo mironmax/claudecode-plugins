@@ -1,0 +1,8 @@
+$ python3 sessions/repro/repro_fork.py
+parent C0 -> k0=071ea25d; other session C9 -> k9=fa9b6f5e
+fork C1 bootstrap: session_id=071ea25d reused=True
+find_by_claude_sid('C0') after fork: None
+parent C0's next prompt hook got the full-read nudge (meant for a session that never read): True
+BUG D: fork and live parent now share one KG session (one seen-set for two diverging contexts)
+BUG I: parent's hooks resolve to C9's session k9 (newest-by-path) — re-nagged, and writes k9's seen-set
+RESULT: FAIL

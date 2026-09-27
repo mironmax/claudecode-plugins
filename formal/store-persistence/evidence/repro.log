@@ -1,0 +1,9 @@
+$ python3 store-persistence/repro/repro_failed_save.py
+Failed to save graph to /tmp/tmpb8cl9qpm/user.json: [Errno 28] No space left on device
+A put_node returned: {'node': {'id': 'a1', 'gist': 'written while the disk was full', '_created_ts': 1790452892.265058}, 'level': 'user', 'near_duplicate': None}
+A dirty after failed save: False
+A node present after restart: False
+Failed to save graph to /tmp/tmpb8cl9qpm/user.json: [Errno 28] No space left on device
+B node in memory after reload: False
+C _last_read_ts survives reload: False
+RESULT: FAIL A, B, C

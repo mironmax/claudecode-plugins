@@ -1,0 +1,8 @@
+$ python3 security/repro/repro_csrf.py
+text/plain POST /api/nodes: 422 -> node planted: False
+text/plain POST /api/nodes/rename: 422
+text/plain POST /api/progress: 422
+GET /api/session_bootstrap registered a session: True
+GET /api/graph/read?reload=true (discards unsaved memory, F3): 200
+text/plain POST /api/prompt_context: 422
+text/plain POST /api/tool_event: 422

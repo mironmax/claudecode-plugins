@@ -1,0 +1,5 @@
+$ python3 websocket/repro/repro_ws.py
+editor ws session: e9afaa5d project: None
+writes: 200 200
+first broadcast the editor received: node_updated user-marker
+FAIL: project-level change never reached the editor

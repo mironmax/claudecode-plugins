@@ -1,0 +1,12 @@
+$ python3 rename/repro/repro_rename.py
+R1 user rename, loaded project owns the new name
+  skipped_graphs: []
+  BUG p's edge still reaches the renamed user node: got ['project:b'], want ['user:b']
+R2 user rename, unloaded project owns the new name
+  skipped_graphs: [{'graph': 'kg-formal-fb5bm7gg', 'reason': 'collision'}]
+  BUG p keeps an edge to the renamed user node after the project loads: got [], want ['user:b']
+R3 project rename sweeps other projects' refs to a same-named user node
+  BUG P2's edge still reaches user a: got ['DANGLING'], want ['user:a']
+R4 project rename to a name the user graph owns
+  BUG q's edge still reaches user b: got ['project:b'], want ['user:b']
+RESULT: FAIL p's edge still reaches the renamed user node, p keeps an edge to the renamed user node after the project loads, P2's edge still reaches user a, q's edge still reaches user b

@@ -1,0 +1,26 @@
+$ lean --run store-persistence/lean/Persist.lean
+--- maxMem=3 fixWT=false fixReload=false
+✗ I1 not dirty ⇒ memory == disk: COUNTEREXAMPLE (3 states)
+    write-through (save FAILS)
+✗ I2 no write lost (reload / shutdown): COUNTEREXAMPLE (12 states)
+    write-through (save FAILS)
+    force reload from disk
+✗ sanity (expect ✗): a durable write reaches disk: COUNTEREXAMPLE (9 states)
+    write-through (save ok)
+    shutdown (final save skipped: not dirty)
+--- maxMem=3 fixWT=true fixReload=false
+✓ I1 not dirty ⇒ memory == disk: no counterexample (40 states, exhaustive)
+✗ I2 no write lost (reload / shutdown): COUNTEREXAMPLE (9 states)
+    write-through (save FAILS)
+    force reload from disk
+✗ sanity (expect ✗): a durable write reaches disk: COUNTEREXAMPLE (7 states)
+    write-through (save ok)
+    shutdown (final save skipped: not dirty)
+--- maxMem=3 fixWT=true fixReload=true
+✓ I1 not dirty ⇒ memory == disk: no counterexample (23 states, exhaustive)
+✗ I2 no write lost (reload / shutdown): COUNTEREXAMPLE (10 states)
+    write-through (save FAILS)
+    shutdown (final save FAILS)
+✗ sanity (expect ✗): a durable write reaches disk: COUNTEREXAMPLE (7 states)
+    write-through (save ok)
+    shutdown (final save skipped: not dirty)

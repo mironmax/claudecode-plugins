@@ -1,0 +1,5 @@
+$ python3 chore-dispatch/repro/repro_stale_state.py quick_exit
+mode=quick_exit  min_interval=2700s  max_per_day=8
+log events: ['dispatch', 'done', 'dispatch', 'done']
+dispatches=2  state.count=1  state.last_ts=1790452891.283
+FAIL: two dispatches inside min_interval, and state.count lost one of them

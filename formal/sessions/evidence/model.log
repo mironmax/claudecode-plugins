@@ -1,0 +1,15 @@
+$ lean --run sessions/lean/Sessions.lean
+--- with fork events (code as is)
+✗ D dedup soundness: COUNTEREXAMPLE (113 states)
+    c0 startup -> register k0
+    c0 FORKED as c1 (parent lives) -> reuse k0
+    hook for c0 resolves k0 (c0 uses k0) shows gist 0 -> injected
+    hook for c1 resolves k0 (c1 uses k0) shows gist 0 -> SUPPRESSED as seen
+✗ I hook identity: COUNTEREXAMPLE (45 states)
+    c0 startup -> register k0
+    c1 startup -> register k1
+    c0 FORKED as c2 (parent lives) -> reuse k0
+    hook for c0 resolves k1 (c0 uses k0) shows gist 0 -> injected
+--- same model, fork events removed (isolates the cause)
+✓ D dedup soundness: none (351 states, exhaustive)
+✓ I hook identity: none (351 states, exhaustive)

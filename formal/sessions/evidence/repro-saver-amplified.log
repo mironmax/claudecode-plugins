@@ -1,0 +1,3 @@
+$ timeout 120 python3 sessions/repro/repro_saver_death.py amplified
+mode=amplified registrations=14318  saver alive=False  died={'saver': "RuntimeError('dictionary changed size during iteration')"}
+FAIL: saver thread is dead for the rest of the process
