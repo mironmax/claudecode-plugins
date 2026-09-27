@@ -38,6 +38,7 @@ MAINTAIN_LEVEL_DOC = (
     "preloaded, searched or rendered with the graphs; write there only from a "
     "maintenance chore or pass."
 )
+from mcp_http import harness
 from mcp_http.security import request_refusal
 from core.autocommit import AutoCommitter
 from core.exceptions import (
@@ -383,8 +384,9 @@ def create_mcp_server() -> Server:
     # Tool Handlers
     # ========================================================================
 
-    async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-        """Handle tool calls."""
+    async def call_tool(name: str, arguments: dict,
+                        client: str = harness.CLAUDE_CODE) -> list[TextContent]:
+        """Handle tool calls. client: the calling harness (mcp_http.harness)."""
         global store, session_manager
 
         try:
@@ -402,6 +404,7 @@ def create_mcp_server() -> Server:
                 # path-less session_id falls through to cwd registration rather
                 # than being silently auto-created without a project path.
                 session_id = None
+                notice = ""
                 if sid_arg:
                     info = session_manager.lookup(sid_arg)
                     if info and info.get("project_path"):
@@ -414,7 +417,14 @@ def create_mcp_server() -> Server:
                             text="Error: pass cwd on the first kg_read call (or a valid session_id from it)."
                         )]
                     project_root = str(Path(cwd).resolve())
-                    result = session_manager.register(project_root)
+                    # A first call with cwd means no preload reached this
+                    # session. From a harness whose hooks have never reported
+                    # here, that is the hooks being off, and only the user
+                    # can turn them on.
+                    hint = harness.profile(client).no_hooks_hint
+                    if hint and not session_manager.hooks_seen(project_root, client):
+                        notice = "\n\n" + hint
+                    result = session_manager.register(project_root, harness=client)
                     session_id = result["session_id"]
 
                 # Single or batch node read — full content, compact text.
@@ -436,7 +446,7 @@ def create_mcp_server() -> Server:
                     session_manager.mark_promoted(session_id, promoted)
                     return [TextContent(
                         type="text",
-                        text="\n\n".join(blocks) + f"\n\nSession: {session_id}"
+                        text="\n\n".join(blocks) + f"\n\nSession: {session_id}" + notice
                     )]
 
                 # The maintenance memory is addressed only by naming it: it is
@@ -445,7 +455,7 @@ def create_mcp_server() -> Server:
                 if level == "maintain":
                     return [TextContent(
                         type="text",
-                        text=build_maintain_read(store.maintain_snapshot(), session_id),
+                        text=build_maintain_read(store.maintain_snapshot(), session_id) + notice,
                     )]
 
                 # Full graph read — rendering + inline-guarantee degradation
@@ -479,6 +489,7 @@ def create_mcp_server() -> Server:
                 text = build_full_read(graphs, scores, session_id, preloaded=preloaded, debt=debt)
                 if first_full:
                     text += '\n\nFull graph now in context — announce "I have recalled KG Memories".'
+                text += notice
                 return [TextContent(
                     type="text",
                     text=text,
@@ -714,7 +725,9 @@ def create_mcp_server() -> Server:
                     content=[TextContent(type="text", text=f"Input validation error: {e.message}")],
                     is_error=True,
                 )
-        return CallToolResult(content=await call_tool(params.name, arguments))
+        headers = getattr(getattr(ctx, "transport", None), "headers", None) or {}
+        client = harness.from_user_agent(headers.get("user-agent"))
+        return CallToolResult(content=await call_tool(params.name, arguments, client))
 
     return Server("knowledge-graph-mcp", version=__version__,
                   on_list_tools=on_list_tools, on_call_tool=on_call_tool)

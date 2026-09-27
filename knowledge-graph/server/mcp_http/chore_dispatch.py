@@ -27,9 +27,11 @@ import json
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from core.anchors import anchor_candidates, dangling_touches
@@ -58,6 +60,7 @@ from core.constants import (
     CHORE_MODEL,
     CHORE_TASK_ID,
     CHORE_TIMEOUT_SECONDS,
+    CODEX_ROLLOUT_TAIL_BYTES,
     LIFT_EDGE_REL,
     PASS_GAUGE_MAX_5H,
     PASS_GAUGE_MAX_7D,
@@ -131,16 +134,6 @@ def enabled() -> bool:
     return _enabled(_config())
 
 
-def _claude_bin(cfg: dict) -> str | None:
-    explicit = cfg.get("claude_bin")
-    if explicit:
-        return explicit if Path(explicit).exists() else None
-    default = Path.home() / ".local/bin/claude"
-    if default.exists():
-        return str(default)
-    return shutil.which("claude")
-
-
 def _settings_path(cfg: dict, tier: str = "chore") -> str | None:
     key, shipped = (("pass_settings", SHIPPED_PASS_SETTINGS) if tier == "pass"
                     else ("settings", SHIPPED_SETTINGS))
@@ -156,6 +149,32 @@ _LAUNCHER_ENV_PREFIX = "CLAUDE_CODE_"
 _LAUNCHER_ENV_KEYS = frozenset({"CLAUDECODE", "CLAUDE_PID", "CLAUDE_EFFORT", "AI_AGENT"})
 
 
+def chore_env(base: dict | None = None) -> dict:
+    """The server's environment minus the session that launched it; user
+    settings re-apply anything legitimate. KG_CHORE=1 stands this plugin's
+    own hooks down inside the run (no preload, no recall, no re-dispatch),
+    in any harness: its hooks inherit the variable from the runner.
+    """
+    src = os.environ if base is None else base
+    env = {k: v for k, v in src.items()
+           if not k.startswith(_LAUNCHER_ENV_PREFIX) and k not in _LAUNCHER_ENV_KEYS}
+    env["KG_CHORE"] = "1"
+    return env
+
+
+# --------------------------------------------------------------------------
+# Runners: the harness that runs the agent, and whose quota it spends
+# --------------------------------------------------------------------------
+#
+# Selection and gating are harness-neutral; a runner owns the three things
+# that are not: finding its binary, the command that runs a prompt headless
+# with only the kg tools, and the quota gauge. The gauge belongs to the
+# runner, not to the harness that sent the prompt: a chore launched through
+# Codex spends the ChatGPT plan's windows and is gated on them, never on
+# Claude's. Every gauge returns the same keys as ~/.claude/last-limits.json
+# (five_hour_pct, seven_day_pct, seven_day_resets_at, updated_at), which is
+# what the gates below read.
+
 def chore_command(claude_bin: str, model: str, settings: str) -> list[str]:
     """A chore is system-wide: user settings only (the plugin lives there),
     nothing from any project's .claude/. The --settings allowlist applies
@@ -164,16 +183,162 @@ def chore_command(claude_bin: str, model: str, settings: str) -> list[str]:
             "--settings", settings]
 
 
-def chore_env(base: dict | None = None) -> dict:
-    """The server's environment minus the session that launched it; user
-    settings re-apply anything legitimate. KG_CHORE=1 stands this plugin's
-    own hooks down inside the run (no preload, no recall, no re-dispatch).
+class ClaudeRunner:
+    name = "claude"
+
+    def binary(self, cfg: dict) -> str | None:
+        explicit = cfg.get("claude_bin")
+        if explicit:
+            return explicit if Path(explicit).exists() else None
+        default = Path.home() / ".local/bin/claude"
+        if default.exists():
+            return str(default)
+        return shutil.which("claude")
+
+    def gauge(self, cfg: dict, now: float) -> dict:
+        """The status line's snapshot; raises when it cannot be read."""
+        path = Path(os.path.expanduser(cfg.get("limits", "~/.claude/last-limits.json")))
+        return json.loads(path.read_text())
+
+    def command(self, cfg: dict, job: dict) -> list[str]:
+        return chore_command(job["bin"], cfg.get("model", CHORE_MODEL), job["settings"])
+
+
+# The shipped allowlists name tools the way Claude Code does; Codex takes the
+# bare MCP tool names. One file per tier stays the single source for both.
+_CLAUDE_TOOL_PREFIX = "mcp__plugin_knowledge-graph_kg__"
+
+
+def allowed_tools(settings_path: str) -> list[str]:
+    """Bare kg tool names a settings file allows."""
+    allow = (json.loads(Path(settings_path).read_text()).get("permissions") or {}).get("allow") or []
+    return [t[len(_CLAUDE_TOOL_PREFIX):] for t in allow if t.startswith(_CLAUDE_TOOL_PREFIX)]
+
+
+def codex_limits(rollout: Path) -> dict | None:
+    """The last rate-limit reading in a Codex rollout, as gauge keys.
+
+    Codex writes `token_count` events carrying the plan's windows after each
+    model response; `window_minutes` says which window is which. A window
+    whose reset has passed has emptied, whatever it last read.
     """
-    src = os.environ if base is None else base
-    env = {k: v for k, v in src.items()
-           if not k.startswith(_LAUNCHER_ENV_PREFIX) and k not in _LAUNCHER_ENV_KEYS}
-    env["KG_CHORE"] = "1"
-    return env
+    size = rollout.stat().st_size
+    with open(rollout, "rb") as f:
+        f.seek(max(0, size - CODEX_ROLLOUT_TAIL_BYTES))
+        lines = f.read().decode("utf-8", "replace").splitlines()
+    for line in reversed(lines):
+        if '"rate_limits"' not in line:
+            continue
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        limits = (event.get("payload") or {}).get("rate_limits")
+        if not limits:
+            continue
+        out = {"updated_at": _iso_ts(event.get("timestamp")) or rollout.stat().st_mtime}
+        for window in (limits.get("primary"), limits.get("secondary")):
+            if not window:
+                continue
+            minutes = window.get("window_minutes")
+            key = {300: "five_hour", 10080: "seven_day"}.get(minutes)
+            if not key:
+                continue
+            pct, resets = window.get("used_percent"), window.get("resets_at")
+            if resets and resets < time.time():
+                pct = 0.0
+            out[f"{key}_pct"] = pct
+            out[f"{key}_resets_at"] = resets
+        return out
+    return None
+
+
+def _iso_ts(value) -> float | None:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def codex_home() -> Path:
+    return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+
+
+def newest_rollout(home: Path, days: int = 3) -> Path | None:
+    """Most recently written rollout in the last few day directories.
+
+    Rollouts live under sessions/YYYY/MM/DD/, one file per session; only the
+    newest days can hold a fresh reading, so the walk stays small however
+    long the history is.
+    """
+    root = home / "sessions"
+    try:
+        day_dirs = sorted((d for y in root.iterdir() if y.is_dir()
+                           for m in y.iterdir() if m.is_dir()
+                           for d in m.iterdir() if d.is_dir()), reverse=True)[:days]
+    except OSError:
+        return None
+    files = [f for d in day_dirs for f in d.glob("rollout-*.jsonl")]
+    return max(files, key=lambda f: f.stat().st_mtime, default=None)
+
+
+class CodexRunner:
+    name = "codex"
+
+    def binary(self, cfg: dict) -> str | None:
+        explicit = cfg.get("codex_bin")
+        if explicit:
+            return explicit if Path(explicit).exists() else None
+        return shutil.which("codex")
+
+    def gauge(self, cfg: dict, now: float) -> dict:
+        rollout = newest_rollout(codex_home())
+        data = codex_limits(rollout) if rollout else None
+        if not data:
+            raise ValueError("no Codex rate-limit reading")
+        return data
+
+    def command(self, cfg: dict, job: dict) -> list[str]:
+        """codex exec with no shell, no web and only the tier's kg tools.
+
+        --ignore-user-config keeps the user's own model, effort and plugins
+        (whose skills and hooks a chore does not need) out of the run; auth
+        is not config and still applies. The kg server is named here rather
+        than inherited, and its tools pre-approved, because exec has no one
+        to approve a call. The prompt arrives on stdin.
+        """
+        host = os.getenv("KG_HTTP_HOST", "127.0.0.1")
+        port = os.getenv("KG_HTTP_PORT", "8765")
+        effort = cfg.get("codex_reasoning_effort",
+                         "medium" if job["tier"] == "pass" else "low")
+        cmd = [job["bin"], "exec", "--ephemeral", "--ignore-user-config",
+               "--skip-git-repo-check", "-s", "read-only", "--disable", "shell_tool",
+               "-c", 'web_search="disabled"',
+               "-c", f'mcp_servers.kg.url="http://{host}:{port}/"',
+               "-c", f"mcp_servers.kg.enabled_tools={json.dumps(allowed_tools(job['settings']))}",
+               "-c", 'mcp_servers.kg.default_tools_approval_mode="approve"',
+               "-c", f'model_reasoning_effort="{effort}"']
+        if cfg.get("codex_model"):
+            cmd += ["-m", cfg["codex_model"]]
+        return cmd
+
+
+RUNNERS = {r.name: r for r in (ClaudeRunner(), CodexRunner())}
+
+
+def _runner(cfg: dict):
+    """The configured runner; "auto" (the default) prefers Claude Code, as
+    before this choice existed, and falls back to Codex when only Codex is
+    installed. A binary named in the config pins its runner even when the
+    path is wrong: that surfaces as "binary missing", where falling through
+    would silently spend a different subscription's quota."""
+    choice = cfg.get("runner", "auto")
+    if choice in RUNNERS:
+        return RUNNERS[choice]
+    for runner in RUNNERS.values():
+        if cfg.get(f"{runner.name}_bin") or runner.binary(cfg):
+            return runner
+    return RUNNERS["claude"]
 
 
 # --------------------------------------------------------------------------
@@ -258,7 +423,7 @@ def weekly_pace(data: dict, now: float) -> float | None:
     return (pct / 100.0) / min(1.0, elapsed)
 
 
-def _gauge_read(cfg: dict, now: float) -> tuple[dict, dict | None, str]:
+def _gauge_read(cfg: dict, now: float, runner) -> tuple[dict, dict | None, str]:
     """(reading, raw, error). Both tiers need a FRESH gauge.
 
     The tick script tolerates a stale reading because waiting for a fresh one
@@ -267,9 +432,8 @@ def _gauge_read(cfg: dict, now: float) -> tuple[dict, dict | None, str]:
     normal case and a stale one means the statusline is not rendering — which
     is precisely when spending blind would land on the user's own session.
     """
-    path = Path(os.path.expanduser(cfg.get("limits", "~/.claude/last-limits.json")))
     try:
-        data = json.loads(path.read_text())
+        data = runner.gauge(cfg, now)
     except Exception:
         return {}, None, "gauge unreadable"
     age = now - (data.get("updated_at") or 0)
@@ -397,7 +561,7 @@ def _spawn(cfg: dict, job: dict, prompt: str, store) -> None:
     the log. Without the watcher the process would also linger as a zombie
     until the server exits.
     """
-    cmd = chore_command(job["claude_bin"], cfg.get("model", CHORE_MODEL), job["settings"])
+    cmd = RUNNERS[job["runner"]].command(cfg, job)
     # Run from the store directory, not the project: the prompt names the
     # graph via kg_read(cwd=...), and a project dir would still supply
     # CLAUDE.md and .mcp.json, which --setting-sources does not govern.
@@ -421,7 +585,12 @@ def _spawn(cfg: dict, job: dict, prompt: str, store) -> None:
             rc = proc.returncode
             tail = (out or "")[-600:]
         except subprocess.TimeoutExpired:
-            proc.kill()
+            # The run leads its own session: kill the group, or whatever the
+            # agent started (MCP clients, helpers) outlives it.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                proc.kill()
             try:
                 proc.communicate(timeout=10)
             except Exception:
@@ -437,7 +606,7 @@ def _spawn(cfg: dict, job: dict, prompt: str, store) -> None:
         except Exception:
             debt_after = {}
         record = {
-            "event": "done", "tier": job["tier"], "graph": job["graph"],
+            "event": "done", "tier": job["tier"], "runner": job["runner"], "graph": job["graph"],
             "level": job["level"], "kind": job.get("kind"),
             "targets": job.get("targets"), "rc": rc,
             "elapsed_s": round(time.time() - started, 1),
@@ -610,9 +779,10 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
         # dispatcher could not answer for weeks.
         _roll_day(state, now)
 
-        reading, raw, err = _gauge_read(cfg, now)
+        runner = _runner(cfg)
+        reading, raw, err = _gauge_read(cfg, now, runner)
         if err:
-            _log({"event": "skip", "reason": err, "gauge": reading})
+            _log({"event": "skip", "reason": err, "runner": runner.name, "gauge": reading})
             return
 
         # Candidates: the two graphs already in memory for this session. An
@@ -650,11 +820,11 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
                 _log({"event": "skip", "reason": gate, "gauge": reading})
                 return
 
-        claude_bin = _claude_bin(cfg)
+        binary = runner.binary(cfg)
         settings = _settings_path(cfg, tier)
-        if not claude_bin or not settings:
-            _log({"event": "skip", "reason": "claude binary or settings missing",
-                  "tier": tier, "claude_bin": claude_bin, "settings": settings})
+        if not binary or not settings:
+            _log({"event": "skip", "reason": f"{runner.name} binary or settings missing",
+                  "tier": tier, "bin": binary, "settings": settings})
             return
 
         level = payload["level"] if tier == "pass" else payload.level
@@ -699,7 +869,7 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
                     for nid, recs in (payload.context.get("anchors") or {}).items()}
         job.update({"level": level, "graph": graph_key, "project": cwd,
                     "project_path": ppath, "dispatched_ts": now,
-                    "claude_bin": claude_bin, "settings": settings})
+                    "runner": runner.name, "bin": binary, "settings": settings})
 
         with _lock:
             if _running.is_set():
@@ -724,7 +894,8 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
                 state["count"] = state.get("count", 0) + 1
             _write_state(state)
 
-        _log({"event": "dispatch", "tier": tier, "graph": graph_key, "level": level,
+        _log({"event": "dispatch", "tier": tier, "runner": runner.name,
+              "graph": graph_key, "level": level,
               "kind": job["kind"], "targets": job["targets"],
               "debt": job["debt_before"], "lessons": len(lessons),
               "gauge": reading, **record})

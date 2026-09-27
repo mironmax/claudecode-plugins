@@ -116,8 +116,10 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         unannounced and re-preloaded for a week) then degrade gracefully — a
         genuinely fresh transcript has no markers and registers fresh.
         """
+        from . import harness
         from .read_format import build_bootstrap
         from .session_manager import recover_kg_sid_from_transcript
+        profile = harness.profile(harness.from_transcript(transcript_path))
         try:
             session_id = None
             reused = False
@@ -138,7 +140,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                         if claude_session_id:
                             session_manager.bind_claude_sid(cand, claude_session_id)
             if session_id is None:
-                reg = session_manager.register(project_path, claude_sid=claude_session_id)
+                reg = session_manager.register(project_path, claude_sid=claude_session_id,
+                                               harness=profile.name)
                 session_id = reg["session_id"]
             # Re-render only where the context actually lost the preload.
             # Compact squeezed it into a summary — re-rendering is restoration.
@@ -168,7 +171,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 debt = store.maintenance_debt(session_id)
             except Exception:
                 debt = None
-            result = build_bootstrap(graphs, scores, session_id, debt=debt)
+            result = build_bootstrap(graphs, scores, session_id, debt=debt,
+                                     budget=profile.preload_chars)
             session_manager.set_preloaded(session_id, result["shown_ids"])
             session_manager.mark_seen(session_id, result["shown_ids"], via="preload")
             return {

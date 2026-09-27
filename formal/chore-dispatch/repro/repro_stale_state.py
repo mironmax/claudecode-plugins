@@ -22,16 +22,18 @@ from core.constants import CHORE_LOG_NAME, CHORE_MAX_PER_DAY, CHORE_MIN_INTERVAL
 
 payload = SimpleNamespace(level="user", graph="user", project_path=None, kind="anchor",
                           targets=["n1"], debt=1.0, pool="p", context={})
-cd._gauge_read = lambda cfg, now: ({}, {}, "")
+cd._gauge_read = lambda cfg, now, runner: ({}, {}, "")
 cd._pick_target = lambda *a: ("chore", payload)
 cd._chore_gauge_ok = lambda cfg, raw: ""
 cd._settings_path = lambda cfg, tier="chore": "/dev/null"
 cd.build_chore_prompt = lambda *a, **k: "p"
 cd._graph_debt = lambda *a, **k: ({}, 0, 0)
+runner = cd.ClaudeRunner()
+cd._runner = lambda cfg: runner
 if mode == "spawn_fail":
-    cd._claude_bin = lambda cfg: "/nonexistent/claude"      # Popen raises -> _running.clear()
+    runner.binary = lambda cfg: "/nonexistent/claude"       # Popen raises -> _running.clear()
 else:
-    cd._claude_bin = lambda cfg: "/bin/true"                # process exits at once
+    runner.binary = lambda cfg: "/bin/true"                 # process exits at once
 
 t1_has_read = threading.Event()
 release_t1 = threading.Event()

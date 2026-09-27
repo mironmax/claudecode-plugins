@@ -241,7 +241,8 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloade
     return prefix + _assemble(levels, session_line)
 
 
-def build_bootstrap(graphs: dict, scores: dict, session_id: str, debt: dict | None = None) -> dict:
+def build_bootstrap(graphs: dict, scores: dict, session_id: str, debt: dict | None = None,
+                    budget: int = BOOTSTRAP_CHAR_BUDGET) -> dict:
     """Render the session-start preload: a compact core under BOOTSTRAP_CHAR_BUDGET.
 
     Hook additionalContext rides a much smaller inline window than tool results
@@ -272,7 +273,7 @@ def build_bootstrap(graphs: dict, scores: dict, session_id: str, debt: dict | No
         "project_active": len(levels[1]["active"]),
     }
 
-    _fit_to_budget(levels, session_line, BOOTSTRAP_CHAR_BUDGET, prefix=header, drop_active=True, degradation_note=False)
+    _fit_to_budget(levels, session_line, budget, prefix=header, drop_active=True, degradation_note=False)
 
     body = _assemble(levels, session_line, degradation_note=False)
     shown = [entry["nid"] for part in levels for entry in part["active"]]

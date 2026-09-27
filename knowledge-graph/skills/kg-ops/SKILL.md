@@ -48,6 +48,12 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
    present) into `~/.local/bin/` — which must be on PATH.
 4. Verify: health curl above returns JSON; `kg_read` works in a session.
 
+**Codex CLI**: `codex plugin marketplace add mironmax/claudecode-plugins` →
+`codex plugin add knowledge-graph@maxim-plugins`. Then the **user** runs
+`/hooks` in Codex and trusts the knowledge-graph hooks: Codex keeps a plugin's
+hooks off until approved, and without them there is no preload or recall (a
+first `kg_read` from Codex says so). One server serves both harnesses.
+
 ## After a plugin update
 
 1. Rerun `install_command.sh` (recipe above) — repoints all `~/.local/bin`
@@ -182,6 +188,18 @@ gauge fresh AND usage low, and those two are almost never true together.
   dispatcher kept its settings in `~/.config`, never gained `kg_rename_node`
   when v0.9.35 added it, and its one id pass recorded `ids_renamed: 0`.
   Override with `"settings"` / `"pass_settings"` only if you must.
+- **Runner** — which harness runs the agent, and whose quota it spends:
+  `"runner": "auto"` (default: Claude Code if installed, else Codex),
+  `"claude"` or `"codex"`. The quota gate reads the runner's own gauge:
+  `~/.claude/last-limits.json` for Claude, the newest Codex session rollout
+  (`$CODEX_HOME/sessions`) for Codex — so a Codex run is gated on the
+  ChatGPT plan's 5h/weekly windows, never on Claude's, and a fresh reading
+  exists only while someone uses that harness. Codex runs are `codex exec
+  --ephemeral --ignore-user-config` with no shell, no web and only the tier's
+  kg tools (taken from the same `chores/*settings.json`), pre-approved.
+  `"codex_model"` picks the model (default: Codex's own),
+  `"codex_reasoning_effort"` the effort (default low for chores, medium for
+  passes). A configured `"claude_bin"`/`"codex_bin"` pins its runner.
 - **Watch**: `tail -f ~/.knowledge-graph/chores.jsonl | jq .` — one line per
   decision, refusals included (`{"event":"skip","reason":"5h 71%"}`), so "why
   did nothing run" is always answerable. Dispatches log the targets; the

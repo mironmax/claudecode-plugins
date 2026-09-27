@@ -15,6 +15,15 @@ Restart Claude Code. Done — the plugin starts its local memory server automati
 
 Requires Python 3.10+. No databases, no API keys, everything stays on your machine.
 
+**Codex CLI** runs the same plugin, unchanged:
+
+```bash
+codex plugin marketplace add mironmax/claudecode-plugins
+codex plugin add knowledge-graph@maxim-plugins
+```
+
+Then, in Codex, run `/hooks` and trust the knowledge-graph hooks: Codex keeps a plugin's hooks off until you approve them, and without them there is no preload or recall. Start a new session. Both harnesses share one memory server, so what you learn in one is there in the other.
+
 **[Full documentation →](knowledge-graph/README.md)** · **[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)** · ⭐ Star if useful — it helps others find this
 
 ## Your first five minutes

@@ -142,6 +142,23 @@ Note: Desktop sessions get no session-start preload (that's a Claude Code hook) 
 
 ---
 
+## Codex CLI
+
+Codex installs this plugin as it ships, from the same marketplace:
+
+```bash
+codex plugin marketplace add mironmax/claudecode-plugins
+codex plugin add knowledge-graph@maxim-plugins
+```
+
+Codex keeps a plugin's hooks off until you approve them. Run `/hooks` in Codex, trust the knowledge-graph hooks, and start a new session. Until then the `kg_*` tools work but nothing arrives on its own, and the first `kg_read` says so.
+
+With the hooks on, Codex gets what Claude Code gets: the session-start preload (sized to Codex's smaller hook limit), prompt-matched recall, and memory about a file when the agent reads it through the shell or edits it with `apply_patch`. One thing does not carry over: Codex runs web search as a hosted tool that never reaches a hook, so there are no capture nudges for web research. Both harnesses talk to the one local server, so a lesson captured in Codex is recalled in Claude Code and the other way round.
+
+Maintenance chores can run through Codex too, spending your ChatGPT plan's limits instead of Claude's — see `/kg-ops` (Maintenance chores, `"runner"`).
+
+---
+
 ## What the Memory Does on Its Own
 
 The system is designed to work without being asked. Four ambient behaviors, all zero-config:

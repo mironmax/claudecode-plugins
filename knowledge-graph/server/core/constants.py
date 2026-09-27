@@ -38,6 +38,11 @@ SEARCH_CHAR_BUDGET = 10000
 # then edge citations, then lowest-scored active gists (the loud kg_read
 # renders whatever the preload had to drop, without repeating what it showed).
 BOOTSTRAP_CHAR_BUDGET = 10000
+# Codex caps hook context by tokens: about 2,500 by default, truncating past
+# that. A 9,675-char preload arrived whole on codex-cli 0.157.1 (09-27), close
+# to the edge; 8,000 leaves margin for token-dense gists. The ladder above
+# degrades the same way to fit, and kg_read renders what was dropped.
+CODEX_BOOTSTRAP_CHAR_BUDGET = 8000
 COMPACTION_TARGET_RATIO = 0.8
 # ---------------------------------------------------------------------------
 # Ambient memory (v0.9.24): per-event hook endpoints.
@@ -319,6 +324,9 @@ CHORE_GAUGE_MAX_5H = 55
 CHORE_GAUGE_MAX_7D = 80
 CHORE_TIMEOUT_SECONDS = 420       # a chore that takes 7 min is wedged, not slow
 CHORE_MODEL = "claude-sonnet-5"
+# Codex keeps its plan windows in the session rollout, one token_count event
+# per model response; the last one sits near the end, behind the turn itself.
+CODEX_ROLLOUT_TAIL_BYTES = 256 * 1024
 # Targets per chore, by kind. Small on purpose: the point is that a chore
 # always finishes, so the graph moves a little on most days instead of a lot
 # on the rare day every gate opens at once.

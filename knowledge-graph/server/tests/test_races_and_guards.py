@@ -172,16 +172,18 @@ def test_dispatch_race():
     print("4. F1 dispatch decides on fresh state")
     saved = {k: getattr(cd, k) for k in ("_gauge_read", "_pick_target", "_chore_gauge_ok",
                                          "_settings_path", "build_chore_prompt",
-                                         "_claude_bin", "_enabled")}
+                                         "_runner", "_enabled")}
     payload = SimpleNamespace(level="user", graph="user", project_path=None, kind="edge",
                               targets=["n1"], debt=1.0, pool="p", context={})
     cd._enabled = lambda cfg: True
-    cd._gauge_read = lambda cfg, now: ({}, {}, "")
+    cd._gauge_read = lambda cfg, now, runner: ({}, {}, "")
     cd._pick_target = lambda *a: ("chore", payload)
     cd._chore_gauge_ok = lambda cfg, raw: ""
     cd._settings_path = lambda cfg, tier="chore": "/dev/null"
     cd.build_chore_prompt = lambda *a, **k: "p"
-    cd._claude_bin = lambda cfg: "/nonexistent/claude"     # spawn fails: _running clears at once
+    runner = cd.ClaudeRunner()
+    runner.binary = lambda cfg: "/nonexistent/claude"       # spawn fails: _running clears at once
+    cd._runner = lambda cfg: runner
 
     t1_read, release = threading.Event(), threading.Event()
 

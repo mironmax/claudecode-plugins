@@ -455,7 +455,7 @@ _events_lock = threading.Lock()
 _NOISE_FRAGMENTS = (
     "/tmp/", "/node_modules/", "/venv/", "/.venv/", "/__pycache__/",
     "/.git/", "/dist/", "/build/", "/.claude/", "/.knowledge-graph/",
-    "/scratchpad/",
+    "/scratchpad/", "/.codex/",
 )
 
 
@@ -583,7 +583,7 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
     except ValueError:
         return None  # outside home — not a graph-bearing project
 
-    recall, covered = None, False
+    recall, covered, paths = None, False, []
     try:
         from .file_recall import build_file_recall, file_targets
         paths = file_targets(tool, tool_input, project_path)
@@ -594,6 +594,10 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
         logger.exception("file recall failed")
 
     extracted = _extract_target(tool, tool_input)
+    if not extracted and tool == "Bash" and paths:
+        from .harness import from_transcript, profile
+        if profile(from_transcript(payload.get("transcript_path"))).shell_reads_count:
+            extracted = ("read", paths[0])
     if not extracted:
         return recall
     kind, target = extracted

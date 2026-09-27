@@ -83,7 +83,8 @@ class HTTPSessionManager:
         self._load_sessions()
 
     @_locked
-    def register(self, project_path: str | None = None, claude_sid: str | None = None) -> dict:
+    def register(self, project_path: str | None = None, claude_sid: str | None = None,
+                 harness: str | None = None) -> dict:
         """
         Register a new session with optional project root path.
         Returns {"session_id": str, "start_ts": float}.
@@ -92,7 +93,11 @@ class HTTPSessionManager:
             project_path: Absolute path to the project root directory.
             claude_sid: Claude Code session id to bind — ambient hooks resolve
                 their KG session through this binding, so recall dedup follows
-                the actual session instead of "newest in project".
+                the actual session instead of "newest in project". Codex sends
+                its own session id in the same field; ids are UUIDs, so the
+                two harnesses cannot collide.
+            harness: which harness registered it (mcp_http.harness), recorded
+                so the server can tell whether that harness's hooks run here.
         """
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
         ts = time.time()
@@ -105,6 +110,8 @@ class HTTPSessionManager:
             "last_activity": ts,
             "op_count": 0,
         }
+        if harness:
+            self._sessions[session_id]["harness"] = harness
         if claude_sid:
             self.bind_claude_sid(session_id, claude_sid, save=False)
 
@@ -337,6 +344,18 @@ class HTTPSessionManager:
         return best
 
     @_locked
+    def hooks_seen(self, project_path: str, harness: str) -> bool:
+        """Has a hook from this harness ever preloaded a live session here?
+
+        The session-start hook is the only path that sets preloaded_ids, so a
+        session carrying both is proof the harness runs the plugin's hooks.
+        """
+        for data in self._sessions.values():
+            if (data.get("project_path") == project_path and data.get("harness") == harness
+                    and "preloaded_ids" in data):
+                return True
+        return False
+
     def mark_synced(self, session_id: str) -> None:
         """Update last_synced_ts so kg_sync only returns changes after this point."""
         if session_id in self._sessions:

@@ -487,8 +487,9 @@ def test_never_raises():
 
     hooks = json.loads((Path(SERVER).parent / "hooks" / "hooks.json").read_text())
     matcher = hooks["hooks"]["PostToolUse"][0]["matcher"].split("|")
-    check("hook matcher widened", {"Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash",
-                                   "WebFetch", "WebSearch"} == set(matcher), matcher)
+    check("hook matcher widened, Codex's apply_patch included",
+          {"Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash",
+           "WebFetch", "WebSearch", "apply_patch"} == set(matcher), matcher)
 
 
 def run_cli(*args):

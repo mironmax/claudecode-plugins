@@ -1,6 +1,8 @@
 {
   "enabled": false,
+  "runner": "auto",
   "model": "claude-sonnet-5",
+  "codex_model": null,
 
   "min_interval_s": 2700,
   "graph_cooldown_s": 21600,

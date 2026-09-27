@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Added
+- **Codex CLI support.** Codex installs the plugin unchanged from the same marketplace (`codex plugin marketplace add mironmax/claudecode-plugins`, then `codex plugin add knowledge-graph@maxim-plugins`), and one local server serves both harnesses, so memory captured in one is recalled in the other. Verified against a real Codex login on codex-cli 0.157.1: the preload, per-prompt recall, file recall and the `kg_*` tools all reach the model. The server tells the harnesses apart structurally: hook events by their transcript path (Codex keeps `rollout-*.jsonl` under `$CODEX_HOME/sessions`), MCP calls by the client's User-Agent. Everything harness-shaped lives in one module, `mcp_http/harness.py`.
+  - The session-start preload is sized to Codex's hook limit (about 2,500 tokens): 8,000 characters instead of Claude Code's 10,000. The same degradation ladder drops the lowest-scored gists first, and `kg_read` renders what was dropped.
+  - Codex edits files with `apply_patch`; the files a patch adds, updates, deletes or moves to now reach file recall, and the PostToolUse matcher includes it. Codex reads files only through the shell, so under Codex a shell read also counts toward the capture nudge for a file read again and again. `~/.codex` joins the paths never worth a nudge.
+  - Codex keeps a plugin's hooks off until the user approves them in `/hooks`. When a Codex session's first `kg_read` arrives with no preload, and no Codex hook has ever reached the server from that project, the read says so and says how to turn them on.
+- **Maintenance chores can run through Codex.** Dispatch is split into harness-neutral selection and gating, and a runner per harness that owns its binary, its headless command and its quota gauge. `"runner": "auto"` (the default) keeps Claude Code when it is installed and falls back to Codex; `"claude"` and `"codex"` choose explicitly, and a configured binary pins its runner even when the path is wrong, so a typo never silently spends the other subscription. A Codex run is `codex exec --ephemeral --ignore-user-config` with no shell, no web and only the tier's kg tools, taken from the same shipped allowlists and pre-approved. It is gated on the ChatGPT plan's own 5-hour and weekly windows, read from the newest Codex session rollout, where a window whose reset has passed reads as empty. `"codex_model"` and `"codex_reasoning_effort"` (default low for chores, medium for passes) tune it. Dispatch and done lines in `chores.jsonl` name the runner.
+
+### Fixed
+- A chore or pass that times out is killed with its whole process group, so whatever the agent started no longer outlives it.
+
+27 test files, 883 assertions, suite green on Python 3.10 and 3.14.
+
 ## [0.9.45] - 2026-09-27
 
 ### Fixed

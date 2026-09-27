@@ -271,7 +271,30 @@ def file_targets(tool: str, tool_input: dict, cwd: str) -> list[str]:
         return [target if os.path.isabs(target) else os.path.join(cwd, target)]
     if tool == "Bash":
         return bash_read_files(tool_input.get("command"), cwd)
+    if tool == "apply_patch":
+        return patch_files(tool_input.get("command") or tool_input.get("input"), cwd)
     return []
+
+
+# Codex edits files through apply_patch; the payload carries the patch text,
+# and each file it touches is named on one header line.
+_PATCH_HEADERS = ("*** Add File: ", "*** Update File: ", "*** Delete File: ", "*** Move to: ")
+
+
+def patch_files(patch, cwd: str) -> list[str]:
+    """Absolute paths an apply_patch call adds, updates, deletes or moves to."""
+    if not isinstance(patch, str):
+        return []
+    found = []
+    for line in patch.splitlines():
+        for header in _PATCH_HEADERS:
+            if line.startswith(header):
+                target = os.path.expanduser(line[len(header):].strip())
+                if target:
+                    path = target if os.path.isabs(target) else os.path.join(cwd, target)
+                    if path not in found:
+                        found.append(path)
+    return found
 
 
 # --------------------------------------------------------------------------

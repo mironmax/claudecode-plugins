@@ -5,6 +5,13 @@ the line between core and adapter should fall. Written for roadmap item
 [05](../../roadmap/tasks/05-harness-instrument-review.md). This is an
 investigation: nothing under `knowledge-graph/` changed.
 
+**Status (2026-09-27):** the Codex CLI part of the proposal is implemented:
+the harness profile (`knowledge-graph/server/mcp_http/harness.py`) and a
+runner per harness in chore dispatch, with the budget read from Codex's own
+rollout. It was checked against a real Codex login, not only the mock. Cursor
+and Antigravity are deferred. The rest of this directory is the review as
+written.
+
 Start with the [proposal](proposal.md). Its first section answers the
 deciding question, whether Codex CLI can add context to the model's input on
 every prompt.
