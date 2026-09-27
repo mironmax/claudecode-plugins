@@ -55,8 +55,9 @@ an agent working only from this repository.
 
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
-five were fixed in 0.9.44. Open: F5–F8 there, and a lost update when two
-agents edit the same node from stale reads.
+five were fixed in 0.9.44. A later finding, F11 (a write built on a stale
+or partial view of a node drops someone's work), was fixed in 0.10.1. Open:
+F5–F8.
 
 Also in this phase, done interactively because they are judgement calls:
 capture guidance that tests granularity and writes notes as "when this
@@ -65,8 +66,6 @@ events can carry context at the moment a tool is about to run.
 
 ## Later
 
-- **Concurrency on node writes**: optimistic concurrency on `kg_put_node`,
-  modelled and reproduced first, like the formal findings.
 - **A with/without benchmark** on hard tasks, using only cross-project
   principles, to test whether a well-kept memory multiplies what the model
   can do. Held until its design is agreed.

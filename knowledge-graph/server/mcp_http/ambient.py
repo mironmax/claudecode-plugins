@@ -258,6 +258,7 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
         return None
 
     seen = session_manager.get_seen(sid)
+    viewed_at = time.time()
     result = store.search(" ".join(terms), session_id=sid, seen=seen,
                           top_k=RECALL_SEARCH_TOP_K)
     decision = decide_recall(result, terms)
@@ -282,7 +283,7 @@ def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
         return None
 
     hits, connectors = decision["hits"], decision["connectors"]
-    session_manager.mark_seen(sid, decision["shown_unseen"], via="ambient")
+    session_manager.mark_seen(sid, decision["shown_unseen"], via="ambient", at=viewed_at)
     injected = decision["text"]
     log_recall("injected", project_path, claude_sid, sid, terms=terms,
                threshold=threshold,

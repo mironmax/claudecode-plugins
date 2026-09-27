@@ -1,0 +1,6 @@
+$ python3 concurrent-writes/repro/repro_lost_update.py  # after the fix
+A  A: written   B: refused (NodeConflictError)   final notes: ['base', 'from A']
+   ok: A's note survives
+B  gist-only view, then notes sent: refused (NodeConflictError)   final notes: ['n1', 'n2']
+   ok: unread notes kept
+RESULT: PASS

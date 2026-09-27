@@ -351,6 +351,24 @@ def format_search(query: str, result: dict, session_note: str = "") -> str:
     return assemble()
 
 
+def format_conflict(err) -> str:
+    """The answer to a refused kg_put_node: why, and the node as it stands."""
+    node = err.node
+    lines = [f"NOT WRITTEN — '{err.node_id}' ({err.level}): {err.reason}. "
+             "Nothing was changed. The node as it stands now:",
+             f"  gist: {node.get('gist', '')}"]
+    notes = node.get("notes") or []
+    if notes:
+        lines.append("  notes:")
+        lines.extend(f"    - {n}" for n in notes)
+    touches = node.get("touches") or []
+    if touches:
+        lines.append("  touches: " + " · ".join(touches))
+    lines.append("Merge your change into this and call kg_put_node again. The notes and "
+                 "touches you send replace the stored lists, so send every entry to keep.")
+    return "\n".join(lines)
+
+
 def format_node_full(node_id: str, result: dict) -> str:
     """Compact text for a single full node read (replaces raw JSON dumps).
 

@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.10.1] - 2026-09-27
+
+### Fixed
+- **Two agents editing one node no longer drop each other's work (F11).** An agent edits a node by read-modify-write, and `kg_put_node` replaces `notes` and `touches` wholesale. So when two sessions read a node and each added a note, the second write erased the first's, and a session that had seen only the gist (from the preload or a recall) erased notes it never read — no second session needed. `put_node` now refuses both: a write from a session that last saw the node before another session changed it, and a write that would replace stored notes or touches the session has not read in their current form. The refusal starts with `NOT WRITTEN`, says why and shows the node as it stands; it counts as a full read, so the merged retry goes through. A content stamp (`_written`: time and session) is set only when the gist, notes or touches change — the version counter could not serve, since a read that promotes an archived node bumps it too. Each session records when it last saw each node and when it last read one in full, with the time taken before the render: a Lean model (`formal/concurrent-writes/`) showed that a view stamped after the render still loses an update, when the other write lands in between. The visual editor's writes are not checked, since a person is editing a screen that shows the whole node, but they are stamped. The `kg_put_node` description now says that notes and touches replace the stored lists. Reproduced against the real store before the fix; `tests/test_concurrent_writes.py` covers both rules, the retry, and what must not conflict.
+
+28 test files, 909 assertions, suite green on Python 3.10 and 3.14.
+
 ## [0.10.0] - 2026-09-27
 
 **Knowledge Graph memory for Claude Code and Codex.** The first tagged release since v0.9.31, covering 0.9.32 through 0.9.45 and the work below. In summary:

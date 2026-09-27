@@ -40,8 +40,9 @@ from core import (
     project_namespace,
     is_project_namespace,
 )
+from core.exceptions import NodeConflictError
 from core.constants import (
-    GIST_TS_FIELD, GIST_TS_MAX, IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
+    WRITTEN_FIELD, GIST_TS_FIELD, GIST_TS_MAX, IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
     PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
     PROGRESS_TRAIL_VALUE_CHARS,
 )
@@ -648,11 +649,14 @@ class MultiProjectGraphStore:
         touches: list[str] | None = None,
         session_id: str | None = None,
         project_path: str | None = None,
+        guard: bool = True,
     ) -> dict:
         """Create or update a node.
 
         project_path resolves a project graph directly (visual editor) — see
-        _resolve_graph_key.
+        _resolve_graph_key. guard=False skips the stale-view refusal for a
+        human edit made on a screen showing the whole node (the editor); it
+        still stamps the write, so agents holding an older view are refused.
         """
         validate_node_id(node_id)
         with self.lock:
@@ -673,7 +677,13 @@ class MultiProjectGraphStore:
             is_new = node_id not in nodes
             if is_new:
                 validate_new_node_id(node_id)
+            elif session_id and guard:
+                self._refuse_stale_write(level, node_id, nodes[node_id], session_id,
+                                         notes, touches)
             node = nodes.get(node_id, {"id": node_id})
+            changed = (is_new or node.get("gist") != gist
+                       or (notes is not None and node.get("notes") != notes)
+                       or (touches is not None and node.get("touches") != touches))
             # A real gist change is a rewrite; the churn guard counts these
             # (core.chores.is_churning). Not the version counter: that also
             # bumps when a read promotes the node out of the archive, and a
@@ -688,8 +698,11 @@ class MultiProjectGraphStore:
                 node["touches"] = touches
 
             # Stamp creation time once — never reset by subsequent updates
+            now = time.time()
             if is_new:
-                node["_created_ts"] = time.time()
+                node["_created_ts"] = now
+            if changed:
+                node[WRITTEN_FIELD] = {"ts": now, "by": session_id}
 
             # If updating archived node, unarchive it
             if "_archived" in node:
@@ -707,6 +720,9 @@ class MultiProjectGraphStore:
 
             # Write-through: save immediately
             self._write_through(graph_key)
+            if session_id:
+                # What a session wrote, it has seen in full.
+                self.session_manager.note_viewed(session_id, [node_id], at=now, full=True)
 
             # Run compaction if needed
             self._maybe_compact(graph_key)
@@ -722,6 +738,37 @@ class MultiProjectGraphStore:
 
             logger.debug(f"Put node '{node_id}' in {level} graph")
             return {"node": node, "level": level, "near_duplicate": near_dup}
+
+    def _refuse_stale_write(self, level: str, node_id: str, node: dict, session_id: str,
+                            notes, touches) -> None:
+        """Raise NodeConflictError for a write built on a stale or partial view.
+
+        An agent edits by read-modify-write: it sends back what it saw plus its
+        change, and notes and touches replace the stored lists wholesale. Two
+        ways that loses someone's work (formal/FINDINGS.md, F11):
+          - another session changed the node after this session last saw it;
+          - the write replaces stored notes or touches this session has never
+            read in their current form (it saw only the gist, in a preload or
+            a recall), whoever wrote them.
+        A session's own write and a refusal both count as a full read, so the
+        retry goes through. Caller holds the lock. View times are recorded
+        from before each render, so a write landing mid-render is never
+        mistaken for seen.
+        """
+        written = node.get(WRITTEN_FIELD) or {}
+        w_ts = written.get("ts")
+        by_other = bool(written) and written.get("by") != session_id
+        seen = self.session_manager.viewed_at(session_id, node_id)
+        if by_other and w_ts and seen is not None and seen < w_ts:
+            raise NodeConflictError(level, node_id, dict(node),
+                                    "changed by another session after this session last saw it")
+        read = self.session_manager.viewed_at(session_id, node_id, full=True)
+        unread = read is None or (by_other and w_ts and read < w_ts)
+        for field, sent in (("notes", notes), ("touches", touches)):
+            stored = node.get(field) or []
+            if sent is not None and stored and sent != stored and unread:
+                raise NodeConflictError(level, node_id, dict(node),
+                                        f"this write replaces {field} this session has not read")
 
     def _near_duplicate(self, graph_key: str, node_id: str, gist: str) -> dict | None:
         """Best near-duplicate candidate for a freshly CREATED node, or None.

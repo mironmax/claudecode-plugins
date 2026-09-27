@@ -344,6 +344,11 @@ CHORE_TARGETS = {"gist": 2, "id": 2, "edge": 1, "notes": 1, "anchor": 1, "lift":
 # counter cannot answer this — it also bumps on promotion from the archive —
 # so put_node stamps each real gist change into a bounded list on the node.
 GIST_TS_FIELD = "_gist_ts"
+# Last content change of a node (gist, notes or touches): {"ts", "by"}, "by"
+# the writing session or None. Not the version counter, which also bumps when
+# a read promotes a node out of the archive. put_node compares it with the
+# writing session's view times to refuse a write built on a stale view.
+WRITTEN_FIELD = "_written"
 GIST_TS_MAX = 8                  # stamps kept; must exceed CHURN_MAX_REWRITES
 CHURN_WINDOW_DAYS = 30
 CHURN_MAX_REWRITES = 2           # a third rewrite inside the window makes it hot

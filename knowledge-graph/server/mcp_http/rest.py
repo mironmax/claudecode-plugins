@@ -12,6 +12,7 @@ Origin here because browsers do not apply CORS to WebSocket upgrades.
 
 import logging
 import threading
+import time
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
@@ -165,6 +166,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                     "text": "",
                     "stats": {},
                 }
+            viewed_at = time.time()
             graphs = store.read_graphs(session_id)
             scores = store.scores_for_read(session_id)
             try:
@@ -174,7 +176,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             result = build_bootstrap(graphs, scores, session_id, debt=debt,
                                      budget=profile.preload_chars)
             session_manager.set_preloaded(session_id, result["shown_ids"])
-            session_manager.mark_seen(session_id, result["shown_ids"], via="preload")
+            session_manager.mark_seen(session_id, result["shown_ids"], via="preload",
+                                      at=viewed_at)
             return {
                 "session_id": session_id,
                 "reused": reused,
@@ -314,6 +317,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 touches=data.touches,
                 session_id=data.session_id,
                 project_path=data.project_path,
+                guard=False,
             )
         except (KGError, ValueError) as e:
             raise HTTPException(status_code=400, detail=str(e))

@@ -32,3 +32,5 @@ run sessions/evidence/repro-saver-default.log   timeout 120 $PY sessions/repro/r
 run websocket/evidence/repro.log             $PY websocket/repro/repro_ws.py
 run compaction/evidence/search.log           $PY compaction/repro/thrash_search.py
 run security/evidence/repro.log              $PY security/repro/repro_csrf.py
+run concurrent-writes/evidence/model.log     lean --run concurrent-writes/lean/Writes.lean
+run concurrent-writes/evidence/repro-after.log $PY concurrent-writes/repro/repro_lost_update.py

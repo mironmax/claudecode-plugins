@@ -1,0 +1,6 @@
+$ python3 concurrent-writes/repro/repro_lost_update.py  # before the fix
+A  A: written   B: written   final notes: ['base', 'from B']
+   BUG: A's acknowledged note is gone
+B  gist-only view, then notes sent: written   final notes: ['one new note']
+   BUG: notes the session never read are gone
+RESULT: FAIL

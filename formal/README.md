@@ -11,7 +11,7 @@ file:line references are in [FINDINGS.md](FINDINGS.md).
 (`tests/test_races_and_guards.py`). F3 is settled as a policy: a forced
 reload lets disk win, logs what it drops, and the two paths that triggered
 it without anyone asking (the visual editor, cross-site pages) are gone.
-F5-F8 are open.
+F5-F8 are open. F11 was found later and fixed in v0.10.1.
 
 ## Method
 
@@ -50,6 +50,7 @@ randomized search over the real compactor instead of a model.
 | F8 | A fork shares its live parent's KG session; the parent's hooks resolve to another session | Lean BFS | reproduced | medium-low |
 | F9 | Cross-site GETs with side effects (`reload=true`, `session_bootstrap`) | reading + test | reproduced | low |
 | F10 | The maintenance pass tier skips the "never rename a node a live session holds" rule; `_live_seen` fails open | reading | confirmed by reading only | medium-low |
+| F11 | A write built on a stale or partial view drops another session's note, or notes the writer never read | Lean BFS + reproduction | reproduced, fixed | medium |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.

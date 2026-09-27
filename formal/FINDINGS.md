@@ -248,6 +248,51 @@ and F4's unlocked iteration makes such an exception reachable.
 
 **Found** by reading only; executing it end to end needs a live pass agent. The fix is covered by unit tests of the payload and prompt.
 
+## F11 — A write built on a stale or partial view drops someone's work
+
+**Status:** fixed in v0.10.1. Found after the first pass, when a Claude Code
+and a Codex session worked one graph at the same time.
+
+**Where:** `mcp_http/store.py` `put_node`. An agent edits a node by
+read-modify-write: it sends back what it saw plus its change, and `notes` and
+`touches` replace the stored lists wholesale. The version counter records the
+last writer but was never checked, and it also bumps when a read promotes an
+archived node, so it cannot tell a content change from a read.
+
+**Two ways it loses work:**
+- *Lost update:* sessions A and B read a node; A adds a note; B writes the
+  list it read plus its own note, and A's acknowledged note is gone.
+- *Blind replace:* a session that has seen only the gist (preload, full read,
+  recall, search) sends notes; the stored notes it never read are gone. No
+  second session is needed.
+
+**Model** (`concurrent-writes/lean/Writes.lean`, two sessions, ≤12 ticks):
+the lost update in 4 steps today. A guard that refuses a write when another
+session changed the node after this session's last view is safe (423 states)
+if the view is recorded atomically. Recorded the way a handler does it — the
+render, then `mark_seen` — the guard still loses an update when the view time
+is taken at marking (6 steps: the other write lands between the snapshot and
+the mark). Taking the time before the render closes it (1,169 states). Both
+sessions can still get their additions in.
+
+**Reproduced** (`concurrent-writes/repro/repro_lost_update.py`): both ways,
+through the real store.
+
+**Fix:** a content stamp `_written` {ts, by}, set only when gist, notes or
+touches change; per session, the time of the last view (`seen_at`) and of the
+last full read (`read_at`), each taken before the content is read. `put_node`
+refuses (`NodeConflictError`, with the node as it stands) when another session
+changed the node after this session's last view, or when the write would
+replace stored notes or touches this session has not read in their current
+form. Own writes and the refusal itself count as full reads, so the merged
+retry goes through. The visual editor's REST writes skip the check (a person
+editing a screen that shows the whole node) but still stamp. `kg_sync` shows
+truncated gists and does not count as a view. Tests:
+`tests/test_concurrent_writes.py`.
+
+**Not covered:** edges carry `notes` too and are replaced the same way; an
+edge is rarely edited, so it is left for now.
+
 ---
 
 ## Checked and found sound

@@ -183,9 +183,16 @@ Two transports, each matched to its client:
 
 **Concurrency.** Many sessions share one server process. Every store
 mutation runs under one lock, every save is atomic (temp file, fsync,
-rename), and the session registry has its own lock. What the server does not
-yet arbitrate is two agents editing the *same node* from stale reads: a
-`kg_put_node` replaces the notes it is given, so the later writer wins.
+rename), and the session registry has its own lock. Two agents editing the
+*same node* are arbitrated optimistically: every content change is stamped
+(`_written`: time, session), every session records when it last saw each node
+and when it last read one in full (times taken before the render), and
+`kg_put_node` refuses a write built on a stale view — the node changed since
+this session saw it — or on a partial one — it would replace notes or touches
+this session never read. The refusal returns the node as it stands and counts
+as a full read, so the merged retry goes through. The visual editor's writes
+are not checked, but are stamped. Modelled and reproduced first:
+`formal/concurrent-writes/`.
 
 Cross-session awareness for agents is **explicit**: `kg_sync(session_id)`
 returns a diff of what other sessions changed since the last sync. Explicit
@@ -391,7 +398,6 @@ and only *known* prompts enter the consistency check.
 
 ### Planned Features
 - More harnesses (Cursor and Antigravity have known gaps — see `docs/harnesses/`)
-- Optimistic concurrency on node writes (two agents editing one node)
 - Collaborative editing (multi-user visual editor)
 - Import/export (share graph snippets)
 - Analytics (graph metrics, usage patterns)

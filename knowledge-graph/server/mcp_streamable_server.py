@@ -12,6 +12,7 @@ import logging
 import os
 import signal
 import sys
+import time
 from pathlib import Path
 
 import jsonschema
@@ -29,7 +30,7 @@ from mcp_http.session_manager import HTTPSessionManager
 from mcp_http.store import MultiProjectGraphStore, GraphConfig
 from mcp_http.websocket import ConnectionManager
 from mcp_http.rest import create_rest_api
-from mcp_http.read_format import (build_full_read, build_maintain_read,
+from mcp_http.read_format import (build_full_read, build_maintain_read, format_conflict,
                                   format_node_full, format_search)
 
 # Repeated in every level enum: what the third graph is, and who may write it.
@@ -43,6 +44,7 @@ from mcp_http.security import request_refusal
 from core.autocommit import AutoCommitter
 from core.exceptions import (
     KGError,
+    NodeConflictError,
     NodeNotFoundError,
     SessionNotFoundError,
 )
@@ -176,7 +178,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_put_node",
-                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, fields are merged (omitted fields unchanged). Search before creating to avoid duplicates. Connect with kg_put_edge after — unconnected nodes risk archival.",
+                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, omitted fields stay unchanged, but notes and touches you send REPLACE the stored lists: to add a note to an existing node, read it (kg_read ids=[...]) and send the full list. A write built on a stale or partial view — the node changed since you last saw it, or you would replace notes you never read — is refused with the node as it stands; merge and call again. Search before creating to avoid duplicates. Connect with kg_put_edge after — unconnected nodes risk archival.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -200,12 +202,12 @@ def create_mcp_server() -> Server:
                         "notes": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Rationale, constraints, 'why' — recalled on demand"
+                            "description": "Rationale, constraints, 'why' — recalled on demand. Replaces the stored list; send every entry to keep"
                         },
                         "touches": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Related file paths or artifact references"
+                            "description": "Related file paths or artifact references. Replaces the stored list"
                         }
                     },
                     "required": ["session_id", "level", "id", "gist"]
@@ -433,6 +435,7 @@ def create_mcp_server() -> Server:
                     blocks = []
                     read_ok = []
                     promoted = []
+                    viewed_at = time.time()   # before the reads: see NodeConflictError
                     for nid in ids:
                         try:
                             result = store.read_node(nid, level=level, session_id=session_id)
@@ -442,7 +445,8 @@ def create_mcp_server() -> Server:
                                 promoted.append(nid)
                         except NodeNotFoundError:
                             blocks.append(f"▸ {nid}: NOT FOUND (try kg_search — it reaches all tiers)")
-                    session_manager.mark_seen(session_id, read_ok, via="read")
+                    session_manager.mark_seen(session_id, read_ok, via="read",
+                                              at=viewed_at, full=True)
                     session_manager.mark_promoted(session_id, promoted)
                     return [TextContent(
                         type="text",
@@ -464,6 +468,7 @@ def create_mcp_server() -> Server:
                 # Gists the session-start preload already put in context render
                 # as id-only anchors — the budget goes to what the compact
                 # preload had to drop.
+                viewed_at = time.time()
                 graphs = store.read_graphs(session_id)
                 scores = store.scores_for_read(session_id)
                 preloaded = session_manager.get_preloaded(session_id)
@@ -476,6 +481,10 @@ def create_mcp_server() -> Server:
                     if not n.get("_archived") and "_orphaned_ts" not in n
                 ]
                 session_manager.mark_seen(session_id, shown, via="full_read")
+                # Preloaded gists render here as bare ids: their view is still
+                # the preload's, so only the gists shown now count as viewed.
+                session_manager.note_viewed(
+                    session_id, [n for n in shown if n not in preloaded], at=viewed_at)
                 # The announce ritual belongs to the FULL read, not the preload:
                 # a session that only scanned the compact core has not recalled
                 # its memories yet. First full read carries the instruction;
@@ -505,6 +514,7 @@ def create_mcp_server() -> Server:
 
                 # RRF search lives in the store (which holds the lock during the
                 # scan — the maintenance thread mutates node dicts concurrently).
+                viewed_at = time.time()
                 result = store.search(query_raw, session_id=sid, seen=seen)
 
                 if result["total"] == 0:
@@ -522,21 +532,28 @@ def create_mcp_server() -> Server:
                         + [m["id"] for m in result["more"]]
                         + [c["id"] for c in result["connectors"]]
                     )
-                    session_manager.mark_seen(sid, shown, via="search")
+                    session_manager.mark_seen(sid, shown, via="search", at=viewed_at)
 
                 return [TextContent(type="text", text=text)]
 
             elif name == "kg_put_node":
                 sid = arguments["session_id"]
                 session_manager.increment_ops(sid)
-                result = store.put_node(
-                    level=arguments["level"],
-                    node_id=arguments["id"],
-                    gist=arguments["gist"],
-                    notes=arguments.get("notes"),
-                    touches=arguments.get("touches"),
-                    session_id=sid
-                )
+                viewed_at = time.time()
+                try:
+                    result = store.put_node(
+                        level=arguments["level"],
+                        node_id=arguments["id"],
+                        gist=arguments["gist"],
+                        notes=arguments.get("notes"),
+                        touches=arguments.get("touches"),
+                        session_id=sid
+                    )
+                except NodeConflictError as e:
+                    # The answer shows the node in full, so it is a full read:
+                    # the merged retry goes through.
+                    session_manager.note_viewed(sid, [e.node_id], at=viewed_at, full=True)
+                    return [TextContent(type="text", text=format_conflict(e))]
                 from core.utils import gist_length_warning, node_id_warning
                 dup = result.get("near_duplicate")
                 dup_note = ""

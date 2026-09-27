@@ -210,7 +210,8 @@ class HTTPSessionManager:
         return len(expired)
 
     @_locked
-    def mark_seen(self, session_id: str, node_ids, via: str) -> None:
+    def mark_seen(self, session_id: str, node_ids, via: str,
+                  at: float | None = None, full: bool = False) -> None:
         """Record node ids whose GIST this session has already been shown.
 
         Feeds search dedup: a hit the session has already seen renders as a
@@ -225,11 +226,41 @@ class HTTPSessionManager:
         seen = session.setdefault("seen_ids", [])
         seen_via = session.setdefault("seen_via", {})
         seen_set = set(seen)
+        node_ids = list(node_ids)
         for nid in node_ids:
             if nid not in seen_set:
                 seen.append(nid)
                 seen_set.add(nid)
             seen_via.setdefault(nid, via)
+        if at is not None:
+            self._note(session, node_ids, at, full)
+
+    @staticmethod
+    def _note(session: dict, node_ids, at: float, full: bool) -> None:
+        for key in ("seen_at", "read_at") if full else ("seen_at",):
+            times = session.setdefault(key, {})
+            for nid in node_ids:
+                if at > times.get(nid, 0):
+                    times[nid] = at
+
+    @_locked
+    def note_viewed(self, session_id: str, node_ids, at: float, full: bool = False) -> None:
+        """Record that this session saw these nodes as they stood at `at`.
+
+        `at` must be taken BEFORE the content was read: a write that lands
+        between the read and this call is then newer than the view, as it
+        should be. `full` means notes and touches were shown too, not only the
+        gist. put_node compares these times with a node's last content write.
+        """
+        session = self._sessions.get(session_id)
+        if session is not None:
+            self._note(session, node_ids, at, full)
+
+    @_locked
+    def viewed_at(self, session_id: str, node_id: str, full: bool = False) -> float | None:
+        """When this session last saw the node (in full, with full=True)."""
+        session = self._sessions.get(session_id) or {}
+        return (session.get("read_at" if full else "seen_at") or {}).get(node_id)
 
     @_locked
     def mark_promoted(self, session_id: str, node_ids) -> None:
@@ -305,6 +336,10 @@ class HTTPSessionManager:
             seen_via = session.get("seen_via")
             if seen_via and old_id in seen_via:
                 seen_via.setdefault(new_id, seen_via.pop(old_id))
+            for key in ("seen_at", "read_at"):
+                times = session.get(key)
+                if times and old_id in times:
+                    times[new_id] = max(times.pop(old_id), times.get(new_id, 0))
         return touched
 
     @_locked

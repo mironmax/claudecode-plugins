@@ -406,6 +406,7 @@ def build_file_recall(store, session_manager, project_path: str, tool: str,
     root = data.get("project_path") or project_path
     needles = list(dict.fromkeys(file_key(p, root) for p in paths))
     seen = session_manager.get_seen(sid)
+    viewed_at = time.time()
     matches = _matches(store, root, needles, seen)
 
     def log(outcome, records=(), **extra):
@@ -437,7 +438,7 @@ def build_file_recall(store, session_manager, project_path: str, tool: str,
     while len(shown) > 1 and len(assemble()) > FILE_RECALL_CHAR_BUDGET:
         shown.pop()
     text = assemble()
-    session_manager.mark_seen(sid, [r["id"] for r in shown], via="file")
+    session_manager.mark_seen(sid, [r["id"] for r in shown], via="file", at=viewed_at)
     _note_injection(sid, now)
     log("injected", shown, chars=len(text), withheld=len(unseen) - len(shown))
     return text, True
