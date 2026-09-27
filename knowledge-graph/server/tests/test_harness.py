@@ -21,8 +21,10 @@ Covers:
 """
 
 import asyncio
+import atexit
 import json
 import os
+import shutil
 import stat
 import sys
 import tempfile
@@ -32,10 +34,17 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-_TMP_STORAGE = tempfile.mkdtemp(prefix="kg-test-storage-")
+def _tmpdir(**kwargs) -> str:
+    """A temp dir removed when the run ends."""
+    path = tempfile.mkdtemp(**kwargs)
+    atexit.register(shutil.rmtree, path, True)
+    return path
+
+
+_TMP_STORAGE = _tmpdir(prefix="kg-test-storage-")
 os.environ["KG_STORAGE_ROOT"] = _TMP_STORAGE
 os.environ.pop("KG_CHORES", None)
-_CODEX_HOME = Path(tempfile.mkdtemp(prefix="kg-test-codex-"))
+_CODEX_HOME = Path(_tmpdir(prefix="kg-test-codex-"))
 os.environ["CODEX_HOME"] = str(_CODEX_HOME)
 
 from core.constants import BOOTSTRAP_CHAR_BUDGET, CHORE_LOG_NAME, CODEX_BOOTSTRAP_CHAR_BUDGET  # noqa: E402
@@ -247,7 +256,7 @@ def test_codex_tools():
     check("a non-string patch touches nothing", patch_files(None, "/p") == [])
 
     from mcp_http import ambient
-    home_proj = Path(tempfile.mkdtemp(prefix="kg-test-proj-", dir=Path.home() / ".cache"))
+    home_proj = Path(_tmpdir(prefix="kg-test-proj-", dir=Path.home() / ".cache"))
     target = home_proj / "notes.md"
     target.write_text("hello\n")
     sm = HTTPSessionManager()
@@ -284,7 +293,7 @@ def test_no_hooks_hint():
         params = types.CallToolRequestParams(name="kg_read", arguments={"cwd": cwd})
         return asyncio.run(handler(ctx, params)).content[0].text
 
-    proj = str(Path(tempfile.mkdtemp(prefix="kg-test-proj-", dir=Path.home() / ".cache")).resolve())
+    proj = str(Path(_tmpdir(prefix="kg-test-proj-", dir=Path.home() / ".cache")).resolve())
     codex_ua = "codex-mcp-client/0.157.1"
     check("a Codex kg_read with no hooks says how to turn them on",
           "/hooks" in kg_read(proj, codex_ua))
