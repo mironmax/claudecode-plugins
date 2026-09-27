@@ -2,15 +2,19 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.10.2] - 2026-09-27
 
 ### Fixed
+- **A rename never re-points an edge at a different node (F5).** An edge endpoint is a bare id, resolved to the project's own node first and to the user node second, and the same id can exist at both levels. Renaming a user node onto an id a project owns made that project's edges reach its own node instead (or, for a project only on disk, dropped them on the next load); renaming a project node rewrote other projects' edges that meant a user node, or captured this project's edges to a user node of the new name. `kg_rename_node` now refuses a rename that would do any of this, naming the projects involved, and a project rename no longer touches any other graph. The Lean model (`formal/rename/`) with this fix: none of the accepted renames breaks an edge.
+- **A forked session gets its own memory session (F8).** On a fork (or a resume) the new Claude session took over the KG session of the one it came from. If that one was still running, its hooks lost their session and fell back to the newest in the project — another session's seen-set and nudges. The new session now gets a copy (what it has seen, the preload, the full read, the sync point) and the original keeps its own; the continuity note gives the new id and names the one it replaces. The Lean model (`formal/sessions/`) with this fix: dedup and hook identity hold, as long as the agent uses the id the note gives.
 - Codex maintenance reads the newest quota event across recently written rollouts, including sessions resumed from older date directories. Empty new sessions no longer hide a fresh reading. Invalid timestamps or usage refuse maintenance; file modification time cannot make an old reading fresh.
 - MCP HTTP calls identify Codex from the low-level SDK's actual request headers, restoring harness tagging and the missing-hooks diagnostic hint. The hint describes project-wide evidence rather than claiming to know this session's hook state.
 - Codex shell recall no longer attributes relative operands to the project root when the CLI omits the execution directory. Absolute operands still work; an explicit absolute `workdir` is honored when supplied by the hook. Capture counters use the same resolved paths.
 
 ### Documentation
 - Codex support limits, update/restart/trust steps, helper installation and uninstall now distinguish client cache, shared server and hook state. Maintenance documentation describes the MCP allowlist and filesystem sandbox separately. History scouting and visual-editor project discovery still depend on Claude Code history; `rg` recall remains unsupported.
+
+29 test files, suite green on Python 3.10 and 3.14.
 
 ## [0.10.1] - 2026-09-27
 

@@ -56,8 +56,9 @@ an agent working only from this repository.
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
 five were fixed in 0.9.44. A later finding, F11 (a write built on a stale
-or partial view of a node drops someone's work), was fixed in 0.10.1. Open:
-F5–F8.
+or partial view of a node drops someone's work), was fixed in 0.10.1, and
+F5 (a rename re-pointing edges) and F8 (a fork sharing its parent's
+session) in 0.10.2. Open: F6, F7.
 
 Also in this phase, done interactively because they are judgement calls:
 capture guidance that tests granularity and writes notes as "when this
