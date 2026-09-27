@@ -24,6 +24,8 @@ codex plugin add knowledge-graph@maxim-plugins
 
 Then, in Codex, run `/hooks` and trust the knowledge-graph hooks. Codex keeps a plugin's hooks off until you approve them, and without them there is no preload or recall. Start a new session.
 
+See the [Codex support table and update steps](knowledge-graph/README.md#codex-cli), including the shell-path, history-scout and visual-editor limits.
+
 Requires Python 3.10+. No databases, no API keys; everything stays on your machine.
 
 **[Full documentation →](knowledge-graph/README.md)** · **[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)** · ⭐ Star if useful — it helps others find this

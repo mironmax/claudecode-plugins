@@ -29,19 +29,23 @@ class Profile:
     # Reads arrive only through the shell (no Read tool), so shell reads
     # stand in for reads when counting what is worth a capture nudge.
     shell_reads_count: bool
+    # The Bash hook payload says where the command ran. Codex 0.157.1 drops
+    # exec_command.workdir and reports only the project, so a relative shell
+    # operand could name a file in another directory.
+    shell_cwd_known: bool
     # Said once, on a fresh kg_read, when no hook has ever reached the server
     # from this harness in this project: the tools work but the hooks do not.
     no_hooks_hint: str | None
 
 
 PROFILES = {
-    CLAUDE_CODE: Profile(CLAUDE_CODE, BOOTSTRAP_CHAR_BUDGET, False, None),
+    CLAUDE_CODE: Profile(CLAUDE_CODE, BOOTSTRAP_CHAR_BUDGET, False, True, None),
     CODEX: Profile(
-        CODEX, CODEX_BOOTSTRAP_CHAR_BUDGET, True,
-        "No memory preload reached this Codex session: the knowledge-graph "
-        "plugin's hooks are not running. Codex keeps a plugin's hooks off until "
+        CODEX, CODEX_BOOTSTRAP_CHAR_BUDGET, True, False,
+        "No Codex memory hooks have been observed for this project. "
+        "The plugin's hooks may need trust: Codex keeps them off until "
         "the user approves them — ask the user to run /hooks, trust the "
-        "knowledge-graph hooks, and start a new session. Until then there is no "
+        "knowledge-graph hooks, and start a new session. With hooks off there is no "
         "preload, per-prompt recall or file recall; the kg_* tools work as usual.",
     ),
 }

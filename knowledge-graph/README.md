@@ -154,9 +154,25 @@ codex plugin marketplace add mironmax/claudecode-plugins
 codex plugin add knowledge-graph@maxim-plugins
 ```
 
-Codex keeps a plugin's hooks off until you approve them. Run `/hooks` in Codex, trust the knowledge-graph hooks, and start a new session. Until then the `kg_*` tools work but nothing arrives on its own, and the first `kg_read` says so. Codex records trust against each hook's content, so an update that changes the hooks asks for it again: after updating, check `/hooks`.
+Codex keeps a plugin's hooks off until you approve them. Run `/hooks` in Codex, trust the knowledge-graph hooks, and start a new session. Until then the `kg_*` tools work but nothing arrives on its own. A first `kg_read` offers a diagnostic hint when no live Codex session in this project has reported hooks; another session can suppress that hint, so check `/hooks` directly when recall is missing. Codex records trust against each hook's content, so an update that changes the hooks asks for it again.
 
-With the hooks on, Codex gets what Claude Code gets: the session-start preload (sized to Codex's smaller hook limit), prompt-matched recall, and memory about a file when the agent reads it through the shell or edits it with `apply_patch`. One thing does not carry over: Codex runs web search as a hosted tool that never reaches a hook, so there are no capture nudges for web research. Both harnesses talk to the one local server, so a lesson captured in Codex is recalled in Claude Code and the other way round.
+Both harnesses talk to one local server, so a lesson captured in Codex is recalled in Claude Code and the other way round. What Codex CLI supports:
+
+| Capability | Codex CLI support |
+|---|---|
+| MCP tools and shared memory | Supported, including when hooks are off |
+| Preload and prompt recall | Supported with trusted hooks; preload fits 8,000 characters |
+| File recall and read counters | `apply_patch` and explicit file operands of `cat`, `head`, `tail`, `less`, `sed -n`, `grep`, `jq`; use absolute shell paths |
+| Hosted web search | No hook event, so no web-research capture nudges |
+| `/kg-extract` | Codebase mapping works in either harness |
+| `/kg-scout` | Mines Claude Code history; no Codex rollout reader yet |
+| Visual editor | User graph works; project discovery still uses Claude Code history, so Codex-only projects are absent |
+| Background maintenance | Opt-in; the selected runner determines which subscription it spends |
+| Codex desktop, macOS and Windows | Not verified by this CLI integration test |
+
+**Shell directory limitation.** CLI 0.157.1 reports the project directory in its hook but omits `exec_command.workdir`. A relative `cat README.md` may have read a different directory. To avoid recalling or counting the wrong file, the plugin skips relative shell operands when the execution directory is unknown. Absolute paths work; an explicit absolute `workdir` is honored if a hook supplies it. `rg` and recursive search are not currently tracked.
+
+**Update:** run `codex plugin marketplace upgrade maxim-plugins`, then `codex plugin add knowledge-graph@maxim-plugins`; check the installed version with `codex plugin list`. Repoint optional shell helpers from the Codex cache, arrange a shared-server restart, and verify its version at `/health` (see `/kg-ops`). Check changed hooks in `/hooks`, then start a new session. A new session alone does not replace a healthy running server.
 
 Maintenance chores can run through Codex too, spending your ChatGPT plan's limits instead of Claude's — see `/kg-ops` (Maintenance chores, `"runner"`).
 
@@ -171,7 +187,7 @@ The system is designed to work without being asked. Four ambient behaviors, all 
 - **Recall at the moment of relevance** — each prompt you type is matched against the graph server-side; when unseen nodes fit, their gists arrive with the prompt. Precision is deliberate: nothing injects twice, weak matches stay silent, and machine records (notifications, pasted images and paths) never trigger it — the channel only speaks when a human asked something.
 - **Capture when re-derivation is proven** — reading a file a second session in a row (or fetching the same URL twice) with no node covering it earns a one-time nudge to write the bottom line down. First-time reads never nudge; hard throttles keep it rare.
 - **Self-aware maintenance** — every read carries a `DEBT:` line per graph (oversized gists, unconnected nodes, touches that no longer resolve, episodes waiting to be lifted into a principle, time since last tended, weighted by how actively the graph is used). When it reads HIGH, `/kg-maintain` runs a bounded pass — or the agent spawns a maintenance subagent with the dispatch prompt the skill provides.
-- **Chores, if you switch them on** — the server can also pay debt down while you work: one category, one or two targets it names itself, a handful of tool calls, run as a detached headless agent under an MCP-only allowlist, so your session spends no context on it. Every dispatch and every refusal is logged. Chores run through Claude Code or Codex, each gated on its own subscription's limits. Off by default because they spend quota — `/kg-ops` has the switch and the gates.
+- **Chores, if you switch them on** — the server can also pay debt down while you work: one category, one or two targets it names itself, a handful of tool calls, run as a detached headless agent with MCP access limited to its maintenance tools, so your session spends no context on it. Codex also disables shell and hosted web and blocks filesystem writes with a read-only sandbox. Every dispatch and every refusal is logged. Chores run through Claude Code or Codex, each gated on its own subscription's limits. Off by default because they spend quota — `/kg-ops` has the switch and the gates.
 
 ## Usage Tips
 
@@ -189,7 +205,7 @@ Once the server is running, the agent captures insights automatically. A few hab
 |-------|------|---------|
 | `kg-core` | Hidden (auto-loaded) | The memory doctrine: session protocol, recall, capture, search below the surface |
 | `/kg-maintain` | User-invocable | Bounded maintenance pass that pays down the graph's DEBT line; includes the subagent dispatch prompt |
-| `/kg-scout` | User-invocable | Mine conversation history for patterns and insights |
+| `/kg-scout` | User-invocable | Mine Claude Code conversation history for patterns and insights |
 | `/kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
 | `/kg-ops` | User-invocable | Operations runbook: install, updates, server, Desktop/Cowork, Codex, chores, backup, troubleshooting |
 

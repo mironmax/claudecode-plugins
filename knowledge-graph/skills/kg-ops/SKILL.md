@@ -27,7 +27,7 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
   maintenance agent's own craft memory, never preloaded or searched). Survives
   uninstall.
 - Plugin cache dirs are **versioned** (`~/.claude/plugins/cache/maxim-plugins/knowledge-graph/<version>/`,
-  and for Codex `~/.codex/plugins/cache/maxim-plugins/knowledge-graph/<version>/`)
+  and for Codex `${CODEX_HOME:-$HOME/.codex}/plugins/cache/maxim-plugins/knowledge-graph/<version>/`)
   and change on every update. With both harnesses installed there are two
   copies; whichever session starts first launches the one server, and
   `kg-memory` runs the copy its shim points at. Anything that must survive updates goes through
@@ -55,19 +55,46 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
 **Codex CLI**: `codex plugin marketplace add mironmax/claudecode-plugins` →
 `codex plugin add knowledge-graph@maxim-plugins`. Then the **user** runs
 `/hooks` in Codex and trusts the knowledge-graph hooks: Codex keeps a plugin's
-hooks off until approved, and without them there is no preload or recall (a
-first `kg_read` from Codex says so). One server serves both harnesses.
+hooks off until approved, and without them there is no preload or recall.
+A first `kg_read` offers a hint if no live Codex session in this project has
+reported hooks; it is project-wide evidence, not a per-session health check.
+One server serves both harnesses. For optional helpers on a Codex install:
+
+```bash
+kg_plugin_cache="${CODEX_HOME:-$HOME/.codex}/plugins/cache/maxim-plugins/knowledge-graph"
+kg_plugin_dir="$(find "$kg_plugin_cache" -name install_command.sh -printf '%h\n' | sort -V | tail -1)"
+test -n "$kg_plugin_dir" && bash "$kg_plugin_dir/install_command.sh"
+```
+
+The snippet uses GNU `find` (Linux). For Claude Code set `kg_plugin_cache` to
+`$HOME/.claude/plugins/cache/maxim-plugins/knowledge-graph` instead. With both
+installed, choose the cache whose version you intend the shared server to run.
 
 ## After a plugin update
 
-1. Rerun `install_command.sh` (recipe above) — repoints all `~/.local/bin`
+1. For Codex, refresh the marketplace and installed package first:
+
+   ```bash
+   codex plugin marketplace upgrade maxim-plugins
+   codex plugin add knowledge-graph@maxim-plugins
+   codex plugin list
+   ```
+
+   Verify the installed version in the list. This updates the client cache.
+2. Rerun `install_command.sh` from the intended harness's cache (recipe above)
+   if you use the optional helpers — repoints all `~/.local/bin`
    shims at the new version dir.
-2. The running server still executes the OLD code until restarted:
-   `kg-memory restart`.
-3. Open sessions ride out a quick restart. If the restart rebuilt the venv
+3. The running server still executes the OLD code until restarted. Arrange
+   the restart with anyone using it, then `kg-memory restart` (or run the
+   selected package's `server/manage_server.sh restart` without helpers).
+   Verify `/health` reports the intended version.
+4. Open sessions ride out a quick restart. If the restart rebuilt the venv
    (new requirements; the port stays closed ~1 min), Claude Code's client
    gives up and the **user** must run `/mcp` → `plugin:knowledge-graph:kg` →
    Reconnect (agents cannot do this); in Codex, start a new session.
+5. In Codex, check `/hooks` and trust changed definitions, then start a new
+   session to load the new skills and hooks. Starting a session alone does
+   not upgrade an already healthy shared server.
 
 ## Server lifecycle
 
@@ -86,10 +113,11 @@ kg-visual start|stop|status|logs        # graph editor at http://localhost:8766
 ## Autostart on boot (Linux, systemd user unit)
 
 Prerequisite: `install_command.sh` run once (unit invokes the `kg-memory` shim).
+Select `kg_plugin_dir` with the cache recipe above for the intended harness.
 
 ```bash
 mkdir -p ~/.config/systemd/user
-cp "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name memory-mcp.service | sort -V | tail -1)" \
+cp "$kg_plugin_dir/server/memory-mcp.service" \
    ~/.config/systemd/user/memory-mcp.service
 systemctl --user enable --now memory-mcp.service
 ```
@@ -188,8 +216,11 @@ gauge fresh AND usage low, and those two are almost never true together.
   day-of-week rule. Backstops: `pass_max_5h` 40, `pass_max_7d` 70,
   `pass_max_per_day` 1, `pass_timeout_s` 1500.
 - **Permissions**: chores run under `<plugin>/chores/settings.json` — a scoped
-  MCP-only allowlist (read/search/put_node/put_edge/rename_node/progress), with
-  Bash, edits, web and node deletion denied. Passes use
+  MCP allowlist (read/search/put_node/put_edge/rename_node/progress), with
+  node deletion absent. Claude Code denies Bash, edits and web through its
+  permissions file. Codex disables shell and hosted web, and its read-only
+  sandbox blocks filesystem writes; other built-in tools can still appear.
+  Passes use
   `chores/pass-settings.json`, which adds `kg_delete_node`/`kg_delete_edge`
   because merges need them — two files so the small, frequent unit stays
   strictly non-destructive. Both ship with the plugin on purpose: the previous
@@ -199,12 +230,17 @@ gauge fresh AND usage low, and those two are almost never true together.
 - **Runner** — which harness runs the agent, and whose quota it spends:
   `"runner": "auto"` (default: Claude Code if installed, else Codex),
   `"claude"` or `"codex"`. The quota gate reads the runner's own gauge:
-  `~/.claude/last-limits.json` for Claude, the newest Codex session rollout
-  (`$CODEX_HOME/sessions`) for Codex — so a Codex run is gated on the
+  `~/.claude/last-limits.json` for Claude, the newest quota event across
+  recently written Codex rollouts for Codex — including sessions resumed
+  from old date directories. A new rollout with no quota event can use
+  another session's fresh reading; stale or unreadable readings refuse.
+  The server scans `${CODEX_HOME:-$HOME/.codex}/sessions`; custom `CODEX_HOME`
+  must be set in the shared server's environment too. A Codex run is gated on the
   ChatGPT plan's 5h/weekly windows, never on Claude's, and a fresh reading
   exists only while someone uses that harness. Codex runs are `codex exec
-  --ephemeral --ignore-user-config` with no shell, no web and only the tier's
-  kg tools (taken from the same `chores/*settings.json`), pre-approved.
+  --ephemeral --ignore-user-config` with shell and hosted web off, a read-only
+  filesystem sandbox, and MCP access limited to the tier's kg tools (taken
+  from the same `chores/*settings.json`), pre-approved.
   `"codex_model"` picks the model (default: Codex's own),
   `"codex_reasoning_effort"` the effort (default low for chores, medium for
   passes). A configured `"claude_bin"`/`"codex_bin"` pins its runner.
@@ -300,12 +336,16 @@ than minting a dated node per letter.
 - **kg tools offline / connection refused** → health curl. Down: `kg-memory
   start` (first run builds venv, ~1 min), then user runs `/mcp` → Reconnect
   (Claude Code) or starts a new session (Codex).
-- **Codex: tools work but no preload or recall** → the plugin's hooks are not
-  trusted yet (a first `kg_read` from Codex says so). The **user** runs
+- **Codex: tools work but no preload or recall** → check hook trust first.
+  The **user** runs
   `/hooks` in Codex, trusts the knowledge-graph hooks, starts a new session.
   Verify: the next session opens with the KG MEMORY PRELOADED block.
   Trust is recorded per hook hash: a plugin update that changes the hooks
   (0.10.0 did) needs the approval again.
+- **Codex: shell file recall missing** → use absolute file operands with the
+  supported commands (`cat`, `head`, `tail`, `less`, `sed -n`, `grep`, `jq`).
+  CLI 0.157.1 omits the shell's `workdir` from hooks, so relative operands
+  are skipped. `rg` and recursive search are not tracked.
 - **`-32000` / "failed to reconnect"** → the server-side process died; the
   code is generic. Get the real error: `kg-memory logs`, or run the start
   command by hand and read the traceback. Check `server/.last_start_error`
@@ -344,6 +384,9 @@ than minting a dated node per letter.
 
 ## Uninstall
 
-`setup_desktop.py --remove` first (frees the Desktop config), then
-`/plugin uninstall knowledge-graph@maxim-plugins`. Optionally remove the
-`~/.local/bin` shims and the systemd unit. `~/.knowledge-graph/` is preserved.
+If Desktop was configured, `setup_desktop.py --remove` frees its config.
+Remove the plugin from the intended harness: Claude Code uses
+`/plugin uninstall knowledge-graph@maxim-plugins`; Codex uses
+`codex plugin remove knowledge-graph@maxim-plugins`. Remove the `~/.local/bin`
+shims and systemd unit only if no remaining client needs them. Shared data in
+`~/.knowledge-graph/` is preserved.

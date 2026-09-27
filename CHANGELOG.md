@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+- Codex maintenance reads the newest quota event across recently written rollouts, including sessions resumed from older date directories. Empty new sessions no longer hide a fresh reading. Invalid timestamps or usage refuse maintenance; file modification time cannot make an old reading fresh.
+- MCP HTTP calls identify Codex from the low-level SDK's actual request headers, restoring harness tagging and the missing-hooks diagnostic hint. The hint describes project-wide evidence rather than claiming to know this session's hook state.
+- Codex shell recall no longer attributes relative operands to the project root when the CLI omits the execution directory. Absolute operands still work; an explicit absolute `workdir` is honored when supplied by the hook. Capture counters use the same resolved paths.
+
+### Documentation
+- Codex support limits, update/restart/trust steps, helper installation and uninstall now distinguish client cache, shared server and hook state. Maintenance documentation describes the MCP allowlist and filesystem sandbox separately. History scouting and visual-editor project discovery still depend on Claude Code history; `rg` recall remains unsupported.
+
 ## [0.10.1] - 2026-09-27
 
 ### Fixed

@@ -420,9 +420,8 @@ def create_mcp_server() -> Server:
                         )]
                     project_root = str(Path(cwd).resolve())
                     # A first call with cwd means no preload reached this
-                    # session. From a harness whose hooks have never reported
-                    # here, that is the hooks being off, and only the user
-                    # can turn them on.
+                    # session. Missing project-wide hook evidence warrants a
+                    # trust hint, not a claim about this session's hook state.
                     hint = harness.profile(client).no_hooks_hint
                     if hint and not session_manager.hooks_seen(project_root, client):
                         notice = "\n\n" + hint
@@ -742,7 +741,7 @@ def create_mcp_server() -> Server:
                     content=[TextContent(type="text", text=f"Input validation error: {e.message}")],
                     is_error=True,
                 )
-        headers = getattr(getattr(ctx, "transport", None), "headers", None) or {}
+        headers = getattr(getattr(ctx, "request", None), "headers", None) or {}
         client = harness.from_user_agent(headers.get("user-agent"))
         return CallToolResult(content=await call_tool(params.name, arguments, client))
 

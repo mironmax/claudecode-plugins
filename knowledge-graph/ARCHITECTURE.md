@@ -282,15 +282,24 @@ unchanged; Codex reads the same `.claude-plugin/` manifest.
 
 Maintenance dispatch (`mcp_http/chore_dispatch.py`) is split the same way:
 target selection and every gate are harness-neutral, and a **runner** per
-harness owns its binary, the headless command that runs a prompt with only
-the kg tools, and its quota gauge. The gauge belongs to the runner, not to
+harness owns its binary, the headless command with scoped MCP access,
+and its quota gauge. Codex disables shell and hosted web and blocks filesystem
+writes with a read-only sandbox; other built-in tools can still appear.
+The gauge belongs to the runner, not to
 the harness that sent the prompt: a chore run through Codex spends the
-ChatGPT plan's windows (read from Codex's session rollout) and is gated on
+ChatGPT plan's windows (the latest quota event across recently written
+rollouts, including resumed sessions in old date directories) and is gated on
 them; one run through Claude Code reads `~/.claude/last-limits.json`.
 Chores fire on a prompt arriving, off the request thread, at most one at a
 time, re-deciding on fresh state inside a lock.
 
 Design notes and the survey behind this split: `docs/harnesses/`.
+
+Codex 0.157.1 omits the shell execution directory from its Bash hook input.
+File recall skips relative shell operands when that directory is unknown;
+absolute operands still work. If the hook supplies an absolute `workdir`,
+it resolves relative operands there while retaining the original project
+scope. The same resolved targets feed capture counters. `rg` is not tracked.
 
 ### Retrieval evaluation harness
 

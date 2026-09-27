@@ -190,7 +190,7 @@ def _operands(cmd: str, words: list[str]) -> list[str] | None:
     return operands
 
 
-def bash_read_files(command: str, cwd: str) -> list[str]:
+def bash_read_files(command: str, cwd: str | None) -> list[str]:
     """Absolute paths of existing files a Bash command plainly reads.
 
     Conservative by construction: only cat/head/tail/less/sed -n/grep/jq at
@@ -249,7 +249,7 @@ def bash_read_files(command: str, cwd: str) -> list[str]:
             if op.startswith("~"):
                 op = os.path.expanduser(op)
             if not os.path.isabs(op):
-                if moved:
+                if moved or cwd is None:
                     continue
                 op = os.path.join(cwd, op)
             path = os.path.realpath(op)
@@ -260,7 +260,7 @@ def bash_read_files(command: str, cwd: str) -> list[str]:
     return found
 
 
-def file_targets(tool: str, tool_input: dict, cwd: str) -> list[str]:
+def file_targets(tool: str, tool_input: dict, cwd: str, *, shell_cwd_known: bool = True) -> list[str]:
     """Absolute paths the tool call touched; empty for anything untracked."""
     field = _PATH_TOOLS.get(tool)
     if field:
@@ -270,7 +270,10 @@ def file_targets(tool: str, tool_input: dict, cwd: str) -> list[str]:
         target = os.path.expanduser(target)
         return [target if os.path.isabs(target) else os.path.join(cwd, target)]
     if tool == "Bash":
-        return bash_read_files(tool_input.get("command"), cwd)
+        workdir = tool_input.get("workdir")
+        if isinstance(workdir, str) and os.path.isabs(workdir):
+            return bash_read_files(tool_input.get("command"), workdir)
+        return bash_read_files(tool_input.get("command"), cwd if shell_cwd_known else None)
     if tool == "apply_patch":
         return patch_files(tool_input.get("command") or tool_input.get("input"), cwd)
     return []

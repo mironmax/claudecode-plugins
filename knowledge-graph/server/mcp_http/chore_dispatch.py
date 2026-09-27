@@ -25,6 +25,7 @@ must never slow or break a session.
 
 import json
 import logging
+import math
 import os
 import shutil
 import signal
@@ -215,17 +216,21 @@ def allowed_tools(settings_path: str) -> list[str]:
     return [t[len(_CLAUDE_TOOL_PREFIX):] for t in allow if t.startswith(_CLAUDE_TOOL_PREFIX)]
 
 
-def codex_limits(rollout: Path) -> dict | None:
+def codex_limits(rollout: Path, now: float | None = None) -> dict | None:
     """The last rate-limit reading in a Codex rollout, as gauge keys.
 
     Codex writes `token_count` events carrying the plan's windows after each
     model response; `window_minutes` says which window is which. A window
     whose reset has passed has emptied, whatever it last read.
     """
+    now = time.time() if now is None else now
     size = rollout.stat().st_size
     with open(rollout, "rb") as f:
-        f.seek(max(0, size - CODEX_ROLLOUT_TAIL_BYTES))
-        lines = f.read().decode("utf-8", "replace").splitlines()
+        start = max(0, size - CODEX_ROLLOUT_TAIL_BYTES)
+        f.seek(start)
+        lines = f.read(CODEX_ROLLOUT_TAIL_BYTES).decode("utf-8", "replace").splitlines()
+        if start:
+            lines = lines[1:]  # the tail may start inside a JSON record
     for line in reversed(lines):
         if '"rate_limits"' not in line:
             continue
@@ -233,10 +238,17 @@ def codex_limits(rollout: Path) -> dict | None:
             event = json.loads(line)
         except ValueError:
             continue
-        limits = (event.get("payload") or {}).get("rate_limits")
+        if not isinstance(event, dict) or not isinstance(event.get("payload"), dict):
+            continue
+        limits = event["payload"].get("rate_limits")
         if not limits:
             continue
-        out = {"updated_at": _iso_ts(event.get("timestamp")) or rollout.stat().st_mtime}
+        stamp = _iso_ts(event.get("timestamp"))
+        # ISO serialization rounds sub-microsecond clock values; tolerate
+        # one second rather than rejecting a just-written reading as future.
+        if stamp is None or stamp > now + 1:
+            raise ValueError("invalid Codex rate-limit timestamp")
+        out = {"updated_at": stamp}
         for window in (limits.get("primary"), limits.get("secondary")):
             if not window:
                 continue
@@ -245,7 +257,13 @@ def codex_limits(rollout: Path) -> dict | None:
             if not key:
                 continue
             pct, resets = window.get("used_percent"), window.get("resets_at")
-            if resets and resets < time.time():
+            if (not isinstance(pct, (int, float)) or isinstance(pct, bool)
+                    or not math.isfinite(pct) or not 0 <= pct <= 100):
+                raise ValueError("invalid Codex rate-limit usage")
+            if resets is not None and (not isinstance(resets, (int, float))
+                    or isinstance(resets, bool) or not math.isfinite(resets) or resets <= 0):
+                raise ValueError("invalid Codex rate-limit reset")
+            if resets and resets < now:
                 pct = 0.0
             out[f"{key}_pct"] = pct
             out[f"{key}_resets_at"] = resets
@@ -255,8 +273,9 @@ def codex_limits(rollout: Path) -> dict | None:
 
 def _iso_ts(value) -> float | None:
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-    except ValueError:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.timestamp() if parsed.tzinfo is not None else None
+    except (ValueError, OverflowError):
         return None
 
 
@@ -264,22 +283,35 @@ def codex_home() -> Path:
     return Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
 
 
-def newest_rollout(home: Path, days: int = 3) -> Path | None:
-    """Most recently written rollout in the last few day directories.
+def codex_gauge(home: Path, now: float, max_age: float) -> dict:
+    """Newest event across recently written rollouts, including resumed ones.
 
-    Rollouts live under sessions/YYYY/MM/DD/, one file per session; only the
-    newest days can hold a fresh reading, so the walk stays small however
-    long the history is.
+    Directory dates describe creation, not activity. Stat all rollouts, but
+    read only bounded tails of recently written files. A new session without
+    limits does not hide a fresh reading from another session. The event's
+    own timestamp decides recency; unrelated writes cannot refresh a gauge.
     """
     root = home / "sessions"
-    try:
-        day_dirs = sorted((d for y in root.iterdir() if y.is_dir()
-                           for m in y.iterdir() if m.is_dir()
-                           for d in m.iterdir() if d.is_dir()), reverse=True)[:days]
-    except OSError:
-        return None
-    files = [f for d in day_dirs for f in d.glob("rollout-*.jsonl")]
-    return max(files, key=lambda f: f.stat().st_mtime, default=None)
+    newest = None
+
+    def unreadable(error):
+        raise error  # an incomplete survey must not permit spending
+
+    for directory, _, names in os.walk(root, onerror=unreadable):
+        for name in names:
+            if not name.startswith("rollout-") or not name.endswith(".jsonl"):
+                continue
+            rollout = Path(directory) / name
+            if rollout.stat().st_mtime < now - max_age:
+                continue
+            data = codex_limits(rollout, now)
+            if data and newest and data["updated_at"] == newest["updated_at"] and data != newest:
+                raise ValueError("conflicting Codex readings at the same timestamp")
+            if data and (newest is None or data["updated_at"] > newest["updated_at"]):
+                newest = data
+    if newest is None:
+        raise ValueError("no Codex rate-limit reading")
+    return newest
 
 
 class CodexRunner:
@@ -292,14 +324,11 @@ class CodexRunner:
         return shutil.which("codex")
 
     def gauge(self, cfg: dict, now: float) -> dict:
-        rollout = newest_rollout(codex_home())
-        data = codex_limits(rollout) if rollout else None
-        if not data:
-            raise ValueError("no Codex rate-limit reading")
-        return data
+        return codex_gauge(codex_home(), now,
+                           cfg.get("gauge_max_age_s", CHORE_GAUGE_MAX_AGE_SECONDS))
 
     def command(self, cfg: dict, job: dict) -> list[str]:
-        """codex exec with no shell, no web and only the tier's kg tools.
+        """codex exec with shell/web off, read-only files and scoped MCP tools.
 
         --ignore-user-config keeps the user's own model, effort and plugins
         (whose skills and hooks a chore does not need) out of the run; auth
@@ -434,8 +463,8 @@ def _gauge_read(cfg: dict, now: float, runner) -> tuple[dict, dict | None, str]:
     """
     try:
         data = runner.gauge(cfg, now)
-    except Exception:
-        return {}, None, "gauge unreadable"
+    except Exception as e:
+        return {}, None, f"gauge unreadable: {e}"
     age = now - (data.get("updated_at") or 0)
     pace = weekly_pace(data, now)
     reading = {

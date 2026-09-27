@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install kg-memory + kg-visual shell commands for Claude Code knowledge-graph plugin.
+# Install kg-memory + kg-visual shell commands for the knowledge-graph plugin.
 #
 # Hooks are now shipped inside the plugin (hooks/hooks.json) and auto-register on
 # /plugin install + /reload-plugins — no settings.json edit needed.
@@ -106,6 +106,7 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
 fi
 
 echo ""
-echo "Done. The bundled hook activates automatically on /plugin install + /reload-plugins"
-echo "(or on Claude Code restart) — this script only handles the shell commands and the"
-echo "legacy-hook cleanup above."
+echo "Done. Shell helpers installed; legacy Claude Code hooks cleaned up if present."
+echo "Claude Code loads bundled hooks on /reload-plugins or restart."
+echo "Codex: review and trust the plugin in /hooks, then start a new session."
+echo "This script does not restart the shared server or approve Codex hooks."

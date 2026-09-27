@@ -585,9 +585,12 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
         return None  # outside home — not a graph-bearing project
 
     recall, covered, paths = None, False, []
+    from .harness import from_transcript, profile
+    harness = profile(from_transcript(payload.get("transcript_path")))
     try:
         from .file_recall import build_file_recall, file_targets
-        paths = file_targets(tool, tool_input, project_path)
+        paths = file_targets(tool, tool_input, project_path,
+                             shell_cwd_known=harness.shell_cwd_known)
         if paths:
             recall, covered = build_file_recall(store, session_manager, project_path,
                                                 tool, paths, payload.get("session_id"))
@@ -596,8 +599,7 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
 
     extracted = _extract_target(tool, tool_input)
     if not extracted and tool == "Bash" and paths:
-        from .harness import from_transcript, profile
-        if profile(from_transcript(payload.get("transcript_path"))).shell_reads_count:
+        if harness.shell_reads_count:
             extracted = ("read", paths[0])
     if not extracted:
         return recall

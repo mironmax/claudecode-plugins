@@ -1,7 +1,7 @@
 ---
 name: kg-scout
 user-invocable: true
-description: Mine conversation history for patterns and insights worth preserving
+description: Mine Claude Code conversation history for patterns and insights worth preserving; does not yet read Codex rollouts
 ---
 
 # History Scout — Mining Past Sessions for Knowledge

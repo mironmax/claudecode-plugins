@@ -7,7 +7,7 @@ No pytest dependency — run directly with the project venv:
 
 Covers:
   1. detection: transcript paths and MCP User-Agents name the harness
-  2. the Codex gauge: the last rate-limit event of the newest rollout, mapped
+  2. the Codex gauge: the newest rate-limit event across active rollouts, mapped
      to gauge keys by window length; a passed reset reads as empty
   3. runners: the Claude command is unchanged; the Codex command has no
      shell, no web and only the tier's kg tools, pre-approved; selection
@@ -27,6 +27,7 @@ import stat
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -69,7 +70,8 @@ def rollout(day: str, name: str, events: list, mtime: float | None = None) -> Pa
     return f
 
 
-def limits_event(p5, p7, r5, r7, ts="2026-09-27T07:06:14.615Z"):
+def limits_event(p5, p7, r5, r7, ts=None):
+    ts = ts or datetime.now(timezone.utc).isoformat()
     return {"timestamp": ts, "type": "event_msg", "payload": {
         "type": "token_count", "rate_limits": {
             "primary": {"used_percent": p5, "window_minutes": 300, "resets_at": r5},
@@ -96,30 +98,29 @@ def test_detection():
 def test_codex_gauge():
     print("2. Codex gauge")
     now = time.time()
-    rollout("2026/09/25", "old", [limits_event(90, 90, now + 900, now + 9000)], mtime=now - 7200)
+    stamp = lambda age: datetime.fromtimestamp(now - age, timezone.utc).isoformat()
+    rollout("2026/09/25", "old", [limits_event(90, 90, now + 900, now + 9000, stamp(7200))], mtime=now - 7200)
     newest = rollout("2026/09/27", "new", [
         {"type": "response_item", "payload": {"role": "user"}},
-        limits_event(10, 20, now + 1000, now + 500000),
-        limits_event(12, 21, now + 1000, now + 500000, ts="2026-09-27T07:10:00Z"),
+        limits_event(10, 20, now + 1000, now + 500000, stamp(90)),
+        limits_event(12, 21, now + 1000, now + 500000, stamp(60)),
         {"type": "event_msg", "payload": {"type": "agent_message"}},
     ], mtime=now - 60)
-    check("the newest rollout is found", cd.newest_rollout(_CODEX_HOME) == newest)
     data = cd.RUNNERS["codex"].gauge({}, now)
     check("the last reading wins, mapped by window length",
           data["five_hour_pct"] == 12 and data["seven_day_pct"] == 21
           and data["seven_day_resets_at"] == now + 500000, data)
-    from datetime import datetime
-    expected = datetime.fromisoformat("2026-09-27T07:10:00+00:00").timestamp()
+    expected = datetime.fromisoformat(stamp(60)).timestamp()
     check("its timestamp is the event's own", data["updated_at"] == expected, data)
     reading, raw, err = cd._gauge_read({"gauge_max_age_s": 10 ** 10}, now, cd.RUNNERS["codex"])
     check("the shared gates read it like the Claude gauge", not err and reading["5h"] == 12, (reading, err))
-    passed = rollout("2026/09/27", "reset", [limits_event(80, 30, now - 5, now + 1000)], mtime=now)
+    passed = rollout("2026/09/27", "reset", [limits_event(80, 30, now - 5, now + 1000, stamp(1))], mtime=now)
     check("a window whose reset has passed reads as empty",
           cd.codex_limits(passed)["five_hour_pct"] == 0.0)
     empty = rollout("2026/09/27", "empty", [{"type": "event_msg", "payload": {}}], mtime=now + 5)
     check("a rollout with no reading is no reading", cd.codex_limits(empty) is None)
-    _, _, err = cd._gauge_read({}, now, cd.RUNNERS["codex"])
-    check("no reading refuses as an unreadable gauge", err == "gauge unreadable", err)
+    _, raw, err = cd._gauge_read({}, now, cd.RUNNERS["codex"])
+    check("an empty new rollout does not hide a fresh reading", not err and raw["five_hour_pct"] == 0, err)
     empty.unlink()
 
 
@@ -279,7 +280,7 @@ def test_no_hooks_hint():
     handler = srv.create_mcp_server().get_request_handler("tools/call").handler
 
     def kg_read(cwd, user_agent):
-        ctx = SimpleNamespace(transport=SimpleNamespace(headers={"user-agent": user_agent}))
+        ctx = SimpleNamespace(request=SimpleNamespace(headers={"user-agent": user_agent}))
         params = types.CallToolRequestParams(name="kg_read", arguments={"cwd": cwd})
         return asyncio.run(handler(ctx, params)).content[0].text
 
