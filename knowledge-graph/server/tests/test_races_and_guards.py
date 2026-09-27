@@ -19,6 +19,8 @@ Covers:
          live context refuses to dispatch rather than clearing every id
   6. F9  cross-site HTTP (Sec-Fetch-Site or Origin) is refused; local and
          non-browser requests pass
+  7. kg_sync returns another session's write even when the syncing session
+     wrote something of its own after it, and never returns its own writes
 """
 
 import json
@@ -267,6 +269,24 @@ def test_cross_site_guard():
           request_refusal(scope("websocket", origin="https://evil.example")) is None)
 
 
+def test_sync_keeps_others_writes():
+    print("7. kg_sync after an own write")
+    store, sm = fresh_store()
+    a = sm.register(None)["session_id"]
+    b = sm.register(None)["session_id"]
+    time.sleep(0.01)
+    store.put_node("user", "from-b", "written by the other session", session_id=b)
+    time.sleep(0.01)
+    store.put_node("user", "from-a", "written by the syncing session", session_id=a)
+    store.put_edge("user", "from-a", "from-b", "relates-to", session_id=a)
+    diff = store.get_sync_diff(a, sm.get_sync_ts(a))
+    check("another session's earlier write is still returned", "from-b" in diff["user"]["nodes"],
+          list(diff["user"]["nodes"]))
+    check("the session's own writes are not", "from-a" not in diff["user"]["nodes"]
+          and not diff["user"]["edges"], diff["user"])
+    store.shutdown()
+
+
 def main():
     test_failed_write_through()
     test_reload_discard_is_logged()
@@ -274,6 +294,7 @@ def main():
     test_dispatch_race()
     test_pass_live_context()
     test_cross_site_guard()
+    test_sync_keeps_others_writes()
     print(f"\n{_PASS} passed, {_FAIL} failed")
     return 1 if _FAIL else 0
 

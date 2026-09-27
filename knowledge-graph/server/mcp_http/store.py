@@ -708,10 +708,6 @@ class MultiProjectGraphStore:
             # Write-through: save immediately
             self._write_through(graph_key)
 
-            # Advance sync timestamp so this write is not returned by kg_sync for this session
-            if session_id:
-                self.session_manager.mark_synced(session_id)
-
             # Run compaction if needed
             self._maybe_compact(graph_key)
 
@@ -882,10 +878,6 @@ class MultiProjectGraphStore:
 
             # Write-through: save immediately
             self._write_through(graph_key)
-
-            # Advance sync timestamp so this write is not returned by kg_sync for this session
-            if session_id:
-                self.session_manager.mark_synced(session_id)
 
             # Broadcast change
             self._broadcast(
