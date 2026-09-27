@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **The server starts on Python 3.10 again.** `core/types.py` imported `typing.NotRequired`, which exists only from 3.11, so since June every start on 3.10, the stated floor, failed at import. It now falls back to `typing_extensions`, already installed as a dependency of pydantic.
+
+### Added
+- **Continuous integration.** `.github/workflows/tests.yml` runs every `tests/test_*.py` on each push to main and each pull request, on Python 3.10 and the newest stable release, in a fresh venv. Each file reports PASS or FAIL with its run time, in the log and the job summary.
+
 ## [0.9.44] - 2026-09-27
 
 ### Fixed
