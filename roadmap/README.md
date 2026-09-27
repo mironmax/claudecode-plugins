@@ -49,6 +49,7 @@ an agent working only from this repository.
 | 04 | [Research cards](tasks/04-research-cards.md) | Read the literature against this system's actual conditions |
 | 05 | [Harness instrument review](tasks/05-harness-instrument-review.md) | Know what supporting a second harness costs, and where core ends |
 | 06 | [Continuous integration](tasks/06-continuous-integration.md) | Every change shows whether it breaks the suite before it is folded |
+| 07 | [Lean refactor findings](tasks/07-lean-refactor.md) | Same behavior in less code: one helper per job, tables over branches, clear module seams |
 
 Also in this phase, done interactively because they are judgement calls:
 capture guidance that tests granularity and writes notes as "when this
