@@ -4,6 +4,8 @@ Three small config files that tune how Claude Code works, communicates, and pace
 
 All three are user-level: they apply to every project on your machine and live under `~/.claude/`.
 
+**Using Codex CLI?** Output styles and the status line are Claude Code features. The working agreement is plain prose, so its paragraphs carry over: Codex reads global guidance from `~/.codex/AGENTS.md`. The benchmarks below were run on Claude Code only.
+
 ## What's here
 
 - **[`CLAUDE.md`](CLAUDE.md)** — a working-agreement memory file. Its deeper job is setting the collaboration's emotional vector: calm, unhurried, truth-over-agreement. In benchmarks this framing roughly doubled unprompted exploration and discovery — with the concise output style active, a planted bug in an open-ended "explain this code" task was found in 5/5 runs with these paragraphs vs 1/5 without, at zero added output-token cost.

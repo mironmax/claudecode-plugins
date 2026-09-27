@@ -4,7 +4,8 @@ user-invocable: true
 description: |
   Operations runbook for the knowledge-graph plugin: install and first run,
   plugin updates, server lifecycle (start/stop/restart/logs), autostart via
-  systemd, connecting Claude Desktop/Cowork, configuration, the quota-gauge
+  systemd, connecting Claude Desktop/Cowork, Codex CLI, maintenance chores and
+  their runner, configuration, the quota-gauge
   status line (reading your own 5h/7d limits), backup and restore, and
   troubleshooting (tools offline, -32000 errors, stale data, Desktop issues).
   Use when something needs setting up, breaks, or the user asks to manage the
@@ -25,8 +26,11 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
   `projects/<slug>/graph.json`, `sessions.json`, plus `maintain.json`: the
   maintenance agent's own craft memory, never preloaded or searched). Survives
   uninstall.
-- Plugin cache dirs are **versioned** (`~/.claude/plugins/cache/maxim-plugins/knowledge-graph/<version>/`)
-  and change on every update. Anything that must survive updates goes through
+- Plugin cache dirs are **versioned** (`~/.claude/plugins/cache/maxim-plugins/knowledge-graph/<version>/`,
+  and for Codex `~/.codex/plugins/cache/maxim-plugins/knowledge-graph/<version>/`)
+  and change on every update. With both harnesses installed there are two
+  copies; whichever session starts first launches the one server, and
+  `kg-memory` runs the copy its shim points at. Anything that must survive updates goes through
   the stable shims in `~/.local/bin/`: `kg-memory`, `kg-visual`,
   `kg-desktop-bridge`. Never hardcode a versioned cache path into configs.
 - A SessionStart hook auto-starts the server when it's down. It never stops or
@@ -60,8 +64,10 @@ first `kg_read` from Codex says so). One server serves both harnesses.
    shims at the new version dir.
 2. The running server still executes the OLD code until restarted:
    `kg-memory restart`.
-3. Every open session's MCP connection is now stale — the **user** must run
-   `/mcp` → `plugin:knowledge-graph:kg` → Reconnect (agents cannot do this).
+3. Open sessions ride out a quick restart. If the restart rebuilt the venv
+   (new requirements; the port stays closed ~1 min), Claude Code's client
+   gives up and the **user** must run `/mcp` → `plugin:knowledge-graph:kg` →
+   Reconnect (agents cannot do this); in Codex, start a new session.
 
 ## Server lifecycle
 
@@ -70,8 +76,10 @@ kg-memory start|stop|restart|status|logs|commit
 kg-visual start|stop|status|logs        # graph editor at http://localhost:8766
 ```
 
-- Restarting disconnects all live sessions → each needs the `/mcp` Reconnect
-  (ask the user; don't restart casually mid-work).
+- A quick restart (seconds) is ridden out by live sessions: the client
+  reconnects per request. A long one (venv rebuild, ~1 min down) leaves the
+  tools offline until the user runs `/mcp` → Reconnect in Claude Code, or
+  starts a new Codex session. Ask before restarting mid-work.
 - `stop` validates the PID actually belongs to the MCP server before killing
   (stale-PID protection) — trust it over manual `kill`.
 
@@ -276,8 +284,10 @@ than minting a dated node per letter.
 
 ## Backup and restore
 
-- Crash protection is built in: atomic writes + one rolling `<file>.prev`.
-  Restore: `cp ~/.knowledge-graph/user.json.prev ~/.knowledge-graph/user.json`
+- Crash protection is built in: atomic writes + one rolling backup beside
+  each graph, named by replacing the extension: `user.prev` for `user.json`,
+  `graph.prev` for a project's `graph.json`.
+  Restore: `cp ~/.knowledge-graph/user.prev ~/.knowledge-graph/user.json`
   (same pattern per project graph). Restart not required, but force a reload
   (below) if the server was up during the copy.
 - Versioned history: `git init` inside `~/.knowledge-graph` (gitignore
@@ -288,7 +298,12 @@ than minting a dated node per letter.
 ## Troubleshooting
 
 - **kg tools offline / connection refused** → health curl. Down: `kg-memory
-  start` (first run builds venv, ~1 min), then user runs `/mcp` → Reconnect.
+  start` (first run builds venv, ~1 min), then user runs `/mcp` → Reconnect
+  (Claude Code) or starts a new session (Codex).
+- **Codex: tools work but no preload or recall** → the plugin's hooks are not
+  trusted yet (a first `kg_read` from Codex says so). The **user** runs
+  `/hooks` in Codex, trusts the knowledge-graph hooks, starts a new session.
+  Verify: the next session opens with the KG MEMORY PRELOADED block.
 - **`-32000` / "failed to reconnect"** → the server-side process died; the
   code is generic. Get the real error: `kg-memory logs`, or run the start
   command by hand and read the traceback. Check `server/.last_start_error`

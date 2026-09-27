@@ -67,8 +67,8 @@ All under `http://localhost:$EDITOR_PORT`:
 |---|---|---|
 | GET | `/` | Serve SPA |
 | GET | `/api/health` | Editor + MCP server status |
-| GET | `/api/projects` | Discovered Claude Code projects |
-| GET | `/api/graph` | Read graph (proxies to MCP `/api/graph/read?reload=true`) |
+| GET | `/api/projects` | Projects discovered from Claude Code's session history |
+| GET | `/api/graph` | Read graph (proxies to MCP `/api/graph/read`, served from the server's memory) |
 | POST | `/api/nodes` | Create/update node |
 | DELETE | `/api/nodes/{level}/{id}` | Delete node |
 | GET | `/api/nodes/{level}/{id}` | Read single node (auto-promotes archived/orphaned) |
@@ -81,6 +81,8 @@ All under `http://localhost:$EDITOR_PORT`:
 - Desktop only — minimum 1366px screen width
 - Edge creation requires typing target node ID (no click-to-connect)
 - No undo, no multi-select, no in-graph search
+- Live updates cover the user graph only; project-graph changes need Refresh
+- Projects used only from Codex are not discovered yet
 
 ## License
 

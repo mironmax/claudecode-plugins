@@ -1,7 +1,7 @@
 {
   "name": "knowledge-graph",
-  "version": "0.9.45",
-  "description": "Extract and remember patterns, insights, and relationships worth preserving across sessions. Unlike flat-file memory, knowledge is a graph \u2014 nodes gain meaning through edges. Auto-compaction, multi-session sync, visual editor.",
+  "version": "0.10.0",
+  "description": "Knowledge-graph memory for Claude Code and Codex CLI. Extract and remember patterns, insights and relationships worth preserving across sessions; knowledge is a graph, so nodes gain meaning through edges. Recall at session start, per prompt and per file, self-maintenance, visual editor.",
   "author": {
     "name": "Maxim",
     "url": "https://github.com/mironmax"
@@ -11,11 +11,11 @@
     "knowledge",
     "graph",
     "memory",
-    "documentation",
     "mcp",
-    "collaboration",
-    "http",
-    "sse"
+    "claude-code",
+    "codex",
+    "agent-memory",
+    "http"
   ],
   "mcpServers": "./.mcp.json"
 }

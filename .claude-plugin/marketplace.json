@@ -4,12 +4,12 @@
     "name": "mironmax"
   },
   "metadata": {
-    "description": "Maxim's collection of Claude Code plugins"
+    "description": "Maxim's collection of plugins for Claude Code and Codex CLI"
   },
   "plugins": [
     {
       "name": "knowledge-graph",
-      "description": "Persistent knowledge graph for Claude Code — nodes, edges, and distilled insights that survive across sessions. Local Python MCP server, auto-compaction, multi-session sync.",
+      "description": "Persistent knowledge-graph memory for Claude Code and Codex CLI: nodes, typed edges and distilled insights that survive across sessions, shared by both harnesses through one local server. Recall at session start, per prompt and per file; self-maintaining.",
       "source": "./knowledge-graph"
     }
   ]

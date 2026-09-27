@@ -1,13 +1,13 @@
-# Knowledge Graph for Claude Code
+# Knowledge Graph memory for Claude Code and Codex
 
-Gives Claude a persistent memory that survives across sessions — not flat notes, but a graph of distilled insights connected by typed relationships. Claude captures patterns and decisions as you work; next session it recalls them automatically.
+Gives a coding agent a persistent memory that survives across sessions — not flat notes, but a graph of distilled insights connected by typed relationships. The agent captures patterns and decisions as you work; next session it recalls them automatically. Claude Code and Codex CLI share one memory server, so what is learned in one is recalled in the other.
 
 The design puts the intelligence at **capture time**: knowledge is compressed by the model in the moment of insight, stored as headline + relationships, and read back natively — no embeddings, no retrieval engine, just structured text a language model is built to consume. That makes the memory compound with model capability: sharper models write denser nodes and extract more from the same graph. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design thesis.
 
 ## Prerequisites
 
-- **Claude Code** — CLI or desktop app
-- **Python 3** — required to run the MCP server
+- **Claude Code** (CLI or desktop app) or **Codex CLI**, or both
+- **Python 3.10+** — required to run the MCP server
 
   ```bash
   # Check if you have it:
@@ -36,12 +36,14 @@ The design puts the intelligence at **capture time**: knowledge is compressed by
 # 3. Restart Claude Code
 ```
 
+For Codex CLI, see [Codex CLI](#codex-cli) below: two commands, then one approval in `/hooks`.
+
 **Done.** The plugin ships its hooks in `hooks/hooks.json` and they auto-load on session start — no setup script, no settings.json edits. Three hooks carry the ambient behavior: SessionStart preloads your memory into context and starts the server if it's down; UserPromptSubmit surfaces memory relevant to each prompt; PostToolUse brings up the memory about a file when the agent reads or edits it, and notices when knowledge is being re-derived and nudges a capture.
 
 > Already in a session? Run `/reload-plugins` instead of restarting.
 
 **One more thing:**
-- **Disable built-in auto-memory** — ⚙ Settings → Memory → toggle **Auto-memory off**. Without this, two memory systems run in parallel and write conflicting entries.
+- **Disable built-in auto-memory** — ⚙ Settings → Memory → toggle **Auto-memory off**. Without this, two memory systems run in parallel and write conflicting entries. (Codex's own `memories` feature is off by default; leave it off.)
 - **Enable plugin auto-updates** — `/plugin` → **Marketplaces** → `maxim-plugins` → **Enable auto-update**. Third-party marketplaces are off by default, so this is the only way to stay current without manual refreshes.
 
 **Optional:**
@@ -62,6 +64,7 @@ By default, Claude Code asks permission for each MCP tool call. To skip these pr
       "mcp__plugin_knowledge-graph_kg__kg_read",
       "mcp__plugin_knowledge-graph_kg__kg_put_node",
       "mcp__plugin_knowledge-graph_kg__kg_put_edge",
+      "mcp__plugin_knowledge-graph_kg__kg_rename_node",
       "mcp__plugin_knowledge-graph_kg__kg_sync",
       "mcp__plugin_knowledge-graph_kg__kg_delete_node",
       "mcp__plugin_knowledge-graph_kg__kg_delete_edge",
@@ -79,9 +82,9 @@ If you already have a `settings.json`, merge these into your existing `permissio
 
 ## Server Management
 
-The plugin runs a shared HTTP MCP server on port 8765, used by every Claude Code session simultaneously. **It starts automatically** — a SessionStart hook launches it whenever it's down, and the start script builds its Python environment on first run (and again after plugin updates, which install into a fresh directory). The hook only ever starts the server; it never stops or restarts one you're running.
+The plugin runs a shared HTTP MCP server on port 8765, used by every session simultaneously — Claude Code, Codex and Claude Desktop alike. **It starts automatically** — a SessionStart hook launches it whenever it's down, and the start script builds its Python environment on first run (and again after plugin updates, which install into a fresh directory). The hook only ever starts the server; it never stops or restarts one you're running.
 
-> Anything operational — updates, autostart, Desktop connection, backups, troubleshooting — is written up as agent-followable recipes in `/kg-ops`. Telling Claude "run /kg-ops and fix the memory server" is a complete instruction.
+> Anything operational — updates, autostart, Desktop connection, backups, troubleshooting — is written up as agent-followable recipes in `/kg-ops`. Telling the agent "run /kg-ops and fix the memory server" is a complete instruction.
 
 > If a session connected while the server was still down (e.g. the very first run), the `kg_*` tools stay offline for that session — run `/mcp`, select `plugin:knowledge-graph:kg`, and hit **Reconnect** once the server is up.
 
@@ -91,7 +94,7 @@ For manual control from your terminal, **install the helper commands** (one-time
 bash "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name install_command.sh | sort -V | tail -1)"
 ```
 
-That symlinks `kg-memory` and `kg-visual` into `~/.local/bin/`. Make sure `~/.local/bin` is in your `PATH`.
+That symlinks `kg-memory` and `kg-visual` into `~/.local/bin/`. Make sure `~/.local/bin` is in your `PATH`. With Codex only, the plugin lives under `~/.codex/plugins/cache/maxim-plugins/knowledge-graph/` instead; run the same script from there.
 
 ```bash
 # MCP graph server
@@ -164,18 +167,19 @@ Maintenance chores can run through Codex too, spending your ChatGPT plan's limit
 The system is designed to work without being asked. Four ambient behaviors, all zero-config:
 
 - **Preloaded at session start** — the top-scored nodes of both graphs are in context before the first word, and one `kg_read` renders the rest.
+- **Recall when a file is touched** — when the agent reads or edits a file, the memory that names that file arrives with the tool result; a node already in the session's context is not repeated.
 - **Recall at the moment of relevance** — each prompt you type is matched against the graph server-side; when unseen nodes fit, their gists arrive with the prompt. Precision is deliberate: nothing injects twice, weak matches stay silent, and machine records (notifications, pasted images and paths) never trigger it — the channel only speaks when a human asked something.
 - **Capture when re-derivation is proven** — reading a file a second session in a row (or fetching the same URL twice) with no node covering it earns a one-time nudge to write the bottom line down. First-time reads never nudge; hard throttles keep it rare.
-- **Self-aware maintenance** — every read carries a `DEBT:` line per graph (oversized gists, unconnected nodes, touches that no longer resolve, episodes waiting to be lifted into a principle, time since last tended, weighted by how actively the graph is used). When it reads HIGH, `/kg-maintain` runs a bounded pass — or Claude spawns a maintenance subagent with the dispatch prompt the skill provides.
-- **Chores, if you switch them on** — the server can also pay debt down while you work: one category, one or two targets it names itself, a handful of tool calls, run as a detached headless agent under an MCP-only allowlist, so your session spends no context on it. Every dispatch and every refusal is logged. Off by default because it spends quota — `/kg-ops` has the switch and the gates.
+- **Self-aware maintenance** — every read carries a `DEBT:` line per graph (oversized gists, unconnected nodes, touches that no longer resolve, episodes waiting to be lifted into a principle, time since last tended, weighted by how actively the graph is used). When it reads HIGH, `/kg-maintain` runs a bounded pass — or the agent spawns a maintenance subagent with the dispatch prompt the skill provides.
+- **Chores, if you switch them on** — the server can also pay debt down while you work: one category, one or two targets it names itself, a handful of tool calls, run as a detached headless agent under an MCP-only allowlist, so your session spends no context on it. Every dispatch and every refusal is logged. Chores run through Claude Code or Codex, each gated on its own subscription's limits. Off by default because they spend quota — `/kg-ops` has the switch and the gates.
 
 ## Usage Tips
 
-Once the server is running, Claude captures insights automatically. A few habits that improve the experience:
+Once the server is running, the agent captures insights automatically. A few habits that improve the experience:
 
-- **Wrap up sessions explicitly** — tell Claude "wrapping up" before ending. This triggers reflection and writes the session's learnings to the graph.
+- **Wrap up sessions explicitly** — say "wrapping up" before ending. This triggers reflection and writes the session's learnings to the graph.
 - **Start fresh sessions over compacting** — finishing a task cleanly and starting a new session is more effective than context compaction. The graph preserves what matters.
-- **Use `/skill kg-scout`** after a long session to mine the conversation for patterns worth keeping.
+- **Run `/kg-scout`** now and then to mine past Claude Code sessions for patterns worth keeping.
 
 ---
 
@@ -184,10 +188,12 @@ Once the server is running, Claude captures insights automatically. A few habits
 | Skill | Type | Purpose |
 |-------|------|---------|
 | `kg-core` | Hidden (auto-loaded) | The memory doctrine: session protocol, recall, capture, search below the surface |
-| `/skill kg-maintain` | User-invocable | Bounded maintenance pass that pays down the graph's DEBT line; includes the subagent dispatch prompt |
-| `/skill kg-scout` | User-invocable | Mine conversation history for patterns and insights |
-| `/skill kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
-| `/skill kg-ops` | User-invocable | Operations runbook: install, updates, server, Desktop/Cowork, backup, troubleshooting |
+| `/kg-maintain` | User-invocable | Bounded maintenance pass that pays down the graph's DEBT line; includes the subagent dispatch prompt |
+| `/kg-scout` | User-invocable | Mine conversation history for patterns and insights |
+| `/kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
+| `/kg-ops` | User-invocable | Operations runbook: install, updates, server, Desktop/Cowork, Codex, chores, backup, troubleshooting |
+
+In Codex the same five skills are listed to the agent; ask for one by name.
 
 ---
 
@@ -203,9 +209,9 @@ The server reads tunables from environment variables. Set them in your shell rc 
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
 | `KG_AUTOCOMMIT_INTERVAL` | `900` | Git auto-commit interval for the storage root (seconds); `0` disables. Only acts when `~/.knowledge-graph` is a git repository |
 
-> Don't edit the plugin's bundled `.mcp.json` — that file just declares the HTTP endpoint Claude Code connects to (`http://127.0.0.1:8765/`), and it gets overwritten on every plugin update.
+> Don't edit the plugin's bundled `.mcp.json` — that file just declares the HTTP endpoint the harness connects to (`http://127.0.0.1:8765/`), and it gets overwritten on every plugin update.
 
-> **The size budget is fixed by design.** Budgets are exact rendered characters — 17,500 per graph level, 40,000 for a whole `kg_read` result — chosen so the output always fits inline in Claude's context instead of spilling to a persisted file. That guarantee is arithmetic over the fixed constants; a knob would break it. If output ever needs trimming (e.g. a graph maintained by an older server), the server hides the lowest-scored archived anchors and edges and says so in the output — never active knowledge.
+> **The size budget is fixed by design.** Budgets are exact rendered characters — 17,500 per graph level, 40,000 for a whole `kg_read` result, 10,000 for the session-start preload (8,000 in Codex, whose hook limit is smaller) — chosen so the output always fits inline in the agent's context instead of spilling to a persisted file. That guarantee is arithmetic over the fixed constants; a knob would break it. If output ever needs trimming (e.g. a graph maintained by an older server), the server hides the lowest-scored archived anchors and edges and says so in the output — never active knowledge.
 
 ---
 
@@ -217,17 +223,21 @@ All data lives under `~/.knowledge-graph/`. The files are plain JSON, so any fil
 - **Project level:** `~/.knowledge-graph/projects/<slug>/graph.json` — codebase-specific
 - **Sessions:** `~/.knowledge-graph/sessions.json` — session registry
 - **Tool-event counters:** `~/.knowledge-graph/projects/<slug>/tool_events.json` — per-target read/fetch counts feeding the capture nudges and the activity part of the DEBT score
+- **Maintenance memory:** `~/.knowledge-graph/maintain.json` — the maintenance agent's own lessons, never shown in sessions
+- **Logs:** `recall.jsonl` (what recall decided per prompt and tool event), `useful.jsonl` (endorsements), `chores.jsonl` (every chore decision) — all in `~/.knowledge-graph/`, size-capped
+- **Chores:** `chores.json` (your switch and settings, if any) and `chore_state.json` (spacing and daily counts)
 
 ### Built-in crash protection
 
-Every save is atomic (write-to-temp → fsync → rename) and keeps one rolling copy of the previous good state as `<file>.prev`. This protects against corruption from interrupted writes, not against accidental deletion or longer-term history.
+Every save is atomic (write-to-temp → fsync → rename) and keeps one rolling copy of the previous good state beside it: `user.prev` for `user.json`, `graph.prev` for a project's `graph.json`. This protects against corruption from interrupted writes, not against accidental deletion or longer-term history.
 
 To restore the previous state:
 ```bash
-cp ~/.knowledge-graph/user.json.prev ~/.knowledge-graph/user.json
-cp ~/.knowledge-graph/projects/<slug>/graph.json.prev \
+cp ~/.knowledge-graph/user.prev ~/.knowledge-graph/user.json
+cp ~/.knowledge-graph/projects/<slug>/graph.prev \
    ~/.knowledge-graph/projects/<slug>/graph.json
 ```
+If the server was running during the copy, make it re-read the disk: `curl -s 'http://127.0.0.1:8765/api/graph/read?reload=true'` (add `&project_path=<root>` for a project graph).
 
 ### Self-healing on load
 
@@ -266,7 +276,8 @@ borg extract ~/.knowledge-graph-borg::2026-05-17T03:00 --strip-components 3
 ## Uninstallation
 
 ```bash
-/plugin uninstall knowledge-graph@maxim-plugins
+/plugin uninstall knowledge-graph@maxim-plugins      # Claude Code
+codex plugin remove knowledge-graph@maxim-plugins    # Codex CLI
 ```
 
 Your knowledge data is preserved at `~/.knowledge-graph/`.
@@ -277,7 +288,7 @@ Your knowledge data is preserved at `~/.knowledge-graph/`.
 
 MIT — see [LICENSE](LICENSE)
 
-> Current version: see [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) or `/plugin list` inside Claude Code.
+> Current version: see [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json), `/plugin list` in Claude Code, or `codex plugin list`.
 
 ---
 

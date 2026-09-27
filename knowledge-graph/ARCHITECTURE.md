@@ -29,9 +29,14 @@ only to keep the loop fast, bounded, and lossless — the intelligence is
 delegated to the models on either end.
 
 Two graph levels carry the memory: **user** (cross-project wisdom — who the
-agent works for) and **project** (codebase knowledge — what it works on). The
-working currency of a session is **gists + edges**; notes are depth on demand,
-one targeted read away.
+agent works for) and **project** (codebase knowledge — what it works on). A
+third, **maintain**, is the maintenance agent's own craft memory and is never
+shown to a working session. The working currency of a session is **gists +
+edges**; notes are depth on demand, one targeted read away.
+
+The memory is harness-neutral. Claude Code and Codex CLI run the same plugin
+against the same local server; what differs between them is confined to one
+module (see "The Harness Layer").
 
 #### Core Principles
 
@@ -47,15 +52,17 @@ one targeted read away.
    - Self-cleaning (orphan node removal after grace period)
    - Knowledge graph evolves like living memory
 
-3. **LLM-Native Format** 
-   - LLMs read JSON graphs directly, fluently
+3. **LLM-Native Format**
+   - Stored as plain JSON; rendered for the model as compact text (one line
+     per gist, each node's edges indented beneath it)
    - No transformation layer (embeddings, queries, etc.)
    - Direct loading into context window
    - Simple beats clever
 
 4. **Dual-Mode Access**
-   - **Preloaded**: the SessionStart hook injects the rendered graph into context
-     before the first turn — zero tool calls (kg_read is the fallback and re-read API)
+   - **Preloaded**: the SessionStart hook injects a compact core of the graph
+     before the first turn — zero tool calls; one full `kg_read` renders
+     everything the preload had to drop
    - **Read on demand**: `kg_read(id)` / `kg_read(ids=[...])` retrieves full content (promotes archived nodes)
    - **Memory traces**: Edges to archived nodes guide discovery
    - Sequential reading surfaces "hidden" knowledge
@@ -67,7 +74,8 @@ one targeted read away.
      Harness records (task notifications, image-paste placeholders, dragged
      paths) carry no user intent and stay silent
    - **Recall at the file**: when a tool reads or edits a file (Read, Edit,
-     Write, MultiEdit, NotebookEdit, and Bash commands that plainly read one),
+     Write, MultiEdit, NotebookEdit, Codex's apply_patch, and shell commands
+     that plainly read one),
      the unseen nodes whose touches name it ride the tool hook's output —
      archived ones too, without promoting them
    - **Capture on proven re-derivation**: tool traffic (Read/WebFetch/WebSearch)
@@ -87,7 +95,7 @@ one targeted read away.
 - The rendering is node-centric: clusters render together (hub first), each node's relationships indented beneath it, every edge cited once at its first-rendered endpoint — the graph reads as connected knowledge paragraphs, not sections to join by id
 
 **When memory grows beyond limit:**
-- Archival scores nodes by: 0.33×recency + 0.66×connectedness (weighted sum of percentiles — see scorer.py)
+- Archival scores nodes by 0.25×recency + 0.40×connectedness + 0.35×usefulness, a weighted sum of percentiles (`core/scorer.py`). Usefulness is the count of explicit `kg_useful` endorsements, each decaying with a 90-day half-life: the one term an agent controls, and the only one that can say "this was needed" rather than "this was touched"
 - Connectedness weights edges by neighbour state: an edge to an active node counts full (1.0), to an archived node `ARCHIVED_EDGE_WEIGHT` (0.2), to an orphaned node 0 — then `in × 0.66 + out × 0.33`. The reduced-but-nonzero archived weight lets a cluster that archived together still be resurfaced by refill (a member isn't scored as fully disconnected just because its neighbours archived too)
 - Archive nodes until graph is under `COMPACTION_TARGET_RATIO` (0.8) of the char budget
 - Run a resurrection pass: any pre-existing archived node that outscores a just-archived node by ≥0.05 is restored to active
@@ -121,7 +129,7 @@ one targeted read away.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Claude Code Sessions                      │
+│           Agent sessions (Claude Code, Codex CLI)             │
 │  Session A (project-a)    Session B (project-b)    Session C │
 └────────────┬──────────────────────┬───────────────────┬──────┘
              │                      │                   │
@@ -164,14 +172,20 @@ one targeted read away.
 
 Two transports, each matched to its client:
 
-- **Stateless HTTP (MCP protocol)** for Claude Code agents. Each request is
-  independent; graph sessions are application-level (the `session_id` returned
-  by `kg_read`), not transport-level. This matches how the Claude Code MCP
-  client actually speaks, keeps the mental model simple, and makes every
-  interaction visible in logs.
+- **Stateless HTTP (MCP protocol)** for agents, from any harness. Each request
+  is independent; graph sessions are application-level (the `session_id`
+  returned by `kg_read`), not transport-level. This matches how the Claude
+  Code and Codex MCP clients actually speak, keeps the mental model simple,
+  and makes every interaction visible in logs.
 - **WebSocket** for the visual editor, where we control the client and a live
   view genuinely needs push: the store broadcasts every mutation to connected
   browsers in real time.
+
+**Concurrency.** Many sessions share one server process. Every store
+mutation runs under one lock, every save is atomic (temp file, fsync,
+rename), and the session registry has its own lock. What the server does not
+yet arbitrate is two agents editing the *same node* from stale reads: a
+`kg_put_node` replaces the notes it is given, so the later writer wins.
 
 Cross-session awareness for agents is **explicit**: `kg_sync(session_id)`
 returns a diff of what other sessions changed since the last sync. Explicit
@@ -184,8 +198,8 @@ depends on shared knowledge.
 
 ```
 ┌─────────────────┐         ┌──────────────┐
-│ Claude Agents   │         │ Visual Editor│
-│ (Claude Code)   │         │  (Browser)   │
+│ Agents (Claude  │         │ Visual Editor│
+│ Code, Codex)    │         │  (Browser)   │
 └────────┬────────┘         └──────┬───────┘
          │                         │
    Stateless HTTP            WebSocket
@@ -212,9 +226,9 @@ the hook layer parses nothing and can never break a session:
 
 | Hook | Endpoint | Server decides |
 |------|----------|----------------|
-| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars (hook inline ceiling, measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week); compact re-renders the core (the summary squeezed it), every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
+| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars in Claude Code, ≤8K in Codex (each harness's hook ceiling, measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week); compact re-renders the core (the summary squeezed it), every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
 | UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), run through the shared search core (subtokens, stems, bigrams, field-weighted, sharpened IDF — ubiquitous words carry no signal), seen-deduped, corroboration threshold plus an evidence gate (a hit speaks only corroborated, near-unique, or named by the node's id/gist — lexical strays stay silent), hits injected in evidence-quality order: unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
-| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | file recall (`mcp_http/file_recall.py`): the file a tool touched is looked up in a touches reverse index (user + project graph, rebuilt only when that graph's write generation moves; `path:12-40 (anchor)`, `./`, `~` and absolute touches normalise to the file they name), unseen nodes injected as gist lines — archived included, never promoted — at most 3 within 1,200 chars, ranked by node score then recency, marked seen via `file`, throttled per session (3 per 10 min); Bash counts only for `cat`/`head`/`tail`/`less`/`sed -n`/`grep`/`jq` operands that exist as files. Otherwise, for Read/WebFetch/WebSearch: per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap). A covered file never nudges |
+| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | file recall (`mcp_http/file_recall.py`): the file a tool touched is looked up in a touches reverse index (user + project graph, rebuilt only when that graph's write generation moves; `path:12-40 (anchor)`, `./`, `~` and absolute touches normalise to the file they name), unseen nodes injected as gist lines — archived included, never promoted — at most 3 within 1,200 chars, ranked by node score then recency, marked seen via `file`, throttled per session (3 per 10 min); Bash counts only for `cat`/`head`/`tail`/`less`/`sed -n`/`grep`/`jq` operands that exist as files; `apply_patch` for every file its patch adds, updates, deletes or moves to. Otherwise, for Read/WebFetch/WebSearch (and, under Codex, which has no Read tool, shell reads): per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap). A covered file never nudges |
 
 Both recall channels log every decision to `recall.jsonl`, silences
 included: prompt recall under its own reasons with the prompt's terms, file
@@ -245,6 +259,31 @@ repeated rewriting is the pattern measured to degrade memory.
 hook for any dispatcher, from an in-session subagent to a cron tick. A pass
 stamps itself via `kg_progress` task `"maintain"`; only stamped passes reset
 staleness.
+
+### The Harness Layer
+
+The server makes every decision; a harness only carries events in and
+context out. Everything harness-shaped the server touches lives in
+`mcp_http/harness.py`: which harness sent an event, told apart structurally
+(a hook's `transcript_path` — Codex writes `rollout-*.jsonl` under
+`$CODEX_HOME/sessions` — or an MCP call's User-Agent, `codex-mcp-client/…`),
+and the few things that differ per harness: the preload budget, whether shell
+reads count as reads, and the hint a Codex session gets when the plugin's
+hooks have never reached the server (Codex keeps plugin hooks off until the
+user trusts them in `/hooks`). The hook scripts and `hooks.json` are shared
+unchanged; Codex reads the same `.claude-plugin/` manifest.
+
+Maintenance dispatch (`mcp_http/chore_dispatch.py`) is split the same way:
+target selection and every gate are harness-neutral, and a **runner** per
+harness owns its binary, the headless command that runs a prompt with only
+the kg tools, and its quota gauge. The gauge belongs to the runner, not to
+the harness that sent the prompt: a chore run through Codex spends the
+ChatGPT plan's windows (read from Codex's session rollout) and is gated on
+them; one run through Claude Code reads `~/.claude/last-limits.json`.
+Chores fire on a prompt arriving, off the request thread, at most one at a
+time, re-deciding on fresh state inside a lock.
+
+Design notes and the survey behind this split: `docs/harnesses/`.
 
 ### Retrieval evaluation harness
 
@@ -302,7 +341,10 @@ and only *known* prompts enter the consistency check.
 ```
 ~/.knowledge-graph/
   ├── user.json                          # Cross-project insights (singleton)
+  ├── maintain.json                      # The maintenance agent's own lessons
   ├── sessions.json                      # Session registry
+  ├── chores.json / chore_state.json     # Chore switch + settings / spacing and counts
+  ├── chores.jsonl                       # Every chore decision, refusals included
   ├── recall.jsonl                       # Recall decisions, prompt and file (+ .prev)
   ├── useful.jsonl                       # Endorsements with their route (+ .prev)
   └── projects/
@@ -317,7 +359,7 @@ and only *known* prompts enter the consistency check.
 
 **Periodic git auto-commit.** When the storage root is a git repository, the server itself commits pending changes on a timer (`core/autocommit.py`, `AutoCommitter` daemon thread). Every `KG_AUTOCOMMIT_INTERVAL` seconds (default 900; `0` disables) it commits only when the tree actually changed, using the `Auto-save YYYY-MM-DD HH:MM` message; a final best-effort commit runs on graceful shutdown *after* the store flushes. Committing from inside the server means history accumulates no matter how the process is started or killed — including the normal case where the SessionStart hook launches it and it dies with the machine. No `.git` directory means silent no-op, and git failures are logged, never fatal.
 
-**Self-healing on load and write.** A node should be stored as discrete fields (`gist`, `notes`, `touches`). A client can occasionally serialize the whole node — including tool-call markup — into the `gist` string, leaving `notes` empty; the oversized gist then inflates the active-token budget on every `kg_read`. Rather than trust every writer to be well-formed, the store sanitizes defensively: `core.healer.heal_node_fields` is applied both on write (`put_node`) and on load (each graph is healed the first time it is read from disk, then rewritten). The same function powers both paths, so rendering and storage cannot drift, and it is idempotent — already-clean graphs pass through untouched. This is a third robustness layer alongside atomic writes and the `.prev` rolling backup: those guard against bad *I/O*; healing guards against bad *data*.
+**Self-healing on load and write.** A node should be stored as discrete fields (`gist`, `notes`, `touches`). A client can occasionally serialize the whole node — including tool-call markup — into the `gist` string, leaving `notes` empty; the oversized gist then inflates the active-token budget on every `kg_read`. Rather than trust every writer to be well-formed, the store sanitizes defensively: `core.healer.heal_node_fields` is applied both on write (`put_node`) and on load (each graph is healed the first time it is read from disk, then rewritten). The same function powers both paths, so rendering and storage cannot drift, and it is idempotent — already-clean graphs pass through untouched. This is a third robustness layer alongside atomic writes and the rolling backup (`user.prev` beside `user.json`, `graph.prev` beside each `graph.json`): those guard against bad *I/O*; healing guards against bad *data*.
 
 ### Why JSON Files?
 
@@ -325,7 +367,7 @@ and only *known* prompts enter the consistency check.
 2. **Version controllable** — Git tracks changes, diffs meaningful  
 3. **Local** — No external dependencies, databases, or services
 4. **Simple** — One concept, one format
-5. **LLM-native** — Claude reads JSON fluently, no transformation
+5. **LLM-native** — the render is plain text a model reads fluently, no transformation
 6. **Portable** — Copy file = backup/share knowledge
 
 **Trade-off accepted:** File I/O instead of DB transactions (mitigated by in-memory store + atomic writes)
@@ -337,14 +379,19 @@ and only *known* prompts enter the consistency check.
 ### Completed
 
 - **Visual Editor** — D3.js force-directed graph with real-time WebSocket updates, full CRUD, multi-panel UI, project selector. Managed via `manage_visual.sh` / `kg-visual` command.
-- **Scout Skill** (`/skill kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
-- **Extract Skill** (`/skill kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
+- **Scout Skill** (`/kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
+- **Extract Skill** (`/kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
 - **Ranked Search** — `kg_search` and prompt recall share one core (RRF, k=60): whitespace tokens plus their `./_-` subtokens, light stemming (schedule ≈ scheduling), adjacent-subtoken bigram terms with their own co-occurrence IDF, field-weighted occurrences (id ×3, gist ×2, notes ×1) and sharpened IDF so one term naming the right node isn't outvoted by several dull ones. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent. Write-side, the same pipeline powers `put_node`'s near-duplicate and hub-mention nudges.
 - **Ambient recall & capture** — prompt-matched gist injection per prompt and re-derivation capture nudges on tool traffic; all decisions server-side behind thin hooks (see "The Ambient Loop").
 - **Retrieval evaluation** — `python -m eval` replays logged recall decisions under ranking variants and scores them by endorsements (see "Retrieval evaluation harness").
 - **Maintenance debt** — per-graph `DEBT:` line, disk-wide survey endpoint, and `/kg-maintain` as a bounded, resumable, self-stamping pass.
+- **Activity-triggered maintenance** — chores and the full pass dispatched as detached headless agents on a prompt arriving, gated on the runner's own quota.
+- **Second harness** — Codex CLI runs the plugin unchanged; the harness layer holds what differs.
+- **Formal checking** — Lean models and real-code reproductions of the concurrent and stateful parts (`formal/` at the repository root), each fix with a regression test.
 
 ### Planned Features
+- More harnesses (Cursor and Antigravity have known gaps — see `docs/harnesses/`)
+- Optimistic concurrency on node writes (two agents editing one node)
 - Collaborative editing (multi-user visual editor)
 - Import/export (share graph snippets)
 - Analytics (graph metrics, usage patterns)
@@ -382,5 +429,5 @@ and only *known* prompts enter the consistency check.
 
 ---
 
-**Architecture Status:** Stable (MCP, visual editor, skills, centralized storage all complete).
+**Architecture Status:** Stable (MCP, visual editor, skills, centralized storage, harness layer).
 For the canonical plugin version, see [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json).

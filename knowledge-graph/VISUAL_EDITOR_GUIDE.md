@@ -138,7 +138,7 @@ Common relationship types: `depends-on`, `implements`, `extends`, `uses`, `insta
 
 The dot in the top-right corner shows the WebSocket state:
 
-- **● Live** (green) — WebSocket connected; graph updates automatically when Claude writes memory in any terminal session. No need to press Refresh.
+- **● Live** (green) — WebSocket connected; changes an agent makes to the **user** graph appear automatically. Changes to a **project** graph do not arrive live yet (a known gap: the editor's connection is not tied to a project) — press **Refresh** to see them.
 - **● Offline** (red) — WebSocket dropped; auto-reconnects every 5 seconds. Changes still save correctly — you just won't see them until reconnect or Refresh.
 - **● Server down** (red) — MCP server unreachable; reads and writes will fail.
 
@@ -175,13 +175,13 @@ Then reload the browser tab.
 
 **Graph not loading / empty**
 - Check you selected a graph in the left panel
-- For project graphs: the project must have at least one node (use Claude to capture some first)
+- For project graphs: the project must have at least one node (let an agent capture some first). The project list comes from Claude Code's session history, so a project used only from Codex does not appear yet
 - Check logs: `kg-visual logs`
 
 **Changes not appearing**
 - Check the connection status indicator
 - Press **Refresh** in the header
-- If WebSocket is Live, changes from Claude sessions arrive automatically
+- If WebSocket is Live, user-graph changes from agent sessions arrive automatically; project-graph changes need **Refresh**
 
 **Modal won't close**
 - Click the ✕ button, or **Cancel**, or click the dark overlay behind the modal

@@ -2,7 +2,17 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.10.0] - 2026-09-27
+
+**Knowledge Graph memory for Claude Code and Codex.** The first tagged release since v0.9.31, covering 0.9.32 through 0.9.45 and the work below. In summary:
+
+- **A second harness.** Codex CLI runs the plugin unchanged, against the same local memory as Claude Code, so what one learns the other recalls. Maintenance chores can run through either, each gated on its own subscription's limits.
+- **Memory arrives at the moment it applies.** Besides the session-start preload and per-prompt recall, the memory about a file now arrives when the agent reads or edits it (0.9.41).
+- **The memory tends itself.** Activity-triggered chores and passes (0.9.37), repair of stale file pointers and lifting of repeated episodes into principles (0.9.42), a churn guard against over-rewriting, ids that name their subject and a safe `kg_rename_node` (0.9.35), and a maintenance memory of the agent's own.
+- **Measured, not assumed.** Recall decisions and endorsements are logged with the route by which each node reached the session (0.9.36, 0.9.39), and a replay harness scores recall changes against them (0.9.40). Thirteen papers were read against this system's conditions (`docs/research/`).
+- **Hardened.** Hook paths contained and prompt scrubbers made linear (0.9.38); five concurrency and durability fixes from a formal pass with Lean models (0.9.44); cross-site requests refused; the server on mcp 2.x (0.9.43); Python 3.10 working again and every change tested in CI on 3.10 and the newest Python (0.9.45).
+
+**Upgrading.** The plugin update rebuilds the server's Python environment when you come from before 0.9.43, whose requirements changed. While it rebuilds, the port stays closed for about a minute, and Claude Code's MCP client gives up: run `/mcp` → `plugin:knowledge-graph:kg` → **Reconnect** once, after the server is back. In Codex, start a new session. Your data in `~/.knowledge-graph/` is untouched.
 
 ### Added
 - **Codex CLI support.** Codex installs the plugin unchanged from the same marketplace (`codex plugin marketplace add mironmax/claudecode-plugins`, then `codex plugin add knowledge-graph@maxim-plugins`), and one local server serves both harnesses, so memory captured in one is recalled in the other. Verified against a real Codex login on codex-cli 0.157.1: the preload, per-prompt recall, file recall and the `kg_*` tools all reach the model. The server tells the harnesses apart structurally: hook events by their transcript path (Codex keeps `rollout-*.jsonl` under `$CODEX_HOME/sessions`), MCP calls by the client's User-Agent. Everything harness-shaped lives in one module, `mcp_http/harness.py`.
@@ -12,9 +22,10 @@ All notable changes to this project are documented here.
 - **Maintenance chores can run through Codex.** Dispatch is split into harness-neutral selection and gating, and a runner per harness that owns its binary, its headless command and its quota gauge. `"runner": "auto"` (the default) keeps Claude Code when it is installed and falls back to Codex; `"claude"` and `"codex"` choose explicitly, and a configured binary pins its runner even when the path is wrong, so a typo never silently spends the other subscription. A Codex run is `codex exec --ephemeral --ignore-user-config` with no shell, no web and only the tier's kg tools, taken from the same shipped allowlists and pre-approved. It is gated on the ChatGPT plan's own 5-hour and weekly windows, read from the newest Codex session rollout, where a window whose reset has passed reads as empty. `"codex_model"` and `"codex_reasoning_effort"` (default low for chores, medium for passes) tune it. Dispatch and done lines in `chores.jsonl` name the runner.
 
 ### Fixed
+- **`kg_sync` no longer loses other sessions' changes.** Every `kg_put_node` and `kg_put_edge` moved the writer's sync timestamp forward, to keep its own writes out of its next sync. The sync already leaves a session's own writes out by session id, so the only effect was to skip every change other sessions had made since the last sync, and a session that writes as it works got back only what others changed after its latest write. Found live with a Claude Code and a Codex session on one graph: an edge a chore wrote was never reported. Writes no longer touch the timestamp. `kg_sync` still reports new and changed nodes and edges, not deletions or renames.
 - A chore or pass that times out is killed with its whole process group, so whatever the agent started no longer outlives it.
 
-27 test files, 883 assertions, suite green on Python 3.10 and 3.14.
+27 test files, 885 assertions, suite green on Python 3.10 and 3.14.
 
 ## [0.9.45] - 2026-09-27
 
