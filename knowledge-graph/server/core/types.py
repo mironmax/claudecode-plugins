@@ -1,6 +1,12 @@
 """Type definitions for knowledge graph."""
 
-from typing import TypedDict, NotRequired
+import sys
+from typing import TypedDict
+
+if sys.version_info >= (3, 11):
+    from typing import NotRequired
+else:  # 3.10: typing_extensions is a dependency of pydantic
+    from typing_extensions import NotRequired
 
 
 class Node(TypedDict):
