@@ -304,6 +304,8 @@ than minting a dated node per letter.
   trusted yet (a first `kg_read` from Codex says so). The **user** runs
   `/hooks` in Codex, trusts the knowledge-graph hooks, starts a new session.
   Verify: the next session opens with the KG MEMORY PRELOADED block.
+  Trust is recorded per hook hash: a plugin update that changes the hooks
+  (0.10.0 did) needs the approval again.
 - **`-32000` / "failed to reconnect"** → the server-side process died; the
   code is generic. Get the real error: `kg-memory logs`, or run the start
   command by hand and read the traceback. Check `server/.last_start_error`
