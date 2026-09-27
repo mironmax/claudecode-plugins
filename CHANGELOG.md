@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.9.45] - 2026-09-27
 
 ### Fixed
 - **The server starts on Python 3.10 again.** `core/types.py` imported `typing.NotRequired`, which exists only from 3.11, so since June every start on 3.10, the stated floor, failed at import. It now falls back to `typing_extensions`, already installed as a dependency of pydantic.
