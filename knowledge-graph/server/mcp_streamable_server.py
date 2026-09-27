@@ -38,7 +38,7 @@ MAINTAIN_LEVEL_DOC = (
     "preloaded, searched or rendered with the graphs; write there only from a "
     "maintenance chore or pass."
 )
-from mcp_http.security import host_allowed
+from mcp_http.security import request_refusal
 from core.autocommit import AutoCommitter
 from core.exceptions import (
     KGError,
@@ -777,20 +777,19 @@ async def main():
         """ASGI app that routes between MCP, REST API, and health endpoints."""
         path = scope.get("path", "")
 
-        # Anti DNS-rebinding: every HTTP/WebSocket request must address this
-        # machine by a local hostname. A malicious page whose domain re-resolves
-        # to 127.0.0.1 becomes same-origin to this server (CORS no longer
-        # applies), but it still carries the attacker's domain in Host — reject.
+        # Anti DNS-rebinding and cross-site guards (see mcp_http/security.py):
+        # a page whose domain re-resolves to 127.0.0.1 still carries its own
+        # domain in Host; an ordinary cross-site page carries its Origin or
+        # Sec-Fetch-Site. Either way the browser gave it away — reject.
         if scope["type"] in ("http", "websocket"):
-            headers = dict(scope.get("headers") or [])
-            host_header = headers.get(b"host", b"").decode("latin-1")
-            if not host_allowed(host_header, configured_host=host):
-                logger.warning(f"Rejected request with non-local Host: {host_header!r}")
+            refusal = request_refusal(scope, configured_host=host)
+            if refusal:
+                status, reason = refusal
+                logger.warning(f"Rejected request: {reason}")
                 if scope["type"] == "websocket":
                     await WebSocketClose(code=1008)(scope, receive, send)
                 else:
-                    response = PlainTextResponse("Misdirected Request: Host must be local", status_code=421)
-                    await response(scope, receive, send)
+                    await PlainTextResponse(f"Refused: {reason}", status_code=status)(scope, receive, send)
                 return
 
         if path == "/health":

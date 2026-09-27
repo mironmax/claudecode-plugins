@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here.
 
+## [0.9.44] - 2026-09-27
+
+### Fixed
+Five findings from the formal pass (`formal/FINDINGS.md`), each reproduced against the real code before the fix and covered by `tests/test_races_and_guards.py`, which fails on the old code.
+- **A failed save no longer counts as saved (F2).** When a write-through failed (disk full, EIO, permissions), the graph was still marked clean, so shutdown skipped it and the change was lost while `put_node` had reported success. A failed save now leaves the graph dirty: the saver retries it and shutdown flushes it.
+- **The background saver can no longer die (F4).** The session table had no lock, and a registration racing the saver's expiry sweep raised `dictionary changed size during iteration`. Nothing restarted the thread, so compaction, session expiry and session persistence stopped for the rest of the process, with one traceback on stderr as the only sign. Every session-manager method now takes a reentrant lock, and a failing maintenance tick is logged and retried on the next tick.
+- **Two racing prompts can no longer both dispatch a chore (F1).** Dispatch decided on a state snapshot read before target selection. A second prompt arriving while a first chore failed or exited quickly could dispatch again inside the 45-minute interval, and its write lost the first run's daily count. Inside the lock, the dispatcher now re-reads the state and re-checks the interval and daily cap. The loser logs `a concurrent dispatch won`.
+- **The full maintenance pass respects the live-context rule (F10).** Chores never rename a node a live session holds, but the pass tier, which picks its own targets and may rename five nodes and delete merged ones, was never told which ids those were. Its prompt now lists them under LIVE CONTEXT, and they may not be renamed, merged away or deleted. When the live context cannot be read, the dispatcher refuses to run instead of treating that as "nothing held".
+- **Cross-site requests are refused (F9).** Only the Host header (anti DNS-rebinding) and the WebSocket Origin were checked, so any web page could make the browser fire `GET /api/graph/read?reload=true` or `/api/session_bootstrap` for their side effects. HTTP requests with `Sec-Fetch-Site: cross-site`, which browsers send on every request including `<img>` GETs, or with a non-local `Origin` now get a `403`. Non-browser clients send neither and are unaffected. The guard lives in `mcp_http/security.py` as `request_refusal`.
+
+### Changed
+- **A forced reload still lets disk win, but no longer drops changes silently (F3).** `reload=true` is how a restore from `.prev` takes effect, so it keeps discarding unsaved memory, and now logs a warning when it does. The visual editor no longer forces a reload on every view: every write goes through the server, so its memory is already the newest state.
+- `formal/` at the repository root holds the Lean models, reproductions and evidence for all ten findings. F5-F8 remain open there.
+
+26 test files, 843 assertions, suite green.
+
 ## [0.9.43] - 2026-09-26
 
 ### Changed

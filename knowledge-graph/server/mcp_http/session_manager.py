@@ -4,8 +4,10 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 import uuid
+from functools import wraps
 from pathlib import Path
 from core.constants import SESSION_ID_LENGTH, SESSION_TTL_SECONDS, sessions_file_path, safe_project_path
 
@@ -52,19 +54,35 @@ def recover_kg_sid_from_transcript(transcript_path: str) -> str | None:
     return last
 
 
+def _locked(method):
+    """Run a session-manager method under the instance lock."""
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapper
+
+
 class HTTPSessionManager:
     """Manages sessions with project_path tracking for multi-project support.
 
     Sessions store project root paths (not graph file paths).
     The store layer resolves project roots to centralized graph paths.
+
+    Thread-safe: request handlers, the store's saver thread and the chore
+    dispatcher all touch _sessions, and an unlocked iteration racing a
+    registration raises mid-loop. Every method takes the reentrant _lock;
+    the store's lock, when held, is always taken first.
     """
 
     def __init__(self, session_ttl: int = SESSION_TTL_SECONDS):
         self.session_ttl = session_ttl
+        self._lock = threading.RLock()
         self._sessions: dict[str, dict] = {}
         self._sessions_file = sessions_file_path()
         self._load_sessions()
 
+    @_locked
     def register(self, project_path: str | None = None, claude_sid: str | None = None) -> dict:
         """
         Register a new session with optional project root path.
@@ -94,6 +112,7 @@ class HTTPSessionManager:
         self.save_sessions()  # Persist immediately so project_path survives restarts
         return {"session_id": session_id, "start_ts": ts}
 
+    @_locked
     def bind_claude_sid(self, session_id: str, claude_sid: str, save: bool = True) -> None:
         """Bind a Claude Code session id to a KG session (rebind on resume).
 
@@ -110,6 +129,7 @@ class HTTPSessionManager:
         if save:
             self.save_sessions()
 
+    @_locked
     def find_by_claude_sid(self, claude_sid: str) -> tuple[str, dict] | None:
         """KG session bound to this Claude Code session id, or None."""
         if not claude_sid:
@@ -119,6 +139,7 @@ class HTTPSessionManager:
                 return (sid, data)
         return None
 
+    @_locked
     def lookup(self, session_id: str) -> dict | None:
         """Return the session record if it exists — no auto-recovery, no mutation.
 
@@ -128,6 +149,7 @@ class HTTPSessionManager:
         """
         return self._sessions.get(session_id)
 
+    @_locked
     def ensure_session(self, session_id: str) -> None:
         """
         Re-register a session if it was lost (e.g. server restart).
@@ -146,22 +168,26 @@ class HTTPSessionManager:
         }
         logger.info(f"Session auto-recovered: {session_id} (no project_path — was lost on restart)")
 
+    @_locked
     def get_project_path(self, session_id: str) -> str | None:
         """Get project root path for a session. Auto-recovers lost sessions."""
         self.ensure_session(session_id)
         self._update_activity(session_id)
         return self._sessions[session_id]["project_path"]
 
+    @_locked
     def get_start_ts(self, session_id: str) -> float:
         """Get session start timestamp. Auto-recovers lost sessions."""
         self.ensure_session(session_id)
         return self._sessions[session_id]["start_ts"]
 
+    @_locked
     def _update_activity(self, session_id: str):
         """Update last activity timestamp for a session."""
         if session_id in self._sessions:
             self._sessions[session_id]["last_activity"] = time.time()
 
+    @_locked
     def cleanup_expired(self) -> int:
         """Remove expired sessions. Returns count of removed sessions."""
         current_time = time.time()
@@ -176,6 +202,7 @@ class HTTPSessionManager:
 
         return len(expired)
 
+    @_locked
     def mark_seen(self, session_id: str, node_ids, via: str) -> None:
         """Record node ids whose GIST this session has already been shown.
 
@@ -197,6 +224,7 @@ class HTTPSessionManager:
                 seen_set.add(nid)
             seen_via.setdefault(nid, via)
 
+    @_locked
     def mark_promoted(self, session_id: str, node_ids) -> None:
         """Record nodes this session pulled out of the archive by reading them."""
         session = self._sessions.get(session_id)
@@ -205,11 +233,13 @@ class HTTPSessionManager:
         promoted = session.setdefault("promoted_ids", [])
         promoted.extend(nid for nid in node_ids if nid not in promoted)
 
+    @_locked
     def get_seen(self, session_id: str) -> set:
         """Set of node ids this session has already seen gists for."""
         session = self._sessions.get(session_id)
         return set(session.get("seen_ids", [])) if session else set()
 
+    @_locked
     def recently_seen_ids(self, max_age_seconds: float) -> set:
         """Every node id a recently-active session holds in context.
 
@@ -227,6 +257,7 @@ class HTTPSessionManager:
             out.update(session.get("preloaded_ids", []))
         return out
 
+    @_locked
     def set_preloaded(self, session_id: str, node_ids) -> None:
         """Record which node gists the session-start preload actually rendered.
 
@@ -239,11 +270,13 @@ class HTTPSessionManager:
             return
         session["preloaded_ids"] = list(node_ids)
 
+    @_locked
     def get_preloaded(self, session_id: str) -> set:
         """Node ids whose gists the session-start preload put in context."""
         session = self._sessions.get(session_id)
         return set(session.get("preloaded_ids", [])) if session else set()
 
+    @_locked
     def rename_node_ref(self, old_id: str, new_id: str) -> int:
         """Carry a renamed node through every session's seen/preload/promoted state.
 
@@ -267,6 +300,7 @@ class HTTPSessionManager:
                 seen_via.setdefault(new_id, seen_via.pop(old_id))
         return touched
 
+    @_locked
     def mark_full_read(self, session_id: str) -> None:
         """Record that this session has made the loud full-graph kg_read.
 
@@ -277,11 +311,13 @@ class HTTPSessionManager:
         self.ensure_session(session_id)
         self._sessions[session_id]["full_read_ts"] = time.time()
 
+    @_locked
     def has_full_read(self, session_id: str) -> bool:
         """Has this session rendered the full graph at least once?"""
         session = self._sessions.get(session_id)
         return bool(session and session.get("full_read_ts"))
 
+    @_locked
     def find_by_project_path(self, project_path: str) -> tuple[str, dict] | None:
         """Most recently started live session for a project path, or None.
 
@@ -300,23 +336,27 @@ class HTTPSessionManager:
                 best = (sid, data)
         return best
 
+    @_locked
     def mark_synced(self, session_id: str) -> None:
         """Update last_synced_ts so kg_sync only returns changes after this point."""
         if session_id in self._sessions:
             self._sessions[session_id]["last_synced_ts"] = time.time()
 
+    @_locked
     def get_sync_ts(self, session_id: str) -> float:
         """Get effective sync timestamp: last_synced_ts if present, else start_ts."""
         self.ensure_session(session_id)
         session = self._sessions[session_id]
         return session.get("last_synced_ts", session["start_ts"])
 
+    @_locked
     def increment_ops(self, session_id: str) -> None:
         """Increment operation count for a session. Auto-recovers lost sessions."""
         self.ensure_session(session_id)
         self._sessions[session_id]["op_count"] = self._sessions[session_id].get("op_count", 0) + 1
         self._update_activity(session_id)
 
+    @_locked
     def get_stats(self, session_id: str) -> dict:
         """Get session stats: duration, op count, graph sizes. Auto-recovers lost sessions."""
         self.ensure_session(session_id)
@@ -330,6 +370,7 @@ class HTTPSessionManager:
             "started_at": session["start_ts"],
         }
 
+    @_locked
     def count(self) -> int:
         """Return number of active sessions."""
         return len(self._sessions)
@@ -338,6 +379,7 @@ class HTTPSessionManager:
     # Session persistence (survive server restarts)
     # ========================================================================
 
+    @_locked
     def _load_sessions(self) -> None:
         """Load sessions from disk on startup."""
         if not self._sessions_file.exists():
@@ -363,6 +405,7 @@ class HTTPSessionManager:
         except Exception as e:
             logger.warning(f"Failed to load sessions from {self._sessions_file}: {e}")
 
+    @_locked
     def save_sessions(self) -> None:
         """Save active sessions to disk. Called periodically by store's save loop."""
         try:

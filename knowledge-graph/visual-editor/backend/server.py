@@ -138,9 +138,9 @@ async def get_graph(session_id: str | None = None, project_path: str | None = No
     """
     try:
         async with httpx.AsyncClient(timeout=MCP_TIMEOUT) as client:
-            # Use MCP server's REST API
-            # Always reload from disk to ensure visual editor shows latest data
-            params = {"reload": "true"}
+            # No reload=true: the server's memory already holds every write,
+            # and a forced reload would drop changes not yet on disk.
+            params = {}
             if session_id:
                 params["session_id"] = session_id
             if project_path:

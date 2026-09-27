@@ -383,15 +383,23 @@ class MultiProjectGraphStore:
         self.write_gen[graph_key] = self.write_gen.get(graph_key, 0) + 1
 
     def _write_through(self, graph_key: str):
-        """Immediately save a graph to disk after mutation. Caller must hold lock."""
+        """Immediately save a graph to disk after mutation. Caller must hold lock.
+
+        A failed save leaves the graph dirty, so the saver retries it and
+        shutdown flushes it — clearing the flag would drop the write silently.
+        """
         self._bump_gen(graph_key)
         if graph_key in self._persistence:
-            self._save_to_disk(graph_key)
-            self.dirty[graph_key] = False
+            self.dirty[graph_key] = not self._save_to_disk(graph_key)
 
     # ========================================================================
     # Public API
     # ========================================================================
+
+    def _warn_reload_discards(self, graph_key: str):
+        """Log a disk-wins reload that is about to drop unsaved changes. Caller holds lock."""
+        if self.dirty.get(graph_key):
+            logger.warning(f"Reload of {graph_key} from disk discards unsaved in-memory changes")
 
     def reload_user_graph(self):
         """Force reload user graph from disk. Thread-safe."""
@@ -414,12 +422,15 @@ class MultiProjectGraphStore:
             project_path: Direct project root path (alternative to session_id)
             force_reload: If True, reload graphs from disk before returning.
                           Use when data may have been modified externally.
+                          Disk wins: that is what makes a restore from .prev
+                          take effect, so unsaved memory is dropped, and logged.
 
         Returns dict with "user" and "project" keys.
         """
         with self.lock:
             # Reload user graph from disk if requested
             if force_reload:
+                self._warn_reload_discards("user")
                 self._load_user_graph()
 
             # Shallow-copy each node/edge dict: callers serialize the result after
@@ -455,8 +466,10 @@ class MultiProjectGraphStore:
             # Load project graph if we have a path
             if project_root:
                 try:
-                    self._ensure_project_loaded(project_root, force_reload=force_reload)
                     project_key = project_namespace(project_root)
+                    if force_reload:
+                        self._warn_reload_discards(project_key)
+                    self._ensure_project_loaded(project_root, force_reload=force_reload)
 
                     result["project"] = snapshot(self.graphs[project_key])
                 except Exception as e:
@@ -1874,20 +1887,25 @@ class MultiProjectGraphStore:
             if self._stop_event.wait(self.config.save_interval):
                 break
 
-            with self.lock:
-                for graph_key in list(self.graphs.keys()):
-                    # Run maintenance
-                    self._maybe_compact(graph_key)
-                    self._prune_orphans(graph_key)
+            # One bad tick must not end the thread: nothing restarts it, and
+            # without it there is no compaction, expiry or session persistence.
+            try:
+                with self.lock:
+                    for graph_key in list(self.graphs.keys()):
+                        # Run maintenance
+                        self._maybe_compact(graph_key)
+                        self._prune_orphans(graph_key)
 
-                    # Save if dirty (from maintenance operations)
-                    if self.dirty.get(graph_key, False):
-                        if self._save_to_disk(graph_key):
-                            self.dirty[graph_key] = False
+                        # Save if dirty (from maintenance operations)
+                        if self.dirty.get(graph_key, False):
+                            if self._save_to_disk(graph_key):
+                                self.dirty[graph_key] = False
 
-                # Cleanup expired sessions and persist active ones
-                self.session_manager.cleanup_expired()
-                self.session_manager.save_sessions()
+                    # Cleanup expired sessions and persist active ones
+                    self.session_manager.cleanup_expired()
+                    self.session_manager.save_sessions()
+            except Exception:
+                logger.exception("Periodic maintenance tick failed; retrying next tick")
 
     def shutdown(self):
         """Gracefully shutdown the store. Idempotent — both the lifespan hook and

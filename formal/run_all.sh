@@ -8,7 +8,7 @@
 set -u
 cd "$(dirname "$0")"
 export PATH="$HOME/.elan/bin:$PATH"
-PY=${PYTHON:-python3}   # e.g. PYTHON=../knowledge-graph/server/venv/bin/python
+PY=${PYTHON:-python3}   # e.g. PYTHON="$(realpath ../knowledge-graph/server/venv/bin/python)"
 
 run() {  # run <log> <cmd...>
   local log=$1; shift

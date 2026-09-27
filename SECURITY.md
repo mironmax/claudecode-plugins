@@ -24,9 +24,13 @@ browser-side paths that could otherwise cross it:
 - **DNS rebinding** — all HTTP/WebSocket requests must carry a local `Host` header
   (`localhost`, `127.0.0.1`, `::1`, or the explicitly configured bind host);
   others are rejected with `421`.
+- **Cross-site requests** (a page cannot read the response, but a GET or simple
+  POST still has side effects) — HTTP requests with `Sec-Fetch-Site: cross-site`
+  or a non-local `Origin` are rejected with `403`.
 - **Cross-origin WebSockets** (browsers do not apply CORS to WebSocket upgrades) —
-  upgrades with a non-local `Origin` are rejected. Absent `Origin` (non-browser
-  clients) is allowed.
+  upgrades with a non-local `Origin` are rejected.
+
+Non-browser clients send neither `Origin` nor `Sec-Fetch-Site` and are allowed.
 
 Node IDs, edge endpoints, and relationship types are validated to a safe character
 set at the write boundary, so graph data cannot carry markup into surfaces that

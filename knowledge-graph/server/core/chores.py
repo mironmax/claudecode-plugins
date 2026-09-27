@@ -543,8 +543,12 @@ def build_chore_prompt(chore: Chore, cwd: str, lessons=(), lessons_budget: int =
 # ---------------------------------------------------------------------------
 
 def build_pass_prompt(level: str, cwd: str, debt: dict, lessons=(),
-                      lessons_budget: int = 1400) -> str:
-    """The complete stdin prompt for a full maintenance pass."""
+                      lessons_budget: int = 1400, held=()) -> str:
+    """The complete stdin prompt for a full maintenance pass.
+
+    held: ids a live session has in context. The pass may sharpen them but
+    never rename, merge away or delete them.
+    """
     factors = debt.get("line") or (
         f"debt {debt.get('score')}, {debt.get('oversized_gists', 0)} oversized gist(s), "
         f"{debt.get('long_ids', 0)} long id(s), "
@@ -568,6 +572,15 @@ def build_pass_prompt(level: str, cwd: str, debt: dict, lessons=(),
     ]
     if lessons_block:
         parts += ["", lessons_block]
+    if held:
+        parts += [
+            "",
+            "LIVE CONTEXT — a working session holds these ids. Never rename them,",
+            "merge them away or delete them: its next read of the old id would",
+            "come back NOT FOUND. Sharpening their gist or notes and adding edges",
+            "is fine.",
+            "   " + ", ".join(held),
+        ]
     parts += [
         "",
         f'1. kg_read(cwd="{cwd}") — returns your session_id and both graphs with',
@@ -598,11 +611,13 @@ def build_pass_prompt(level: str, cwd: str, debt: dict, lessons=(),
         "      words, no dates. Beyond repair, look for REFINEMENT: read a",
         "      cluster together, ask what they are collectively about, and",
         "      rename toward the vocabulary the graph actually uses.",
+        *(["      Never an id listed under LIVE CONTEXT."] if held else []),
         "   d. UNCONNECTED ACTIVE NODES — up to 5. Batch-read, then ONE honest",
         "      edge each. No honest edge? Sharpen the gist instead.",
         "   e. DUPLICATE MERGES — up to 3. Merge into the richer node (union of",
         "      notes/touches), re-point the poorer node's edges, delete the empty",
         "      shell. Verify overlap first — presumed duplicates often aren't.",
+        *(["      The shell you delete must not be listed under LIVE CONTEXT."] if held else []),
         "   f. NOTES HYGIENE — up to 3 of the nodes you touched above. Rewrite",
         "      changelog-style notes to current truth only.",
         "",

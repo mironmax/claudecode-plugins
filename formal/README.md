@@ -3,8 +3,15 @@
 A trial of the "model → counterexample → reproduce → fix" loop on this
 server's concurrent and stateful parts. Lean 4 does the modelling. This
 directory holds the models, the real-code reproductions and the evidence.
-**Nothing here changes the server.** Fixes are left for a separate change.
-Findings with file:line references are in [FINDINGS.md](FINDINGS.md).
+Nothing here changes the server; fixes land as ordinary releases, each
+with a regression test in `knowledge-graph/server/tests/`. Findings with
+file:line references are in [FINDINGS.md](FINDINGS.md).
+
+**Status (v0.9.44):** F1, F2, F4, F9 and F10 are fixed
+(`tests/test_races_and_guards.py`). F3 is settled as a policy: a forced
+reload lets disk win, logs what it drops, and the two paths that triggered
+it without anyone asking (the visual editor, cross-site pages) are gone.
+F5-F8 are open.
 
 ## Method
 
@@ -21,8 +28,9 @@ Findings with file:line references are in [FINDINGS.md](FINDINGS.md).
    stubbed. The rest is real: locks, state files, `GraphPersistence.save`,
    REST/WS routing. A counterexample that does not reproduce is not reported
    as a bug.
-4. **Fix** (not done here). Candidate fixes were checked in the models only.
-   One of them was incomplete, and the model caught it (see F5).
+4. **Fix**, in the server, as a normal release. Candidate fixes were checked
+   in the models first. One of them was incomplete, and the model caught it
+   (see F5).
 
 Not everything went through Lean. F4 and F10 came from the questions the
 modelling raised, such as "which threads touch this dict?". F7 used a
@@ -63,17 +71,21 @@ FINDINGS.md so they need not be re-checked.
 curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
 pip install -r ../knowledge-graph/server/requirements.txt httpx
 
-./run_all.sh          # ~35 s; rewrites <concern>/evidence/*.log
+PYTHON="$(realpath ../knowledge-graph/server/venv/bin/python)" ./run_all.sh
+                      # ~1 min; rewrites <concern>/evidence/*.log
 ```
 
 Each model can also be run on its own, e.g. `lean --run rename/lean/Rename.lean`.
-While the findings are unfixed, the reproductions print `BUG`/`FAIL`. After a
-fix, the same script is the regression check.
+While a finding is unfixed, its reproduction prints `BUG`/`FAIL`; after the
+fix it prints `PASS`. The F2 reproduction keeps printing `FAIL B, C`: those
+two checks expect a reload to keep unsaved memory, which F3's policy
+declines.
 
 ## Layout
 
 ```
 <concern>/lean/*.lean    model + bounded search (executable: lean --run)
 <concern>/repro/*.py     deterministic reproduction against the real code
-<concern>/evidence/*.log output of the last run_all.sh
+<concern>/evidence/*.log output of the run at f17349a, before any fix:
+                         the counterexamples as found
 ```

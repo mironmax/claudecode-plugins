@@ -12,6 +12,13 @@ machine". Two browser-side attack paths can cross that boundary from the web:
     broadcasts. Guard: only accept upgrades with no Origin header (non-browser
     clients) or an Origin on this machine.
 
+  * Cross-site requests: any page can make the browser send a GET (<img>,
+    fetch no-cors) or a simple POST here with a legitimate Host. The page
+    cannot read the response, but side effects happen (a forced reload, a
+    session registration). Guard: refuse Sec-Fetch-Site: cross-site, which
+    browsers send on every request, and a non-local Origin, which older ones
+    send on CORS requests and POSTs. Non-browser clients send neither.
+
 Both guards are deliberately host-based, not port-based: anything served from
 localhost is already inside the trust boundary.
 """
@@ -50,3 +57,22 @@ def origin_allowed(origin_header: str | None, configured_host: str = "127.0.0.1"
         return False
     hostname = parts.hostname or ""
     return hostname in _LOCAL_HOSTNAMES or hostname == configured_host.lower()
+
+
+def request_refusal(scope: dict, configured_host: str = "127.0.0.1") -> tuple[int, str] | None:
+    """(status, reason) if this HTTP/WebSocket request must be refused, else None.
+
+    WebSocket upgrades are checked for Host only here; the /ws route applies
+    origin_allowed itself.
+    """
+    headers = dict(scope.get("headers") or [])
+    host = headers.get(b"host", b"").decode("latin-1")
+    if not host_allowed(host, configured_host):
+        return 421, f"non-local Host: {host!r}"
+    if scope.get("type") == "http":
+        if headers.get(b"sec-fetch-site", b"").decode("latin-1").lower() == "cross-site":
+            return 403, "cross-site request (Sec-Fetch-Site)"
+        origin = headers.get(b"origin", b"").decode("latin-1") or None
+        if not origin_allowed(origin, configured_host):
+            return 403, f"cross-site Origin: {origin!r}"
+    return None

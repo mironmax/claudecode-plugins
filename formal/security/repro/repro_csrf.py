@@ -3,8 +3,10 @@
 A page on https://evil.example can send, without any CORS preflight:
 GET requests (<img>, fetch no-cors) and POSTs with Content-Type text/plain.
 The browser sends Host: 127.0.0.1:8765 (passes host_allowed) and an Origin
-header, which only the /ws endpoint checks. The page cannot READ responses,
-but side effects happen. This drives the real ASGI routing incl. the Host guard.
+header on CORS requests and POSTs; every modern browser also sends
+Sec-Fetch-Site on every request, <img> GETs included. The page cannot READ
+responses, but side effects happen. This drives the real REST routing behind
+the real request guard (mcp_http.security.request_refusal, as app_asgi applies it).
 """
 import json, os, sys, tempfile
 from pathlib import Path
@@ -16,18 +18,22 @@ from mcp_http.store import MultiProjectGraphStore, GraphConfig
 from mcp_http.session_manager import HTTPSessionManager
 from mcp_http.websocket import ConnectionManager
 from mcp_http.rest import create_rest_api
-from mcp_http.security import host_allowed
+from mcp_http.security import request_refusal
+from starlette.responses import PlainTextResponse
 
 sm = HTTPSessionManager()
 store = MultiProjectGraphStore(GraphConfig(save_interval=9999), sm, None)
 api = create_rest_api(store, sm, ConnectionManager(), "t")
-async def guarded(scope, receive, send):          # the Host guard from mcp_streamable_server.app_asgi
-    host = dict(scope.get("headers") or []).get(b"host", b"").decode()
-    assert host_allowed(host), host
+async def guarded(scope, receive, send):          # what mcp_streamable_server.app_asgi does
+    refusal = request_refusal(scope)
+    if refusal:
+        await PlainTextResponse(refusal[1], status_code=refusal[0])(scope, receive, send)
+        return
     await api(scope, receive, send)
 c = TestClient(guarded, base_url="http://127.0.0.1:8765")
-evil = {"origin": "https://evil.example"}
-simple_post = {**evil, "content-type": "text/plain"}
+img_get = {"sec-fetch-site": "cross-site"}           # an <img> GET carries no Origin
+simple_post = {"origin": "https://evil.example", "sec-fetch-site": "cross-site",
+               "content-type": "text/plain"}
 
 r = c.post("/api/nodes", headers=simple_post,
            content=json.dumps({"level": "user", "id": "planted", "gist": "attacker text"}))
@@ -39,9 +45,9 @@ r = c.post("/api/progress", headers=simple_post,
            content=json.dumps({"task_id": "t", "state": {"x": 1}, "level": "user"}))
 print("text/plain POST /api/progress:", r.status_code)
 n0 = sm.count()
-c.get("/api/session_bootstrap", params={"project_path": os.path.expanduser("~")}, headers=evil)
+c.get("/api/session_bootstrap", params={"project_path": os.path.expanduser("~")}, headers=img_get)
 print("GET /api/session_bootstrap registered a session:", sm.count() > n0)
-r = c.get("/api/graph/read", params={"reload": "true"}, headers=evil)
+r = c.get("/api/graph/read", params={"reload": "true"}, headers=img_get)
 print("GET /api/graph/read?reload=true (discards unsaved memory, F3):", r.status_code)
 store.shutdown()
 

@@ -8,6 +8,9 @@ that fails against the unchanged code; its output is in `<concern>/evidence/`.
 
 ## F1 — Chore dispatch decides on an unlocked snapshot
 
+**Status:** fixed in v0.9.44 as modelled: re-read, re-check, increment inside the lock.
+
+
 **Where:** `mcp_http/chore_dispatch.py:579` (read state, no lock),
 `:580-678` (interval, cap and gauge gates on that snapshot), `:680-691` (the
 lock re-checks only `_running`, then writes `snapshot + 1`).
@@ -53,6 +56,9 @@ Files: `chore-dispatch/lean/Dispatch.lean`, `chore-dispatch/repro/repro_stale_st
 
 ## F2 — A failed write-through is recorded as saved
 
+**Status:** fixed in v0.9.44: a failed save leaves the graph dirty.
+
+
 **Where:** `mcp_http/store.py:385-390`. `_write_through` ignores
 `_save_to_disk`'s `False` and sets `dirty = False`. `core/persistence.py:92-150`
 returns `False` on any exception (disk full, EIO, permissions). `shutdown()` at
@@ -70,6 +76,9 @@ the node is absent after a restart.
 
 ## F3 — Forced reload discards unsaved memory
 
+**Status:** policy in v0.9.44: disk wins, the discard is logged, and the editor and cross-site triggers are gone.
+
+
 **Where:** `mcp_http/store.py:422` (`read_graphs(force_reload=True)` reloads
 from disk and clears `dirty`), reached via
 `GET /api/graph/read?reload=true` (`mcp_http/rest.py:80`). The kg-ops skill
@@ -86,6 +95,9 @@ disk that keeps failing through shutdown. So the achievable guarantee is
 needs a policy: flush first, or refuse.
 
 ## F4 — The saver thread can die for the rest of the process
+
+**Status:** fixed in v0.9.44: session manager locked, saver ticks guarded.
+
 
 **Where:** `mcp_http/session_manager.py` has no lock. `cleanup_expired`
 (`:165`) iterates `_sessions` on the saver thread (`store.py:1868-1890`, under
@@ -201,6 +213,9 @@ This applies only while the parent stays alive after the fork. A plain resume
 
 ## F9 — Cross-site GETs with side effects
 
+**Status:** fixed in v0.9.44: `Sec-Fetch-Site: cross-site` or a non-local Origin gets a 403 (`security.request_refusal`).
+
+
 **Where:** `mcp_http/security.py` guards Host (anti-rebinding) and WebSocket
 Origin. Plain HTTP Origin is not checked, and a cross-site request carries a
 legitimate `Host: 127.0.0.1:8765`.
@@ -215,6 +230,9 @@ bodies. That is an implicit rather than a stated defence.
 
 ## F10 — The pass tier skips the live-context rename rule
 
+**Status:** fixed in v0.9.44: the pass prompt lists the held ids; an unreadable live context refuses the dispatch.
+
+
 **Where:** `core/chores.py:21` states "Never RENAME a node the user is looking
 at". The chore tier enforces it through `pick_chore(in_context=_live_seen(...))`
 (`mcp_http/chore_dispatch.py:553`). The pass tier (`_pick_target`,
@@ -228,7 +246,7 @@ is live.
 exception. That fails *open*, against the module's "every gate fails closed",
 and F4's unlocked iteration makes such an exception reachable.
 
-**Status:** confirmed by reading only. Executing it needs a live pass agent.
+**Found** by reading only; executing it end to end needs a live pass agent. The fix is covered by unit tests of the payload and prompt.
 
 ---
 

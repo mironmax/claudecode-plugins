@@ -191,6 +191,23 @@ def _read_state() -> dict:
         return {"last_ts": 0, "graphs": {}, "day": "", "count": 0}
 
 
+def _too_soon(state: dict, cfg: dict, now: float) -> bool:
+    return now - (state.get("last_ts") or 0) < cfg.get(
+        "min_interval_s", CHORE_MIN_INTERVAL_SECONDS)
+
+
+def _roll_day(state: dict, now: float) -> None:
+    today = time.strftime("%Y-%m-%d", time.localtime(now))
+    if state.get("day") != today:
+        state["day"], state["count"], state["pass_count"] = today, 0, 0
+
+
+def _cap_reached(state: dict, cfg: dict, tier: str) -> bool:
+    if tier == "pass":
+        return state.get("pass_count", 0) >= cfg.get("pass_max_per_day", PASS_MAX_PER_DAY)
+    return state.get("count", 0) >= cfg.get("max_per_day", CHORE_MAX_PER_DAY)
+
+
 def _write_state(state: dict) -> None:
     try:
         path = _state_path()
@@ -350,18 +367,21 @@ def _trails(store, graph_key: str) -> tuple[list, list]:
     return list(chore), list(maintain)
 
 
-def _live_seen(session_manager, max_age_s: int = 4 * 3600) -> set:
-    """Node ids any recently-active session holds in context.
+def _live_seen(session_manager, max_age_s: int = 4 * 3600) -> set | None:
+    """Node ids any recently-active session holds in context; None if unknown.
 
     Not a blanket veto — see core.chores: a session that has done the loud
     full read holds EVERY active node, so barring all of them would refuse
     every chore in the project actually being worked on. It bars renames
     (which turn the session's id into a NOT FOUND) and demotes the rest.
+    Unknown is not empty: an empty set would clear every node for renaming,
+    so the caller refuses to dispatch instead.
     """
     try:
         return session_manager.recently_seen_ids(max_age_s)
     except Exception:
-        return set()
+        logger.debug("live-context read failed", exc_info=True)
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -499,6 +519,9 @@ def _pick_target(store, session_manager, state, cfg, now, candidates):
     floor = cfg.get("debt_floor", CHORE_DEBT_FLOOR)
     cooldown = cfg.get("graph_cooldown_s", CHORE_GRAPH_COOLDOWN_SECONDS)
     interval_days = cfg.get("pass_interval_days", PASS_INTERVAL_DAYS)
+    held = _live_seen(session_manager)
+    if held is None:
+        return None, "live context unknown"
 
     # The pass tier goes first: it is rarer, it is the only thing that does the
     # structural categories, and it resets the staleness the chores cannot.
@@ -513,12 +536,14 @@ def _pick_target(store, session_manager, state, cfg, now, candidates):
             continue
         age = _days_since_pass(store, graph_key, now)
         if age >= interval_days:
-            due.append((age, level, graph_key, ppath, debt))
+            due.append((age, level, graph_key, ppath, debt, {n["id"] for n in nodes}))
     if due:
         due.sort(key=lambda r: -r[0])
-        age, level, graph_key, ppath, debt = due[0]
+        age, level, graph_key, ppath, debt, ids = due[0]
+        # The pass agent picks its own rename and merge targets, so the rule
+        # the chore tier enforces in pick_chore has to travel in the prompt.
         return "pass", {"level": level, "graph": graph_key, "project_path": ppath,
-                        "debt": debt,
+                        "debt": debt, "held": sorted(held & ids),
                         "days_since_pass": None if age == float("inf") else round(age, 1)}
 
     scored = []
@@ -550,7 +575,7 @@ def _pick_target(store, session_manager, state, cfg, now, candidates):
                                         max_nodes=ANCHOR_RESOLVE_MAX_NODES)
         except Exception:
             logger.debug("anchor discovery failed", exc_info=True)
-    chore = pick_chore(nodes, edges, in_context=_live_seen(session_manager),
+    chore = pick_chore(nodes, edges, in_context=held,
                        chore_trail=chore_trail, maintain_trail=maintain_trail,
                        anchors=anchors, now=now)
     if not chore:
@@ -577,16 +602,13 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
 
         now = time.time()
         state = _read_state()
-        if now - (state.get("last_ts") or 0) < cfg.get(
-                "min_interval_s", CHORE_MIN_INTERVAL_SECONDS):
+        if _too_soon(state, cfg, now):
             return
 
         # Past this point the moment is eligible, so refusals are worth a line:
         # they are the record of WHY nothing ran, which is the question the old
         # dispatcher could not answer for weeks.
-        today = time.strftime("%Y-%m-%d", time.localtime(now))
-        if state.get("day") != today:
-            state["day"], state["count"], state["pass_count"] = today, 0, 0
+        _roll_day(state, now)
 
         reading, raw, err = _gauge_read(cfg, now)
         if err:
@@ -608,7 +630,7 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
             return
 
         if tier == "pass":
-            if state.get("pass_count", 0) >= cfg.get("pass_max_per_day", PASS_MAX_PER_DAY):
+            if _cap_reached(state, cfg, tier):
                 _log({"event": "skip", "reason": "daily pass cap",
                       "graph": payload["graph"]})
                 return
@@ -619,7 +641,7 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
                       "days_since_pass": payload["days_since_pass"]})
                 return
         else:
-            if state.get("count", 0) >= cfg.get("max_per_day", CHORE_MAX_PER_DAY):
+            if _cap_reached(state, cfg, tier):
                 _log({"event": "skip", "reason": "daily chore cap",
                       "count": state["count"]})
                 return
@@ -650,11 +672,13 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
 
         if tier == "pass":
             prompt = build_pass_prompt(level, cwd, payload["debt"], lessons=lessons,
-                                       lessons_budget=CHORE_LESSONS_CHAR_BUDGET)
+                                       lessons_budget=CHORE_LESSONS_CHAR_BUDGET,
+                                       held=payload.get("held", ()))
             job = {"tier": "pass", "kind": "pass", "targets": None,
                    "debt_before": (payload["debt"] or {}).get("score"),
                    "timeout_s": cfg.get("pass_timeout_s", PASS_TIMEOUT_SECONDS)}
             record = {"days_since_pass": payload["days_since_pass"],
+                      "held": len(payload.get("held", ())),
                       "smeared": [x["term"] for x in (payload["debt"] or {}).get("smeared", [])]}
         else:
             prompt = build_chore_prompt(payload, cwd, lessons=lessons,
@@ -679,6 +703,16 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
 
         with _lock:
             if _running.is_set():
+                return
+            # Everything above decided on a snapshot taken before target
+            # selection; another prompt may have dispatched since. Re-decide
+            # on fresh state, or two runs land inside min_interval and the
+            # second write loses the first one's count.
+            state = _read_state()
+            _roll_day(state, now)
+            if _too_soon(state, cfg, now) or _cap_reached(state, cfg, tier):
+                _log({"event": "skip", "reason": "a concurrent dispatch won",
+                      "tier": tier, "graph": graph_key})
                 return
             _running.set()
             state["last_ts"] = now
