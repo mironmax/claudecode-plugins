@@ -38,6 +38,7 @@ from core import (
     user_graph_path,
     safe_project_path,
     project_namespace,
+    project_slug,
     is_project_namespace,
 )
 from core.exceptions import NodeConflictError
@@ -46,7 +47,10 @@ from core.constants import (
     PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
     PROGRESS_TRAIL_VALUE_CHARS,
 )
-from core.persistence import append_jsonl, rewrite_edge_refs_on_disk
+from core.persistence import (
+    append_jsonl, references, rename_would_capture, rename_would_capture_on_disk,
+    rewrite_edge_refs_on_disk,
+)
 from .session_manager import HTTPSessionManager
 
 logger = logging.getLogger(__name__)
@@ -1023,6 +1027,7 @@ class MultiProjectGraphStore:
                     f"Rename to a free id, or merge deliberately with kg_put_node "
                     f"then kg_delete_node."
                 )
+            self._refuse_capturing_rename(resolved_level, graph_key, old_id, new_id)
 
             # Move the node — every underscore field rides along, which is the
             # whole point: creation time, endorsement, archival state, scores.
@@ -1030,17 +1035,22 @@ class MultiProjectGraphStore:
             node["id"] = new_id
             nodes[new_id] = node
 
-            # Edges in every LOADED graph. A graph carrying its own node by the
-            # old name is referring to that node, not to this one.
-            rewired = 0
+            # Edges naming the node. Only a user node is referenced from other
+            # graphs — project graphs point up to it; project and maintain ids
+            # are visible in their own graph alone. A project carrying its own
+            # node by the old name is referring to that node, not to this one.
+            rewired = self._rewrite_edge_refs(graph_key, self.graphs[graph_key],
+                                              old_id, new_id, session_id)
             touched = {graph_key}
-            for gk, graph in self.graphs.items():
-                if gk != graph_key and old_id in graph["nodes"]:
-                    continue
-                n = self._rewrite_edge_refs(gk, graph, old_id, new_id, session_id)
-                if n:
-                    rewired += n
-                    touched.add(gk)
+            if resolved_level == "user":
+                for gk in self._project_keys():
+                    graph = self.graphs[gk]
+                    if old_id in graph["nodes"]:
+                        continue
+                    n = self._rewrite_edge_refs(gk, graph, old_id, new_id, session_id)
+                    if n:
+                        rewired += n
+                        touched.add(gk)
 
             # Version history follows the name.
             versions = self._versions[graph_key]
@@ -1053,8 +1063,9 @@ class MultiProjectGraphStore:
                 self.dirty[gk] = True
                 self._write_through(gk)
 
-            # Graphs not loaded right now — the silent-loss path.
-            swept, skipped = self._sweep_disk_rename(old_id, new_id, touched)
+            # Project graphs not loaded right now — the silent-loss path.
+            swept, skipped = (self._sweep_disk_rename(old_id, new_id)
+                              if resolved_level == "user" else (0, []))
             rewired += swept
 
             # Sessions already holding the old id in their seen/preload sets.
@@ -1109,18 +1120,64 @@ class MultiProjectGraphStore:
                 self._bump_version(graph_key, version_key_edge(*new_key), session_id)
         return len(hits)
 
-    def _sweep_disk_rename(self, old_id: str, new_id: str, loaded_keys: set) -> tuple[int, list]:
-        """Rewrite refs in project graphs that are not loaded. Caller holds lock."""
+    def _project_keys(self) -> list[str]:
+        """Keys of the loaded project graphs. Caller holds lock."""
+        return [gk for gk in self.graphs if is_project_namespace(gk)]
+
+    def _unloaded_project_graphs(self) -> list[Path]:
+        """graph.json files of projects that are not loaded. Caller holds lock."""
         live_paths = {
             str(self._persistence[gk].path) for gk in self.graphs if gk in self._persistence
         }
-        swept, skipped = 0, []
         projects_dir = self.config.storage_root / "projects"
         if not projects_dir.is_dir():
-            return 0, []
-        for graph_path in sorted(projects_dir.glob("*/graph.json")):
-            if str(graph_path) in live_paths:
-                continue
+            return []
+        return [p for p in sorted(projects_dir.glob("*/graph.json")) if str(p) not in live_paths]
+
+    def _refuse_capturing_rename(self, level: str, graph_key: str, old_id: str, new_id: str) -> None:
+        """Refuse a rename that would re-point an edge at a different node.
+
+        Edge endpoints are bare ids resolved local node first, then user node,
+        and the same id may exist at both levels. A rename is sound only if
+        every edge that reached the node still reaches it and no other edge
+        starts to. Caller holds lock.
+        """
+        if level == "project":
+            # This project's edges to the user's new_id would resolve to the
+            # renamed node instead.
+            if new_id in self.graphs["user"]["nodes"] and references(
+                    self.graphs[graph_key]["edges"], new_id):
+                raise KGError(
+                    f"This project has edges to the user node {new_id!r}; renaming "
+                    f"{old_id!r} to {new_id!r} would re-point them at the renamed "
+                    f"node. Choose another id."
+                )
+            return
+        if level != "user":
+            return
+        # A project that points at user old_id and owns a local new_id: after
+        # the rename its edges would resolve to its own node.
+        capturing = [project_slug(gk[len("project:"):]) for gk in self._project_keys()
+                     if rename_would_capture(self.graphs[gk], old_id, new_id)]
+        for graph_path in self._unloaded_project_graphs():
+            try:
+                if rename_would_capture_on_disk(graph_path, old_id, new_id):
+                    capturing.append(graph_path.parent.name)
+            except Exception as e:
+                logger.error(f"Rename precheck failed for {graph_path}: {e}")
+                capturing.append(graph_path.parent.name)
+        if capturing:
+            raise KGError(
+                f"Renaming user node {old_id!r} to {new_id!r} would re-point edges "
+                f"in {len(capturing)} project graph(s) ({', '.join(capturing)}): they "
+                f"link to {old_id!r} and have their own node {new_id!r}, which their "
+                f"edges would then reach instead. Choose another id."
+            )
+
+    def _sweep_disk_rename(self, old_id: str, new_id: str) -> tuple[int, list]:
+        """Rewrite refs in project graphs that are not loaded. Caller holds lock."""
+        swept, skipped = 0, []
+        for graph_path in self._unloaded_project_graphs():
             try:
                 n, status = rewrite_edge_refs_on_disk(graph_path, old_id, new_id)
             except Exception as e:

@@ -54,7 +54,11 @@ def bind (s : S) (k : Nat) (c : Nat) : S :=
 
 def maxC := 3
 
-def next (allowFork : Bool) (s : S) : List (String × S) :=
+/-- `fixFork` is the F8 fix (session_manager.fork): when the recovered KG session is
+still bound to another Claude session, the new one gets a CLONE (the parent's seen
+state, appended as newest) bound to it and is told the clone's id by the
+continuity note; the recovered session keeps its binding. -/
+def next (allowFork fixFork : Bool) (s : S) : List (String × S) :=
   let cid := s.cs.length
   let startMv := if cid < maxC then
       [(s!"c{cid} startup -> register k{s.ks.length}",
@@ -66,12 +70,20 @@ def next (allowFork : Bool) (s : S) : List (String × S) :=
     if !pc.alive || cid ≥ maxC then [] else
     -- bootstrap for the new sid c: find_by_claude_sid(c) misses (new sid);
     -- transcript markers name pc.told -> lookup + same project -> reuse + bind (rest.py:128-139)
+    let kp := s.ks[pc.told]!
+    let clone := fixFork && kp.claude.isSome && kp.claude != some cid
     let mk (fork : Bool) :=
-      let cs := s.cs.set p { pc with alive := fork } ++ [{ pc with alive := true }]
-      bind { s with cs := cs } pc.told cid
-    [(s!"c{p} resumed as c{cid} (parent dies) -> reuse k{pc.told}", mk false)] ++
+      let cs := s.cs.set p { pc with alive := fork }
+      if clone then
+        let k' := s.ks.length
+        bind { s with cs := cs ++ [{ pc with alive := true, told := k' }],
+                      ks := s.ks ++ [{ claude := none, seen := kp.seen }] } k' cid
+      else
+        bind { s with cs := cs ++ [{ pc with alive := true }] } pc.told cid
+    let how := if clone then s!"clone k{pc.told} as k{s.ks.length}" else s!"reuse k{pc.told}"
+    [(s!"c{p} resumed as c{cid} (parent dies) -> {how}", mk false)] ++
     (if allowFork then
-      [(s!"c{p} FORKED as c{cid} (parent lives) -> reuse k{pc.told}", mk true)] else [])
+      [(s!"c{p} FORKED as c{cid} (parent lives) -> {how}", mk true)] else [])
   let hooks := (List.range s.cs.length).flatMap fun c =>
     let cc := s.cs[c]!
     if !cc.alive then [] else
@@ -89,7 +101,7 @@ def next (allowFork : Bool) (s : S) : List (String × S) :=
           (if suppressed then " -> SUPPRESSED as seen" else " -> injected"), s')
   startMv ++ inherit ++ hooks
 
-partial def bfs (allowFork : Bool) (bad : S → Bool) (init : S) : Option (List String) × Nat := Id.run do
+partial def bfs (allowFork fixFork : Bool) (bad : S → Bool) (init : S) : Option (List String) × Nat := Id.run do
   let mut seen : Std.HashSet S := ({} : Std.HashSet S).insert init
   let mut frontier : Array (S × List String) := #[(init, [])]
   let mut n := 0
@@ -98,7 +110,7 @@ partial def bfs (allowFork : Bool) (bad : S → Bool) (init : S) : Option (List 
     for (s, tr) in frontier do
       n := n + 1
       if bad s then return (some tr.reverse, n)
-      for (l, s') in next allowFork s do
+      for (l, s') in next allowFork fixFork s do
         if !seen.contains s' then
           seen := seen.insert s'
           nf := nf.push (s', l :: tr)
@@ -115,9 +127,12 @@ def report (name : String) (r : Option (List String) × Nat) : IO Unit :=
 def init : S := { cs := [], ks := [], violD := false, violI := false }
 
 def main : IO Unit := do
-  IO.println "--- with fork events (code as is)"
-  report "D dedup soundness" (bfs true (·.violD) init)
-  report "I hook identity" (bfs true (·.violI) init)
+  IO.println "--- with fork events (code before the F8 fix)"
+  report "D dedup soundness" (bfs true false (·.violD) init)
+  report "I hook identity" (bfs true false (·.violI) init)
   IO.println "--- same model, fork events removed (isolates the cause)"
-  report "D dedup soundness" (bfs false (·.violD) init)
-  report "I hook identity" (bfs false (·.violI) init)
+  report "D dedup soundness" (bfs false false (·.violD) init)
+  report "I hook identity" (bfs false false (·.violI) init)
+  IO.println "--- with fork events, F8 fix (clone a still-bound session)"
+  report "D dedup soundness" (bfs true true (·.violD) init)
+  report "I hook identity" (bfs true true (·.violI) init)

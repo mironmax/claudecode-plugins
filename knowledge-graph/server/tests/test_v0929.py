@@ -20,6 +20,7 @@ depends on):
 Uses a temp KG_STORAGE_ROOT and a temp project under ~/.cache.
 """
 
+import json
 import os
 import shutil
 import sys
@@ -129,26 +130,48 @@ def main():
         resumed_tf = tf.parent / "resumed.jsonl"
         resumed_tf.write_text(
             f'{{"x":"KG MEMORY PRELOADED ... session_id: {sid1} (pass it to every kg_* call)"}}\n')
+        session_manager.mark_full_read(sid1)
         r = client.get("/api/session_bootstrap", params={
             "project_path": project_dir, "claude_session_id": "cc-boot-2",
             "source": "resume", "transcript_path": str(resumed_tf)}).json()
-        check("resume recovers session from transcript",
-              r["reused"] is True and r["session_id"] == sid1, r)
-        check("resume rebinds the new claude sid",
-              session_manager.find_by_claude_sid("cc-boot-2")[0] == sid1)
-        check("resume injects a continuity note, not a duplicate preload",
-              r["context"].startswith("KG memory session resumed")
-              and r["text"] == "" and not r["stats"], r["context"][:80])
+        sid2 = r["session_id"]
+        check("resume of a still-bound session forks it (F8)",
+              r["reused"] is True and sid2 != sid1
+              and session_manager.lookup(sid2)["forked_from"] == sid1, r)
+        check("the new claude sid binds the fork, the old one keeps its session",
+              session_manager.find_by_claude_sid("cc-boot-2")[0] == sid2
+              and session_manager.find_by_claude_sid("cc-boot-1")[0] == sid1)
+        session_manager.mark_seen(sid2, ["only-in-fork"], via="search")
+        check("fork starts with the parent's seen-set and diverges from it",
+              session_manager.get_seen(sid1) < session_manager.get_seen(sid2)
+              and "only-in-fork" not in session_manager.get_seen(sid1))
+        check("resume injects a continuity note naming the replaced id",
+              r["context"].startswith(f"KG memory session resumed — session_id: {sid2} (pass")
+              and sid1 in r["context"] and r["text"] == "" and not r["stats"],
+              r["context"][:160])
+        with resumed_tf.open("a") as f:
+            f.write(json.dumps({"x": r["context"]}) + "\n")
+        check("the next recovery finds the fork's id, not the replaced one",
+              recover_kg_sid_from_transcript(str(resumed_tf)) == sid2)
+
+        unbound = session_manager.register(project_dir)["session_id"]
+        unbound_tf = tf.parent / "unbound.jsonl"
+        unbound_tf.write_text(f'{{"x":"Session: {unbound}"}}\n')
+        r = client.get("/api/session_bootstrap", params={
+            "project_path": project_dir, "claude_session_id": "cc-boot-4",
+            "source": "resume", "transcript_path": str(unbound_tf)}).json()
+        check("resume of an unbound session reuses it and binds",
+              r["reused"] is True and r["session_id"] == unbound
+              and session_manager.find_by_claude_sid("cc-boot-4")[0] == unbound, r)
 
         r = client.get("/api/session_bootstrap", params={
             "project_path": project_dir, "claude_session_id": "cc-boot-3",
             "source": "clear", "transcript_path": str(resumed_tf)}).json()
         check("clear starts fresh despite recoverable transcript",
-              r["reused"] is False and r["session_id"] != sid1, r)
+              r["reused"] is False and r["session_id"] not in (sid1, sid2), r)
 
         # --- 5. reuse preserves full-read state ------------------------------
         print("full-read state survives resume:")
-        session_manager.mark_full_read(sid1)
         text = build_prompt_recall(store, session_manager, project_dir,
                                    "anything at all", claude_sid="cc-boot-2")
         check("no renewed full-read nudge after resume", text != FULL_READ_NUDGE, text)

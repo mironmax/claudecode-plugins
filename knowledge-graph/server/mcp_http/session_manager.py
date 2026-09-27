@@ -1,5 +1,6 @@
 """Session management for HTTP MCP server with project path tracking."""
 
+import copy
 import json
 import logging
 import os
@@ -135,6 +136,29 @@ class HTTPSessionManager:
         self._sessions[session_id]["claude_sid"] = claude_sid
         if save:
             self.save_sessions()
+
+    @_locked
+    def fork(self, parent_sid: str, claude_sid: str) -> str | None:
+        """Clone a KG session for a Claude session forked off it; returns the new id.
+
+        The fork's context is a copy of the parent's, so it inherits the
+        parent's seen/preload/read state as of now. The parent may still be
+        alive, so it keeps its own record and binding: moving the binding
+        left the parent's hooks resolving newest-by-path to another session.
+        """
+        parent = self._sessions.get(parent_sid)
+        if parent is None:
+            return None
+        clone = copy.deepcopy(parent)
+        ts = time.time()
+        clone.update(start_ts=ts, last_activity=ts, op_count=0, forked_from=parent_sid,
+                     last_synced_ts=parent.get("last_synced_ts", parent["start_ts"]))
+        clone.pop("claude_sid", None)
+        session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
+        self._sessions[session_id] = clone
+        self.bind_claude_sid(session_id, claude_sid)
+        logger.info(f"Session forked: {parent_sid} -> {session_id}")
+        return session_id
 
     @_locked
     def find_by_claude_sid(self, claude_sid: str) -> tuple[str, dict] | None:

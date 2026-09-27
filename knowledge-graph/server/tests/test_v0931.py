@@ -213,17 +213,19 @@ def main():
         r = client.get("/api/session_bootstrap", params={
             "project_path": proj_c, "claude_session_id": "cc-fork-1",
             "source": "fork", "transcript_path": str(tf)}).json()
+        fork_sid = r["session_id"]
         check("source=fork recovers via transcript, continuity note only",
-              r["reused"] is True and r["session_id"] == kg_sid
+              r["reused"] is True and session_manager.lookup(fork_sid)["forked_from"] == kg_sid
               and "resumed" in r["context"] and "PRELOADED" not in r["context"], r)
-        check("fork binds the new claude sid",
-              session_manager.find_by_claude_sid("cc-fork-1")[0] == kg_sid)
+        check("fork binds the new claude sid to its own copy, the parent keeps its own",
+              session_manager.find_by_claude_sid("cc-fork-1")[0] == fork_sid
+              and session_manager.find_by_claude_sid("cc-origin")[0] == kg_sid)
 
         r = client.get("/api/session_bootstrap", params={
             "project_path": proj_c, "claude_session_id": "cc-fork-2",
             "source": "some-future-source", "transcript_path": str(tf)}).json()
         check("unknown future source recovers the same way",
-              r["reused"] is True and r["session_id"] == kg_sid, r)
+              r["reused"] is True and session_manager.lookup(r["session_id"])["forked_from"] == kg_sid, r)
 
         bare = tf.parent / "fresh.jsonl"
         bare.write_text('{"x":"no markers here"}\n')

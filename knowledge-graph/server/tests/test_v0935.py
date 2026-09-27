@@ -36,6 +36,9 @@ Covers:
  13. The 6-word nudge fires without blocking
  14. A date in an id is nudged, not refused — it records when something was
      written down, never what it is
+ 15-19 F5 (formal/FINDINGS.md): a rename that would re-point an edge at a
+     different node — the same id at the other level — is refused; a
+     project rename touches no other graph
 
 Uses a temp KG_STORAGE_ROOT and temp projects under ~/.cache.
 """
@@ -272,6 +275,68 @@ def main():
               and "date is a reference" in node_id_warning(dated)
               and node_id_warning("ambient-recall-week5-audit") == "",
               node_id_warning(dated))
+
+        # ---------------------------------------------------------------
+        # F5: an edge endpoint resolves local node first, then user node,
+        # and one id may exist at both levels. A rename must never re-point
+        # an edge at a different node — refused where it would.
+        # ---------------------------------------------------------------
+        def project():
+            proj = _mkproject()
+            dirs.append(proj)
+            return proj, session_manager.register(proj)["session_id"]
+
+        def unload(proj):
+            key = project_namespace(proj)
+            path = store._persistence[key].path
+            del store.graphs[key], store._persistence[key], store._versions[key]
+            return path
+
+        def disk_edges(path):
+            return {(e["from"], e["to"]) for e in json.loads(path.read_text())["edges"].values()}
+
+        store.put_node(level="user", node_id="f5-shared", gist="User node.", session_id=sid_a)
+        proj_d, sid_d = project()
+        store.put_node(level="project", node_id="f5-other", gist="Local node.", session_id=sid_d)
+        store.put_node(level="project", node_id="f5-user-ref", gist="Refers up.", session_id=sid_d)
+        store.put_edge(level="project", from_ref="f5-user-ref", to_ref="f5-shared",
+                       rel="uses", session_id=sid_d)
+        err = _raises(store.rename_node, "f5-shared", "f5-other", level="user", session_id=sid_a)
+        check("15 F5 user rename refused: a LOADED project links to it and owns the new id",
+              err is not None and os.path.basename(proj_d) in err
+              and "f5-shared" in store.graphs["user"]["nodes"]
+              and ("f5-user-ref", "f5-shared", "uses") in store.graphs[project_namespace(proj_d)]["edges"],
+              err)
+
+        path_d = unload(proj_d)
+        err = _raises(store.rename_node, "f5-shared", "f5-other", level="user", session_id=sid_a)
+        check("16 F5 ...and refused when that project is only on disk",
+              err is not None and "f5-shared" in store.graphs["user"]["nodes"]
+              and ("f5-user-ref", "f5-shared") in disk_edges(path_d), err)
+
+        proj_e, sid_e = project()
+        store.put_node(level="project", node_id="f5-shared", gist="Project's own.", session_id=sid_e)
+        proj_f, sid_f = project()
+        proj_g, sid_g = project()
+        for sid in (sid_f, sid_g):
+            store.put_node(level="project", node_id="f5-up", gist="Refers up.", session_id=sid)
+            store.put_edge(level="project", from_ref="f5-up", to_ref="f5-shared",
+                           rel="uses", session_id=sid)
+        path_g = unload(proj_g)
+        store.rename_node("f5-shared", "f5-renamed", level="project", session_id=sid_e)
+        check("17 F5 project rename leaves other projects' edges to the user node alone",
+              ("f5-up", "f5-shared", "uses") in store.graphs[project_namespace(proj_f)]["edges"]
+              and ("f5-up", "f5-shared") in disk_edges(path_g))
+
+        store.put_node(level="project", node_id="f5-local", gist="Project node.", session_id=sid_f)
+        err = _raises(store.rename_node, "f5-local", "f5-shared", level="project", session_id=sid_f)
+        check("18 F5 project rename refused onto a user id its edges reach",
+              err is not None and "f5-local" in store.graphs[project_namespace(proj_f)]["nodes"], err)
+
+        store.put_node(level="user", node_id="f5-free", gist="User node.", session_id=sid_a)
+        r = store.rename_node("f5-free", "f5-renamed", level="user", session_id=sid_a)
+        check("19 F5 a project owning the new id without linking to the old one does not block",
+              r["renamed"]["to"] == "f5-renamed", r)
 
         # Charset validation must stay independent of length (addressing an
         # existing long node must never fail).

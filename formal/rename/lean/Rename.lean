@@ -42,17 +42,23 @@ def resolve (w : W) (k : G) (x : Id') : Option (G × Id') :=
 
 def retarget (g : Gr) : Gr := { g with edges := g.edges.map fun e => if e == .a then .b else e }
 
-/-- rename_node(a -> b) on graph `gk`, as the code does it. `fixed` adds a precheck. -/
+/-- rename_node(a -> b) on graph `gk`, as the code does it. `fixed` is the F5 fix:
+the precheck plus no cross-graph rewrite for a project rename. -/
 def rename (fixed : Bool) (w : W) (gk : G) : Option W := Id.run do
   let g := w.get gk
   if !g.has .a || g.has .b then return none           -- store.py:966-973
   let mut w := w.put gk { g with hasA := false, hasB := true }
   let others := [G.U, .P1, .P2].filter (· != gk)
   if fixed then
-    -- fix: refuse when some other graph would re-point (or drop) an edge
-    for k in others do
-      let o := w.get k
-      if !o.has .a && o.edges.contains .a && o.has .b then return none
+    -- store._refuse_capturing_rename
+    if gk == .U then
+      -- a project that links to user `a` and owns a local `b` would capture it
+      for k in others do
+        let o := w.get k
+        if !o.has .a && o.edges.contains .a && o.has .b then return none
+    else
+      -- this project's edges to user `b` would resolve to the renamed node
+      if w.u.has .b && g.edges.contains .b then return none
   -- store.py:985-992 loaded graphs (the renamed graph itself included)
   w := w.put gk (retarget (w.get gk))
   for k in others do

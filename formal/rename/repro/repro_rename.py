@@ -20,6 +20,7 @@ import logging; logging.disable(logging.WARNING)
 from mcp_http.store import MultiProjectGraphStore, GraphConfig
 from mcp_http.session_manager import HTTPSessionManager
 from core.constants import project_namespace
+from core.exceptions import KGError
 
 def new_store():
     return MultiProjectGraphStore(GraphConfig(save_interval=9999), HTTPSessionManager(), None)
@@ -47,6 +48,16 @@ def expect(name, got, want):
     print(f"  {'ok ' if ok else 'BUG'} {name}: got {got!r}, want {want!r}")
     if not ok: fails.append(name)
 
+def rename(store, *args, **kw):
+    """rename_node; a refusal is a sound outcome (the model's fix), reported as None."""
+    try:
+        r = store.rename_node(*args, **kw)
+    except KGError as e:
+        print("  refused:", e)
+        return None
+    print("  skipped_graphs:", r["skipped_graphs"])
+    return r
+
 def reset():
     root = os.environ["KG_STORAGE_ROOT"]
     shutil.rmtree(root); os.makedirs(root)
@@ -58,9 +69,9 @@ s.put_node("user", "a", "user node a")
 s.put_node("project", "p", "p", project_path=P)
 s.put_node("project", "b", "a different, project-local b", project_path=P)
 s.put_edge("project", "p", "a", "uses", project_path=P)
-r = s.rename_node("a", "b", level="user")
-print("  skipped_graphs:", r["skipped_graphs"])
-expect("p's edge still reaches the renamed user node", [target(s, P, t) for t in edges_from(s, P, "p")], ["user:b"])
+r = rename(s, "a", "b", level="user")
+expect("p's edge still reaches the renamed user node", [target(s, P, t) for t in edges_from(s, P, "p")],
+       ["user:b"] if r else ["user:a"])
 s.shutdown()
 
 # R2: same, but the project graph is NOT loaded (on disk only) -> skip:collision
@@ -71,10 +82,9 @@ s.put_node("project", "p", "p", project_path=P)
 s.put_node("project", "b", "project-local b", project_path=P)
 s.put_edge("project", "p", "a", "uses", project_path=P)
 s.shutdown(); s = new_store()                     # fresh process: only user graph loaded
-r = s.rename_node("a", "b", level="user")
-print("  skipped_graphs:", r["skipped_graphs"])
+r = rename(s, "a", "b", level="user")
 expect("p keeps an edge to the renamed user node after the project loads",
-       [target(s, P, t) for t in edges_from(s, P, "p")], ["user:b"])
+       [target(s, P, t) for t in edges_from(s, P, "p")], ["user:b"] if r else ["user:a"])
 s.shutdown()
 
 # R3: PROJECT rename of a node whose id also exists in the user graph;
@@ -86,7 +96,7 @@ s.put_node("project", "a", "project-local a in P1", project_path=P1)
 s.put_node("project", "q", "q", project_path=P2)
 s.put_edge("project", "q", "a", "uses", project_path=P2)
 s.shutdown(); s = new_store()
-s.rename_node("a", "b", level="project", project_path=P1)
+rename(s, "a", "b", level="project", project_path=P1)
 expect("P2's edge still reaches user a", [target(s, P2, t) for t in edges_from(s, P2, "q")], ["user:a"])
 s.shutdown()
 
@@ -97,7 +107,7 @@ s.put_node("user", "b", "user b")
 s.put_node("project", "a", "project a", project_path=P)
 s.put_node("project", "q", "q", project_path=P)
 s.put_edge("project", "q", "b", "uses", project_path=P)
-s.rename_node("a", "b", level="project", project_path=P)
+rename(s, "a", "b", level="project", project_path=P)
 expect("q's edge still reaches user b", [target(s, P, t) for t in edges_from(s, P, "q")], ["user:b"])
 s.shutdown()
 

@@ -125,6 +125,14 @@ save). See F10 for the consequence.
 
 ## F5 — Rename re-points or drops cross-level edges
 
+**Status:** fixed after v0.10.1 (`store._refuse_capturing_rename`). A user
+rename is refused when a project graph, loaded or on disk, links to the old
+id and owns a node with the new one; a project rename is refused when the
+user graph owns the new id and the project's edges reach it, and it no
+longer rewrites any other graph. Model with this fix: 0 of 68 accepted
+renames break an edge. The repro now accepts a refusal that leaves every
+edge where it was. The side observation below is not changed.
+
 **Where:** `mcp_http/store.py:937-1028` (loaded graphs), `:1060`
 (`_sweep_disk_rename`), `core/persistence.py:153-205` (on-disk rewrite).
 
@@ -185,6 +193,15 @@ extra write-through and a node that flickers for one tick. Low severity; an
 efficiency and log-noise issue.
 
 ## F8 — A fork shares its live parent's KG session
+
+**Status:** fixed after v0.10.1 (`session_manager.fork`). When transcript
+recovery finds a KG session still bound to another Claude session, the new
+one gets a clone of it (seen, preload and read state) and the original keeps
+its binding. The continuity note gives the clone's id and names the one it
+replaces. Model with this fix: D and I hold (316 states, exhaustive). I
+holds only if the agent uses the id the note gives: with the child left on
+the parent's id, the model finds a counterexample again. A plain resume
+also gets a clone, since the server cannot tell it from a fork.
 
 **Where:** `mcp_http/rest.py:128-139`. Transcript recovery reuses the
 parent's KG session and calls `bind_claude_sid(cand, child)`.

@@ -11,7 +11,8 @@ file:line references are in [FINDINGS.md](FINDINGS.md).
 (`tests/test_races_and_guards.py`). F3 is settled as a policy: a forced
 reload lets disk win, logs what it drops, and the two paths that triggered
 it without anyone asking (the visual editor, cross-site pages) are gone.
-F5-F8 are open. F11 was found later and fixed in v0.10.1.
+F11 was found later and fixed in v0.10.1. F5 and F8 are fixed after
+v0.10.1; F6 and F7 are open.
 
 ## Method
 
@@ -44,10 +45,10 @@ randomized search over the real compactor instead of a model.
 | F2 | A failed write-through still clears `dirty`, so the write is lost at shutdown while `put_node` reports success | Lean BFS | reproduced | medium |
 | F3 | Forced reload discards unsaved in-memory state | Lean BFS | reproduced | medium-low |
 | F4 | Saver thread dies permanently on a session-dict race (no lock, no `try`) | reading + stress | reproduced | medium |
-| F5 | Rename re-points or drops cross-level edges (4 variants) | Lean enumeration | reproduced | medium |
+| F5 | Rename re-points or drops cross-level edges (4 variants) | Lean enumeration | reproduced, fixed | medium |
 | F6 | The visual editor never receives project-level live updates | reading | reproduced | low |
 | F7 | Compaction and refill churn: a node archived on one tick is re-promoted on the next | randomized search over the real compactor | reproduced | low |
-| F8 | A fork shares its live parent's KG session; the parent's hooks resolve to another session | Lean BFS | reproduced | medium-low |
+| F8 | A fork shares its live parent's KG session; the parent's hooks resolve to another session | Lean BFS | reproduced, fixed | medium-low |
 | F9 | Cross-site GETs with side effects (`reload=true`, `session_bootstrap`) | reading + test | reproduced | low |
 | F10 | The maintenance pass tier skips the "never rename a node a live session holds" rule; `_live_seen` fails open | reading | confirmed by reading only | medium-low |
 | F11 | A write built on a stale or partial view drops another session's note, or notes the writer never read | Lean BFS + reproduction | reproduced, fixed | medium |

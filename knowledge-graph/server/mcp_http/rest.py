@@ -111,7 +111,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         re-nagging and re-injecting everything. The existing session is reused
         via the claude_session_id binding, or — resume/fork mints a NEW Claude
         sid — recovered from the KG markers our own renders left in the
-        transcript. Recovery is deliberately source-agnostic (only "clear"
+        transcript; a recovered session still bound to another Claude session
+        is cloned for this one rather than taken over. Recovery is deliberately source-agnostic (only "clear"
         hard-resets): the transcript markers ARE the evidence of inherited
         context, and source values Claude Code adds later ("fork" arrived
         unannounced and re-preloaded for a week) then degrade gracefully — a
@@ -124,6 +125,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         try:
             session_id = None
             reused = False
+            forked_from = None
             if claude_session_id and source != "clear":
                 hit = session_manager.find_by_claude_sid(claude_session_id)
                 if hit:
@@ -137,9 +139,16 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                     except ValueError:
                         resolved = None
                     if data and resolved and data.get("project_path") == resolved:
-                        session_id, reused = cand, True
-                        if claude_session_id:
-                            session_manager.bind_claude_sid(cand, claude_session_id)
+                        # Still bound to another Claude session: that one may
+                        # be alive (a fork), so it keeps the original record.
+                        if claude_session_id and data.get("claude_sid") not in (None, claude_session_id):
+                            session_id = session_manager.fork(cand, claude_session_id)
+                            forked_from = cand if session_id else None
+                        else:
+                            session_id = cand
+                            if claude_session_id:
+                                session_manager.bind_claude_sid(cand, claude_session_id)
+                        reused = session_id is not None
             if session_id is None:
                 reg = session_manager.register(project_path, claude_sid=claude_session_id,
                                                harness=profile.name)
@@ -153,7 +162,10 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             if reused and source != "compact":
                 context = (
                     f"KG memory session resumed — session_id: {session_id} "
-                    "(pass it to every kg_* call). The memory preload earlier in "
+                    "(pass it to every kg_* call"
+                    + (f"; it replaces {forked_from}, which stays with the session "
+                       "this one was forked from" if forked_from else "")
+                    + "). The memory preload earlier in "
                     "this conversation remains in context and already-injected "
                     "gists stay deduplicated — nothing is re-rendered. If other "
                     "sessions may have written meanwhile, kg_sync(session_id) "

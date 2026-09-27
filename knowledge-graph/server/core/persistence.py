@@ -150,6 +150,30 @@ class GraphPersistence:
             return False
 
 
+def references(edges: dict, node_id: str) -> bool:
+    """Does any edge name node_id as an endpoint?"""
+    return any(e.get("from") == node_id or e.get("to") == node_id for e in edges.values())
+
+
+def rename_would_capture(graph: dict, old_id: str, new_id: str) -> bool:
+    """Would renaming another level's old_id re-point this graph's edges?
+
+    Endpoints resolve local node first, then user node. A graph with edges to
+    the user's old_id that owns a local new_id would, after the rename, have
+    them resolve to its own node — a different one.
+    """
+    nodes = graph.get("nodes", {})
+    return old_id not in nodes and new_id in nodes and references(graph.get("edges", {}), old_id)
+
+
+def rename_would_capture_on_disk(path: Path, old_id: str, new_id: str) -> bool:
+    """rename_would_capture for a graph file that is not loaded."""
+    if not path.exists():
+        return False
+    with open(path) as f:
+        return rename_would_capture(json.load(f), old_id, new_id)
+
+
 def rewrite_edge_refs_on_disk(path: Path, old_id: str, new_id: str) -> tuple[int, str]:
     """Rewrite edge endpoints naming old_id in a graph file that is NOT loaded.
 

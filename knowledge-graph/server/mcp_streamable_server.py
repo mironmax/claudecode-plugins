@@ -251,7 +251,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_rename_node",
-                description="Rename a node, carrying everything with it — every edge in every graph (including cross-level edges in project graphs that are not currently loaded), creation time, endorsements, archival state and version history. This is the ONLY safe way to change an id: kg_put_node under a new name plus kg_delete_node of the old one silently drops all of that. Use it when an id has drifted into carrying the claim instead of naming the subject, or when accumulated nodes reveal the vocabulary the graph actually uses. Ids are load-bearing: search weights them x3 and matches them for the recall gate.",
+                description="Rename a node, carrying everything with it — every edge in every graph (including cross-level edges in project graphs that are not currently loaded), creation time, endorsements, archival state and version history. It refuses a new id that would make some edge reach a different node (the same id existing at the other level). This is the ONLY safe way to change an id: kg_put_node under a new name plus kg_delete_node of the old one silently drops all of that. Use it when an id has drifted into carrying the claim instead of naming the subject, or when accumulated nodes reveal the vocabulary the graph actually uses. Ids are load-bearing: search weights them x3 and matches them for the recall gate.",
                 inputSchema={
                     "type": "object",
                     "properties": {
