@@ -113,7 +113,7 @@ async def list_projects():
         List of projects with stats, sorted by last_used (most recent first)
     """
     try:
-        projects = await discover_projects()
+        projects = await discover_projects(MCP_SERVER_URL)
         return projects
     except Exception as e:
         logger.exception("Error discovering projects")
