@@ -1,9 +1,11 @@
 """Node scoring for compaction decisions."""
 
+import math
 import time
 
 from .constants import (
     ARCHIVED_EDGE_WEIGHT,
+    HUB_FLOOR_WEIGHT,
     USEFUL_HALF_LIFE_DAYS,
     SCORE_WEIGHT_RECENCY,
     SCORE_WEIGHT_CONNECTEDNESS,
@@ -46,7 +48,8 @@ class NodeScorer:
         Without the archived term, a cluster that archived together scored 0
         connectedness for every member — so refill could never resurface any of
         them. The reduced weight lets a dense archived hub float up the refill order
-        and lead its cluster back gradually.
+        and lead its cluster back gradually. The hub floor (HUB_FLOOR_WEIGHT) keeps
+        a node many others point to from scoring as isolated while they all sleep.
         """
         in_neighbours, out_neighbours = adj.get(node_id, ([], []))
 
@@ -59,7 +62,8 @@ class NodeScorer:
 
         in_degree = sum(weight(nid) for nid in in_neighbours)
         out_degree = sum(weight(nid) for nid in out_neighbours)
-        return 0.66 * in_degree + 0.33 * out_degree
+        hub_floor = HUB_FLOOR_WEIGHT * math.log1p(len(in_neighbours) + len(out_neighbours))
+        return max(0.66 * in_degree + 0.33 * out_degree, hub_floor)
 
     def _recency(self, node_id: str, node: dict, versions: dict, current_time: float) -> float:
         """Most recent of last write or last read. Higher = fresher."""

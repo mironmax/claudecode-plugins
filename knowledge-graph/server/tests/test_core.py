@@ -36,6 +36,7 @@ from core.render import render_active_line, render_archived_line, render_edge_ci
 from core.scorer import NodeScorer
 from core.compactor import Compactor
 from core.constants import (
+    ARCHIVED_BUDGET_RATIO,
     ARCHIVED_EDGE_WEIGHT,
     COMPACTION_TARGET_RATIO,
     GRACE_PERIOD_DAYS,
@@ -300,6 +301,31 @@ def test_refill():
 
 
 # --- 4. promotion (recall) flag handling ------------------------------------
+def test_orphan_order():
+    print("orphan order:")
+    # Six archived nodes, room for about two anchors: which four sink first?
+    old = past_grace_ts()
+    nodes = {"anchor": {"id": "anchor", "gist": "a", "_created_ts": old}}
+    for nid in ("liked", "hub", "plain1", "plain2", "plain3", "plain4"):
+        nodes[nid] = {"id": nid, "gist": "g", "_created_ts": old, "_archived": True}
+    nodes["liked"]["_useful_ts"] = [time.time() - 86400]
+    edges = {}
+    # The hub's twelve neighbours are all already orphaned: no live or
+    # archived string, which is exactly how a hub sank before the floor.
+    for i in range(12):
+        nodes[f"sat{i}"] = {"id": f"sat{i}", "gist": "s", "_created_ts": old,
+                            "_archived": True, "_orphaned_ts": 1.0}
+        edges[f"sat{i}->hub:r"] = {"from": f"sat{i}", "to": "hub", "rel": "r"}
+    est = CharEstimator()
+    anchor_cost = est.estimate_archived("plain1")
+    comp = Compactor(NodeScorer(GRACE_PERIOD_DAYS), est,
+                     max_chars=int(2.5 * anchor_cost / ARCHIVED_BUDGET_RATIO))
+    orphaned = comp.orphan_archived_if_needed(nodes, edges, {})
+    check("four orphaned to fit the budget", len(orphaned) == 4, orphaned)
+    check("endorsed node survives", "liked" not in orphaned, orphaned)
+    check("hub with sleeping neighbours survives", "hub" not in orphaned, orphaned)
+
+
 def test_promotion_flags():
     print("promotion:")
     # The recall path pops both flags; popping a missing flag must not raise.
@@ -349,6 +375,7 @@ def main():
     test_healer()
     test_edges()
     test_refill()
+    test_orphan_order()
     test_promotion_flags()
     test_validation()
     print(f"\n{_PASS} passed, {_FAIL} failed")

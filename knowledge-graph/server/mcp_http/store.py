@@ -1831,7 +1831,7 @@ class MultiProjectGraphStore:
           Pass 1: archive lowest-scored active nodes until active tokens ≤ max_tokens.
           Pass 1r: refill — if active tokens sit under the fill ceiling, promote the
                    highest-scored archived nodes back up to use the headroom.
-          Pass 2: orphan lowest-connectivity archived nodes until archived tokens ≤ 30% of max.
+          Pass 2: orphan lowest-scored archived nodes until archived tokens ≤ 30% of max.
         """
         nodes = self.graphs[graph_key]["nodes"]
         edges = self.graphs[graph_key]["edges"]
@@ -1842,7 +1842,7 @@ class MultiProjectGraphStore:
         # ceiling refill fills to, so running both would partially undo the archive
         # in the same call. Skipping keeps "one of compact/refill acts per tick".
         refilled = [] if archived else self.compactor.refill_if_room(nodes, edges, versions)
-        orphaned = self.compactor.orphan_archived_if_needed(nodes, edges)
+        orphaned = self.compactor.orphan_archived_if_needed(nodes, edges, versions)
 
         if archived or refilled or orphaned:
             self.dirty[graph_key] = True

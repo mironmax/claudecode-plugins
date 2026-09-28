@@ -231,6 +231,14 @@ SCORE_WEIGHT_USEFULNESS = 0.35
 # gradual, self-limiting cluster recovery rather than an all-at-once resurrection.
 ARCHIVED_EDGE_WEIGHT = 0.2
 
+# Connectedness floor for an entity hub: HUB_FLOOR_WEIGHT * log(1 + edges), every edge
+# counted whatever its neighbour's tier. The weights above value only pullable strings,
+# so a hub many facts point to sank with its neighbourhood and was orphaned first (a
+# 25-edge hub among archived and orphaned neighbours scored below a node with one live
+# edge). The floor keeps it among the last to sink: 25 edges ≈ 1.6, like 2-3 live
+# in-edges; one edge ≈ 0.35, about one live out-edge, so small nodes barely move.
+HUB_FLOOR_WEIGHT = 0.5
+
 # ---------------------------------------------------------------------------
 # Recall injection log (v0.9.36)
 #

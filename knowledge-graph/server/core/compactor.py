@@ -1,6 +1,7 @@
 """Graph compaction (archiving low-value nodes)."""
 
 import logging
+import math
 import time
 from .constants import (
     COMPACTION_TARGET_RATIO,
@@ -246,7 +247,7 @@ class Compactor:
             logger.info(f"Refill: promoted {len(promoted)} archived node(s) to use spare budget, now {estimated_chars} chars")
         return promoted
 
-    def orphan_archived_if_needed(self, nodes: dict, edges: dict) -> list[str]:
+    def orphan_archived_if_needed(self, nodes: dict, edges: dict, versions: dict) -> list[str]:
         """
         Demote archived nodes to orphaned when archived section exceeds budget.
 
@@ -280,19 +281,12 @@ class Compactor:
 
         logger.info(f"Archived section too large: {archived_chars} chars > {budget} budget")
 
-        # Score archived nodes — lowest scored get orphaned first.
-        # Use edge connectivity as proxy for value: count edges to/from active nodes.
-        active_ids = {nid for nid, n in nodes.items() if not n.get("_archived")}
-        connectivity = {}
-        for edge in edges.values():
-            f, t = edge["from"], edge["to"]
-            if f in archived_nodes and t in active_ids:
-                connectivity[f] = connectivity.get(f, 0) + 1
-            if t in archived_nodes and f in active_ids:
-                connectivity[t] = connectivity.get(t, 0) + 1
-
-        # Sort by connectivity ascending (least connected orphaned first)
-        sorted_archived = sorted(archived_nodes.keys(), key=lambda nid: connectivity.get(nid, 0))
+        # Lowest archival score first — the blend that archived them, so an
+        # endorsed node outlasts one nobody credited and an entity hub outlasts
+        # its satellites. Ranking by edges to active nodes alone orphaned both
+        # early. Nodes still in grace have no score yet and go last.
+        scores = self.scorer.score_all(nodes, edges, versions, include_archived=True)
+        sorted_archived = sorted(archived_nodes, key=lambda nid: scores.get(nid, math.inf))
 
         orphaned = []
         current_time = time.time()
@@ -304,7 +298,7 @@ class Compactor:
             node["_orphaned_ts"] = current_time
             archived_chars -= anchor_chars[node_id]
             orphaned.append(node_id)
-            logger.debug(f"Orphaned archived node '{node_id}' (connectivity: {connectivity.get(node_id, 0)})")
+            logger.debug(f"Orphaned archived node '{node_id}' (score: {scores.get(node_id, math.inf):.2f})")
 
         logger.info(f"Orphaned {len(orphaned)} archived nodes, archived section now {archived_chars} chars")
         return orphaned
