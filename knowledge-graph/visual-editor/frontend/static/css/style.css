@@ -322,6 +322,18 @@ html, body {
     color: var(--primary-color);
 }
 
+/* A graph whose _meta has no project_path — listed (roadmap 08 never hides
+   it), but not openable by path, so it reads as unavailable rather than a
+   normal, clickable entry. */
+.project-item-nopath {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+
+.project-item-nopath .project-item-name {
+    font-style: italic;
+}
+
 .project-item-info {
     min-width: 0;
     flex: 1;
@@ -444,6 +456,21 @@ html, body {
     height: 20px;
     background: var(--border-color);
     margin: 0 0.25rem;
+}
+
+.toggle-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle-label input[type="checkbox"] {
+    accent-color: var(--primary-color);
+    cursor: pointer;
 }
 
 .graph-viewport {
@@ -1030,6 +1057,16 @@ html, body {
     stroke-width: 1.5;
     fill: none;
     opacity: 0.25;
+    pointer-events: none;
+}
+
+/* Invisible wide stroke over each link — a 1.5px line is too thin to
+   reliably hover, so the hit target is separate from the visible line. */
+.link-hit {
+    stroke: transparent;
+    stroke-width: 10;
+    fill: none;
+    cursor: pointer;
 }
 
 .link-label {
@@ -1037,7 +1074,12 @@ html, body {
     fill: var(--accent-lavender);
     text-anchor: middle;
     pointer-events: none;
-    opacity: 0.6;
+    opacity: 0;
+    transition: opacity 0.1s ease;
+}
+
+.link-label.link-label-visible {
+    opacity: 0.9;
 }
 
 .node-label {

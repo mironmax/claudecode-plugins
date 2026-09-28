@@ -241,6 +241,24 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             logger.exception("maintenance_debt survey failed")
             raise HTTPException(status_code=500, detail="survey failed")
 
+    @rest_api.get("/api/projects")
+    async def rest_list_projects():
+        """Read-only listing of every stored project graph, one row per
+        `projects/<slug>/graph.json` under get_storage_root(): slug,
+        project_path (from _meta, or null), whether that folder still
+        exists, node counts per tier, edge count, and the graph file's
+        mtime as last_used. Built for the visual editor's project list —
+        one source of projects instead of scanning harness conversation
+        history. Reads graph files directly; never loads, migrates or
+        writes one."""
+        from core.constants import get_storage_root
+        from core.project_listing import list_projects
+        try:
+            return {"projects": list_projects(get_storage_root())}
+        except Exception:
+            logger.exception("project listing failed")
+            raise HTTPException(status_code=500, detail="listing failed")
+
     # ========================================================================
     # Ambient memory endpoints (per-event hooks post their raw stdin JSON;
     # responses are ready-to-print hook output — the bash side never parses)

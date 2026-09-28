@@ -1,53 +1,49 @@
 """
 Project discovery utilities for visual editor.
 
-Discovers Claude Code projects from ~/.claude/projects/ directory
-and loads graph data from centralized ~/.knowledge-graph/projects/ storage.
+The memory server is the single source of "what memory projects exist"
+(roadmap/tasks/08): discover_projects() asks its read-only GET /api/projects
+for every project graph under its storage root, for every harness, honoring
+KG_STORAGE_ROOT. A server that lacks the endpoint (older server) falls back,
+once per process, to the previous approach of scanning ~/.claude/projects/
+Claude Code history — which misses Codex-only projects, ignores
+KG_STORAGE_ROOT and can't tell a project's graph apart from an evaluation
+graph, but keeps the editor working.
 """
 
-import json
 import logging
-from dataclasses import dataclass, asdict
+import os
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
+import httpx
+
 logger = logging.getLogger(__name__)
 
-# Centralized storage root
-STORAGE_ROOT = Path.home() / ".knowledge-graph"
+# Centralized storage root — fallback path only (the server-backed path asks
+# the server, which resolves its own KG_STORAGE_ROOT).
+STORAGE_ROOT = Path(os.getenv("KG_STORAGE_ROOT", str(Path.home() / ".knowledge-graph")))
 
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8765")
 
-@dataclass
-class ScraperStatus:
-    """Status of incremental scraper."""
-    enabled: bool = False
-    started: bool = False
-    completed: bool = False
-    progress_pct: float = 0.0
-    total_tasks: int = 0
-    completed_tasks: int = 0
-    started_at: Optional[float] = None
-    updated_at: Optional[float] = None
-    completed_at: Optional[float] = None
-    details: dict = None
-
-    def __post_init__(self):
-        if self.details is None:
-            self.details = {}
+# Logged once per process, not once per request — the editor asks on every
+# page load, and repeating the warning on each one would just be noise.
+_fallback_warned = False
 
 
 @dataclass
 class ProjectMetadata:
-    """Complete project metadata."""
-    project_path: str
+    """Project metadata shown in the editor's project list."""
+    project_path: Optional[str]
     display_name: str
     last_used: float
-    conversation_count: int
     has_graph: bool
     node_count: Optional[int] = None
     edge_count: Optional[int] = None
-    history_scraper: Optional[dict] = None
-    codebase_scraper: Optional[dict] = None
+    # None when the graph's _meta has no project_path (legacy graph) — shown
+    # as such, never guessed from the slug.
+    path_exists: Optional[bool] = None
 
 
 def decode_claude_project_path_from_cwd(project_dir: Path) -> Path | None:
@@ -132,10 +128,10 @@ def project_slug(project_path: Path) -> str:
 
 def load_graph_stats(project_path: Path) -> tuple[bool, Optional[int], Optional[int]]:
     """
-    Load graph statistics from centralized storage.
+    Load graph statistics from centralized storage (fallback path only).
 
-    Checks ~/.knowledge-graph/projects/<slug>/graph.json first,
-    falls back to legacy <project>/.claude/knowledge/graph.json.
+    Checks STORAGE_ROOT/projects/<slug>/graph.json first, falls back to
+    legacy <project>/.claude/knowledge/graph.json.
 
     Returns:
         Tuple of (has_graph, node_count, edge_count)
@@ -151,6 +147,7 @@ def load_graph_stats(project_path: Path) -> tuple[bool, Optional[int], Optional[
         return False, None, None
 
     try:
+        import json
         data = json.loads(graph_path.read_text())
         nodes = data.get("nodes", {})
         edges = data.get("edges", {})
@@ -162,47 +159,70 @@ def load_graph_stats(project_path: Path) -> tuple[bool, Optional[int], Optional[
         return True, None, None
 
 
-def load_scraper_status(project_path: Path) -> dict:
-    """
-    Load scraper status from .scraper_status.json file.
-    Checks centralized storage first, falls back to legacy location.
-    """
-    slug = project_slug(project_path)
-    centralized_status = STORAGE_ROOT / "projects" / slug / ".scraper_status.json"
-    legacy_status = project_path / ".claude/knowledge/.scraper_status.json"
-
-    status_path = centralized_status if centralized_status.exists() else legacy_status
-
-    if status_path.exists():
-        try:
-            return json.loads(status_path.read_text())
-        except Exception as e:
-            logger.error(f"Error reading scraper status {status_path}: {e}")
-
-    # Fallback: check old marker files
-    history_marker = project_path / ".claude/knowledge/.history_scraped"
-    codebase_marker = project_path / ".claude/knowledge/.codebase_scraped"
-
-    return {
-        "history": asdict(ScraperStatus(
-            enabled=history_marker.exists(),
-            completed=history_marker.exists(),
-            progress_pct=100.0 if history_marker.exists() else 0.0
-        )),
-        "codebase": asdict(ScraperStatus(
-            enabled=codebase_marker.exists(),
-            completed=codebase_marker.exists(),
-            progress_pct=100.0 if codebase_marker.exists() else 0.0
-        ))
-    }
+async def _fetch_server_projects() -> list[dict] | None:
+    """GET /api/projects from the memory server, or None when it can't be
+    used — the route is missing (older server) or the server is unreachable.
+    Either way the caller falls back to scanning Claude Code history."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(f"{MCP_SERVER_URL}/api/projects")
+    except httpx.HTTPError as e:
+        logger.warning(f"Cannot reach MCP server for project listing: {e}")
+        return None
+    if response.status_code == 404:
+        return None
+    if response.status_code != 200:
+        logger.warning(f"MCP server /api/projects returned {response.status_code}")
+        return None
+    try:
+        projects = response.json()["projects"]
+    except (ValueError, KeyError, TypeError):
+        logger.warning("MCP server /api/projects returned an unexpected body")
+        return None
+    return projects
 
 
-def discover_projects() -> list[dict]:
-    """
-    Discover all Claude Code projects from ~/.claude/projects/.
+def _projects_from_server_rows(rows: list[dict]) -> list[dict]:
+    """Shape the server's survey rows into the editor's ProjectMetadata
+    dicts. Deduplicated by slug (last write wins) — the server itself never
+    emits a slug twice, but a defensive dedup keeps a future duplicate from
+    doubling a project in the list."""
+    by_slug: dict[str, dict] = {}
+    for row in rows:
+        slug = row.get("slug")
+        if not slug:
+            continue
+        project_path = row.get("project_path")
+        display_name = format_project_name(Path(project_path)) if project_path else slug
+        node_count = (row.get("active_nodes", 0) + row.get("archived_nodes", 0)
+                      + row.get("orphaned_nodes", 0))
+        metadata = ProjectMetadata(
+            project_path=project_path,
+            display_name=display_name,
+            last_used=row.get("last_used") or 0,
+            has_graph=True,
+            node_count=node_count,
+            edge_count=row.get("edge_count", 0),
+            path_exists=row.get("path_exists"),
+        )
+        d = asdict(metadata)
+        d["slug"] = slug
+        by_slug[slug] = d
 
-    Returns:
-        List of project metadata dicts, sorted by last_used (most recent first)
+    projects = list(by_slug.values())
+    projects.sort(key=lambda p: p["last_used"], reverse=True)
+    return projects
+
+
+def _discover_projects_from_claude_history() -> list[dict]:
+    """Fallback discovery for a server that lacks GET /api/projects: scans
+    ~/.claude/projects/ and cross-references STORAGE_ROOT for a graph.
+
+    Misses projects used only from Codex, shows folders with no graph,
+    ignores a custom KG_STORAGE_ROOT the server was actually started with,
+    and can list an evaluation graph as if it were a project — the
+    server-backed path fixes all of these; this one only keeps the editor
+    usable against an older server.
     """
     projects_dir = Path.home() / ".claude" / "projects"
 
@@ -229,59 +249,67 @@ def discover_projects() -> list[dict]:
             logger.debug(f"Project directory deleted: {project_path}")
             continue
 
-        # Get conversation stats from .jsonl files
         jsonl_files = list(project_dir.glob("*.jsonl"))
-        conversation_files = [
-            f for f in jsonl_files
-            if not f.name.startswith("agent-")
-        ]
+        last_used = max((f.stat().st_mtime for f in jsonl_files), default=0)
 
-        if jsonl_files:
-            last_used = max((f.stat().st_mtime for f in jsonl_files), default=0)
-        else:
-            last_used = 0
-
-        # Get graph stats (checks centralized then legacy)
         has_graph, node_count, edge_count = load_graph_stats(project_path)
 
-        # Get scraper status
-        scraper_status = load_scraper_status(project_path)
-
-        # Create metadata
         metadata = ProjectMetadata(
             project_path=str(project_path),
             display_name=format_project_name(project_path),
             last_used=last_used,
-            conversation_count=len(conversation_files),
             has_graph=has_graph,
             node_count=node_count,
             edge_count=edge_count,
-            history_scraper=scraper_status.get("history"),
-            codebase_scraper=scraper_status.get("codebase")
+            path_exists=True,
         )
 
         projects.append(asdict(metadata))
 
-    # Sort by last_used descending (most recent first)
     projects.sort(key=lambda p: p["last_used"], reverse=True)
 
-    logger.info(f"Discovered {len(projects)} projects")
+    logger.info(f"Discovered {len(projects)} projects (fallback: Claude Code history)")
 
     return projects
 
 
+async def discover_projects() -> list[dict]:
+    """All memory projects the server stores, most recently used first.
+
+    Server-backed by default (works for every harness, honors
+    KG_STORAGE_ROOT); falls back once per process to scanning Claude Code
+    history when the server has no GET /api/projects route.
+    """
+    global _fallback_warned
+
+    rows = await _fetch_server_projects()
+    if rows is not None:
+        return _projects_from_server_rows(rows)
+
+    if not _fallback_warned:
+        logger.warning(
+            "MCP server has no GET /api/projects (older server) — falling back "
+            "to scanning ~/.claude/projects/ history. Restart the MCP server "
+            "after updating the plugin to pick up the new endpoint."
+        )
+        _fallback_warned = True
+
+    return _discover_projects_from_claude_history()
+
+
 if __name__ == "__main__":
     # Test discovery
+    import asyncio
+
     logging.basicConfig(level=logging.INFO)
 
-    projects = discover_projects()
+    projects = asyncio.run(discover_projects())
 
     print(f"\nFound {len(projects)} projects:\n")
 
     for p in projects[:5]:
         print(f"  {p['display_name']}")
         print(f"   Path: {p['project_path']}")
-        print(f"   Conversations: {p['conversation_count']}")
 
         if p['has_graph']:
             print(f"   Graph: {p['node_count']} nodes, {p['edge_count']} edges")

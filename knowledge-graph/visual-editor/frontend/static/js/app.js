@@ -51,6 +51,9 @@ const CONFIG = {
 
 const state = {
     graphData: null,
+    // Raw edge counts as stored on the server, per level, before any
+    // endpoint-presence filtering — the basis for the honest edge count.
+    rawEdgeTotals: { user: 0, project: 0 },
     selectedNode: null,
     graphLevel: null,
     selectedProject: null,
@@ -63,6 +66,11 @@ const state = {
     edgeCreationSource: null,
     // Track which field is currently being edited inline
     editingField: null,
+    // 'default': active nodes + one-hop neighbours (readable on a mature
+    // graph). 'full': every node at this level, the original behaviour.
+    viewMode: 'default',
+    // Only affects 'default' view — 'full' always shows orphaned nodes.
+    showOrphaned: false,
 };
 
 // ============================================================================
@@ -99,9 +107,24 @@ function updateCurrentGraphLabel() {
     }
 }
 
-function updateStats(nodeCount, edgeCount) {
-    document.getElementById('node-count').textContent = `Nodes: ${nodeCount}`;
-    document.getElementById('edge-count').textContent = `Edges: ${edgeCount}`;
+// Honest counts (roadmap 08): the header names every stored edge, whether
+// drawn, hidden by the default view, or dangling (an endpoint missing from
+// this level entirely — a deleted node, or an edge that crossed levels).
+function updateStats({ nodesShown = 0, nodesTotal = 0, edgesDrawn = 0,
+                       edgesDangling = 0, edgesHiddenByView = 0, edgesTotal = 0 } = {}) {
+    const nodeCountEl = document.getElementById('node-count');
+    nodeCountEl.textContent = nodesShown === nodesTotal
+        ? `Nodes: ${nodesShown}`
+        : `Nodes: ${nodesShown} of ${nodesTotal}`;
+
+    const edgeCountEl = document.getElementById('edge-count');
+    const extras = [];
+    if (edgesDangling) extras.push(`${edgesDangling} dangling`);
+    if (edgesHiddenByView) extras.push(`${edgesHiddenByView} hidden`);
+    edgeCountEl.textContent = extras.length
+        ? `Edges: ${edgesDrawn} drawn, ${extras.join(', ')}`
+        : `Edges: ${edgesDrawn}`;
+    edgeCountEl.title = extras.length ? `${edgesTotal} stored total` : '';
 }
 
 function showError(message) {
@@ -258,9 +281,15 @@ async function loadProjects() {
         entriesEl.innerHTML = '';
 
         projects.forEach(project => {
+            // No project_path on record (legacy graph, _meta never stamped
+            // it): shown, per roadmap 08, but not openable — there is no
+            // path to send the server, and a slug is never guessed as one.
+            const noPath = !project.project_path;
+            const missingFolder = project.project_path && project.path_exists === false;
+
             const item = document.createElement('div');
-            item.className = 'project-item';
-            item.dataset.path = project.project_path;
+            item.className = noPath ? 'project-item project-item-nopath' : 'project-item';
+            item.dataset.path = project.project_path || '';
 
             let meta = '';
             if (project.has_graph && project.node_count !== null) {
@@ -268,16 +297,26 @@ async function loadProjects() {
             } else {
                 meta = 'no graph';
             }
+            if (noPath) meta += ' · path unknown';
+            else if (missingFolder) meta += ' · folder removed';
+
+            const titleText = project.project_path || `${project.display_name} — no path on record`;
 
             item.innerHTML = `
                 <span class="project-item-icon">${ICONS.folder}</span>
                 <div class="project-item-info">
-                    <div class="project-item-name" title="${escapeHtml(project.project_path)}">${escapeHtml(project.display_name)}</div>
+                    <div class="project-item-name" title="${escapeHtml(titleText)}">${escapeHtml(project.display_name)}</div>
                     <div class="project-item-meta">${escapeHtml(meta)}</div>
                 </div>
             `;
 
-            item.addEventListener('click', () => selectProject(project.project_path));
+            item.addEventListener('click', () => {
+                if (noPath) {
+                    showToast('No path on record for this graph — nothing to open it with', 'warning');
+                    return;
+                }
+                selectProject(project.project_path);
+            });
             entriesEl.appendChild(item);
         });
 
@@ -416,6 +455,37 @@ function applyLevelFilter(data, graphLevel) {
     );
 
     return { nodes: filteredNodes, links: filteredLinks };
+}
+
+// Default readable view (roadmap 08): active nodes plus their one-hop
+// neighbours. Orphaned nodes — even ones that qualify as a neighbour — stay
+// hidden unless showOrphaned is on; archived neighbours are kept (dimmed by
+// CSS). `full` view skips this entirely and is unaffected by showOrphaned,
+// since it already shows everything.
+function applyDefaultViewFilter(levelData, showOrphaned) {
+    const activeIds = new Set(
+        levelData.nodes.filter(n => !n.archived && !n.orphaned).map(n => n.id)
+    );
+    const neighbourIds = new Set();
+    levelData.links.forEach(l => {
+        const src = l.source.id || l.source;
+        const tgt = l.target.id || l.target;
+        if (activeIds.has(src)) neighbourIds.add(tgt);
+        if (activeIds.has(tgt)) neighbourIds.add(src);
+    });
+
+    const keepIds = new Set([...activeIds, ...neighbourIds]);
+    let nodes = levelData.nodes.filter(n => keepIds.has(n.id));
+    if (!showOrphaned) nodes = nodes.filter(n => !n.orphaned);
+
+    const nodeIdSet = new Set(nodes.map(n => n.id));
+    const links = levelData.links.filter(l => {
+        const src = l.source.id || l.source;
+        const tgt = l.target.id || l.target;
+        return nodeIdSet.has(src) && nodeIdSet.has(tgt);
+    });
+
+    return { nodes, links };
 }
 
 // ============================================================================
@@ -844,37 +914,62 @@ function renderGraph(graphData) {
 
     container.selectAll('*').remove();
 
-    const filteredData = applyLevelFilter(graphData, state.graphLevel);
+    const levelData = applyLevelFilter(graphData, state.graphLevel);
 
-    updateStats(filteredData.nodes.length, filteredData.links.length);
+    // Dangling: edges stored for this level whose endpoint transformGraphData
+    // / applyLevelFilter could not resolve (a deleted node, or an edge that
+    // crossed levels) — the honesty gap the readability rework must not hide.
+    const totalStoredEdges = state.rawEdgeTotals[state.graphLevel] || 0;
+    const dangling = Math.max(0, totalStoredEdges - levelData.links.length);
 
-    if (filteredData.nodes.length === 0) {
-        showEmptyState('No nodes to display');
-        return;
-    }
-
+    // Degree from ALL non-orphaned edges at this level, independent of which
+    // view is currently rendered, so a hub's radius does not change when the
+    // view toggles — only which nodes are visible changes.
+    const nodesById = new Map(levelData.nodes.map(n => [n.id, n]));
     const degreeMap = {};
-    filteredData.nodes.forEach(n => degreeMap[n.id] = 0);
-    filteredData.links.forEach(l => {
+    levelData.nodes.forEach(n => degreeMap[n.id] = 0);
+    levelData.links.forEach(l => {
         const src = l.source.id || l.source;
         const tgt = l.target.id || l.target;
+        if (nodesById.get(src)?.orphaned || nodesById.get(tgt)?.orphaned) return;
         if (degreeMap[src] !== undefined) degreeMap[src]++;
         if (degreeMap[tgt] !== undefined) degreeMap[tgt]++;
     });
     const maxDegree = Math.max(1, ...Object.values(degreeMap));
 
-    filteredData.nodes.forEach(n => {
+    const viewData = state.viewMode === 'full'
+        ? levelData
+        : applyDefaultViewFilter(levelData, state.showOrphaned);
+    const hiddenByView = levelData.links.length - viewData.links.length;
+
+    updateStats({
+        nodesShown: viewData.nodes.length,
+        nodesTotal: levelData.nodes.length,
+        edgesDrawn: viewData.links.length,
+        edgesDangling: dangling,
+        edgesHiddenByView: hiddenByView,
+        edgesTotal: totalStoredEdges,
+    });
+
+    if (viewData.nodes.length === 0) {
+        showEmptyState(levelData.nodes.length > 0
+            ? 'No active nodes here — try Full Graph to see everything'
+            : 'No nodes to display');
+        return;
+    }
+
+    viewData.nodes.forEach(n => {
         const degree = degreeMap[n.id] || 0;
         n._radius = CONFIG.node.radius * (1 + 0.5 * Math.sqrt(degree / maxDegree));
         const gistLen = (n.gist || '').length;
         const notesLen = (n.notes || []).reduce((sum, note) => sum + note.length, 0);
         n._contentWeight = Math.min(gistLen + notesLen, 1000);
     });
-    const maxContent = Math.max(1, ...filteredData.nodes.map(n => n._contentWeight));
+    const maxContent = Math.max(1, ...viewData.nodes.map(n => n._contentWeight));
 
     const link = container.append('g')
         .selectAll('line')
-        .data(filteredData.links)
+        .data(viewData.links)
         .enter()
         .append('line')
         .attr('class', 'link')
@@ -882,15 +977,30 @@ function renderGraph(graphData) {
 
     const linkLabel = container.append('g')
         .selectAll('text')
-        .data(filteredData.links)
+        .data(viewData.links)
         .enter()
         .append('text')
         .attr('class', 'link-label')
         .text(d => d.rel);
 
+    // Wide invisible hit-line, drawn on top of `link` — edge labels show on
+    // hover only, and a 1.5px line is too thin to reliably target.
+    const linkHit = container.append('g')
+        .selectAll('line')
+        .data(viewData.links)
+        .enter()
+        .append('line')
+        .attr('class', 'link-hit')
+        .on('mouseenter', (event, d) => {
+            linkLabel.filter(ld => ld === d).classed('link-label-visible', true);
+        })
+        .on('mouseleave', (event, d) => {
+            linkLabel.filter(ld => ld === d).classed('link-label-visible', false);
+        });
+
     const node = container.append('g')
         .selectAll('circle')
-        .data(filteredData.nodes)
+        .data(viewData.nodes)
         .enter()
         .append('circle')
         .attr('class', d => {
@@ -912,7 +1022,7 @@ function renderGraph(graphData) {
 
     const nodeLabel = container.append('g')
         .selectAll('text')
-        .data(filteredData.nodes)
+        .data(viewData.nodes)
         .enter()
         .append('text')
         .attr('class', d => {
@@ -931,9 +1041,15 @@ function renderGraph(graphData) {
     state.simulation.force('collision', d3.forceCollide().radius(d => d._radius + 4));
 
     state.simulation
-        .nodes(filteredData.nodes)
+        .nodes(viewData.nodes)
         .on('tick', () => {
             link
+                .attr('x1', d => d.source.x)
+                .attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x)
+                .attr('y2', d => d.target.y);
+
+            linkHit
                 .attr('x1', d => d.source.x)
                 .attr('y1', d => d.source.y)
                 .attr('x2', d => d.target.x)
@@ -952,7 +1068,7 @@ function renderGraph(graphData) {
                 .attr('y', d => d.y);
         });
 
-    state.simulation.force('link').links(filteredData.links);
+    state.simulation.force('link').links(viewData.links);
     state.simulation.alpha(1).restart();
 }
 
@@ -1239,6 +1355,10 @@ async function loadGraph() {
 
         const rawData = await fetchGraphData();
         state.graphData = transformGraphData(rawData);
+        state.rawEdgeTotals = {
+            user: Object.keys(rawData.user?.edges || {}).length,
+            project: Object.keys(rawData.project?.edges || {}).length,
+        };
 
         renderGraph(state.graphData);
 
@@ -1266,8 +1386,20 @@ function showWelcome() {
     hideElement('graph-loading');
     hideElement('graph-error');
     showElement('graph-welcome');
-    updateStats(0, 0);
+    updateStats();
     updateCurrentGraphLabel();
+}
+
+// Reflects state.viewMode in the toggle button's label/title/style.
+function updateViewModeButton() {
+    const btn = document.getElementById('view-mode-btn');
+    if (!btn) return;
+    const full = state.viewMode === 'full';
+    btn.textContent = full ? 'Default View' : 'Full Graph';
+    btn.classList.toggle('btn-primary', full);
+    btn.title = full
+        ? 'Showing every node — click to switch back to active + neighbours'
+        : 'Showing active nodes and their neighbours — click to see the full graph';
 }
 
 async function initialize() {
@@ -1300,6 +1432,17 @@ async function initialize() {
             return;
         }
         openEditNodeModal();
+    });
+
+    updateViewModeButton();
+    document.getElementById('view-mode-btn').addEventListener('click', () => {
+        state.viewMode = state.viewMode === 'full' ? 'default' : 'full';
+        updateViewModeButton();
+        if (state.graphData) renderGraph(state.graphData);
+    });
+    document.getElementById('show-orphaned-toggle').addEventListener('change', (e) => {
+        state.showOrphaned = e.target.checked;
+        if (state.graphData) renderGraph(state.graphData);
     });
 
     document.getElementById('zoom-in-btn').addEventListener('click', () => {
