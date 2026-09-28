@@ -37,6 +37,25 @@ during those. Run the full test suite after each item. Task 06
 (continuous integration) makes that cheap, and item 9 makes the suite
 itself easier to extend.
 
+## First run: items 1–4 and the test temp-dir helper
+
+The first pass over this list takes items 1–4, plus one piece of item 9:
+the shared `tests/_harness.py`, limited to `check`, `summary_exit`,
+`tmp_storage()` and `fresh_store()`, where every temp directory it hands
+out is removed when the process exits. `tests/test_harness.py` already does
+this with an `atexit` helper; generalise that one. Then move every test file
+onto it, so a full suite run leaves no directories behind in the system temp
+dir or under `~/.cache`. Renaming or merging test files by feature is left
+for later.
+
+- Line numbers above are from commit `f17349a` and have moved; find each
+  site by the names given.
+- F2 is fixed (0.9.44), so the `dirty = True` lines in item 3 can go now.
+- One commit per item, suite green after each (CI runs every
+  `tests/test_*.py` on Python 3.10 and 3.14).
+- Before and after the helper change, count the temp directories a full
+  run leaves behind, and report both numbers.
+
 ---
 
 ## 1. Use the helpers that already exist
