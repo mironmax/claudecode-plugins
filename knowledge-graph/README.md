@@ -162,7 +162,7 @@ Both harnesses talk to one local server, so a lesson captured in Codex is recall
 |---|---|
 | MCP tools and shared memory | Supported, including when hooks are off |
 | Preload and prompt recall | Supported with trusted hooks; preload fits 8,000 characters |
-| File recall and read counters | `apply_patch` and explicit file operands of `cat`, `head`, `tail`, `less`, `sed -n`, `grep`, `jq`; use absolute shell paths |
+| File recall and read counters | `apply_patch` and explicit file operands of `cat`, `head`, `tail`, `less`, `sed -n`, `grep`, `jq`, `nl`, `rg`; relative shell paths need a verified execution directory |
 | Hosted web search | No hook event, so no web-research capture nudges |
 | `/kg-extract` | Codebase mapping works in either harness |
 | `/kg-scout` | Mines Claude Code history; no Codex rollout reader yet |
@@ -170,7 +170,7 @@ Both harnesses talk to one local server, so a lesson captured in Codex is recall
 | Background maintenance | Opt-in; the selected runner determines which subscription it spends |
 | Codex desktop, macOS and Windows | Not verified by this CLI integration test |
 
-**Shell directory limitation.** CLI 0.157.1 reports the project directory in its hook but omits `exec_command.workdir`. A relative `cat README.md` may have read a different directory. To avoid recalling or counting the wrong file, the plugin skips relative shell operands when the execution directory is unknown. Absolute paths work; an explicit absolute `workdir` is honored if a hook supplies it. `rg` and recursive search are not currently tracked.
+**Shell directories.** Codex reports the session directory in its hook and can omit `exec_command.workdir`. For relative paths, the server first honors an explicit absolute `workdir`; otherwise it matches the hook's invocation id to a completed command record in a bounded tail of that session's rollout and uses the recorded execution directory. This was measured live with nested and parallel calls on CLI 0.158.0. Missing, incomplete or ambiguous records leave relative paths unresolved; absolute operands still work. `nl` and `rg` support explicit file operands with recognized options; implicit directory searches and `rg --files` are not tracked. Rollouts must be local `.jsonl` files under the user's home directory, as for session recovery.
 
 **Update:** run `codex plugin marketplace upgrade maxim-plugins`, then `codex plugin add knowledge-graph@maxim-plugins`; check the installed version with `codex plugin list`. Repoint optional shell helpers from the Codex cache, arrange a shared-server restart, and verify its version at `/health` (see `/kg-ops`). Check changed hooks in `/hooks`, then start a new session. A new session alone does not replace a healthy running server.
 

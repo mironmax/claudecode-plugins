@@ -29,9 +29,9 @@ class Profile:
     # Reads arrive only through the shell (no Read tool), so shell reads
     # stand in for reads when counting what is worth a capture nudge.
     shell_reads_count: bool
-    # The Bash hook payload says where the command ran. Codex 0.157.1 drops
-    # exec_command.workdir and reports only the project, so a relative shell
-    # operand could name a file in another directory.
+    # Whether the Bash hook's cwd itself says where the command ran. Codex
+    # reports the session directory; shell_context can recover actual cwd
+    # from an exact-id completed rollout item, otherwise it remains unknown.
     shell_cwd_known: bool
     # Said once, on a fresh kg_read, when no hook has ever reached the server
     # from this harness in this project: the tools work but the hooks do not.

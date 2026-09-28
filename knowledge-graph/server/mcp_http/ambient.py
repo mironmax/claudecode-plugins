@@ -593,13 +593,27 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
     harness = profile(from_transcript(payload.get("transcript_path")))
     try:
         from .file_recall import build_file_recall, file_targets
-        paths = file_targets(tool, tool_input, cwd, shell_cwd_known=harness.shell_cwd_known)
+        context, diagnostics = {}, {}
+        target_input = tool_input
+        if tool == "Bash":
+            from .shell_context import resolve_shell_context
+            resolved = resolve_shell_context(payload, shell_cwd_known=harness.shell_cwd_known)
+            context = resolved.diagnostics()
+            target_input = dict(tool_input, workdir=resolved.cwd)
+        paths = file_targets(tool, target_input, cwd,
+                             shell_cwd_known=tool != "Bash", diagnostics=diagnostics)
         if paths and hit:
             recall, covered = build_file_recall(store, session_manager, hit, cwd,
-                                                tool, paths, harness_sid)
+                                                tool, paths, harness_sid, context=context)
         elif paths and harness_sid:
             log_recall(FILE_RECALL_REASON, cwd, harness_sid,
-                       outcome="unresolved_session", tool=tool)
+                       outcome="unresolved_session", tool=tool, **context)
+        elif tool == "Bash":
+            outcome = diagnostics.get("outcome", "no_files")
+            if outcome == "unresolved_cwd" and context.get("cwd_reason") == "ambiguous_call":
+                outcome = "ambiguous_call"
+            log_recall(FILE_RECALL_REASON, cwd, harness_sid, hit[0] if hit else None,
+                       outcome=outcome, tool=tool, **context)
     except Exception:
         logger.exception("file recall failed")
 

@@ -107,7 +107,7 @@ _INDEX = TouchIndex()
 _PATH_TOOLS = {"Read": "file_path", "Edit": "file_path", "Write": "file_path",
                "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
 
-_READ_COMMANDS = frozenset({"cat", "head", "tail", "less", "sed", "grep", "jq"})
+_READ_COMMANDS = frozenset({"cat", "head", "tail", "less", "sed", "grep", "jq", "nl", "rg"})
 _SEPARATORS = frozenset({"|", "||", "&", "&&", ";", "\n", "(", ")", "|&", ";;"})
 # Short options that consume the next word, per command.
 _ARG_OPTS = {
@@ -123,6 +123,65 @@ _JQ_LONG_ARGS = {"--arg": 2, "--argjson": 2, "--slurpfile": 2, "--rawfile": 2,
                  "--indent": 1, "--from-file": 1, "--tab": 0}
 _UNSAFE_CHARS = set("$`*?[]{}")
 
+# New commands use an explicit option grammar: an unknown option may consume
+# the next word, so treating that word as a filename would invent a read.
+_RG_ARG_LONG = {"--regexp", "--file", "--glob", "--iglob", "--type", "--type-not",
+                "--context", "--before-context", "--after-context", "--max-count",
+                "--max-columns", "--max-depth", "--max-filesize", "--encoding",
+                "--engine", "--threads", "--sort", "--sortr", "--color"}
+_RG_FLAG_LONG = {"--line-number", "--no-line-number", "--with-filename", "--no-filename",
+                 "--ignore-case", "--case-sensitive", "--smart-case", "--fixed-strings",
+                 "--word-regexp", "--line-regexp", "--invert-match", "--only-matching",
+                 "--count", "--count-matches", "--files-with-matches", "--files-without-match",
+                 "--quiet", "--hidden", "--no-ignore", "--no-ignore-vcs", "--no-heading",
+                 "--heading", "--pcre2", "--multiline", "--multiline-dotall", "--text",
+                 "--json", "--no-messages", "--stats", "--no-config"}
+_NL_ARG_LONG = {"--body-numbering", "--header-numbering", "--footer-numbering",
+                "--section-delimiter", "--line-increment", "--join-blank-lines",
+                "--number-format", "--number-separator", "--starting-line-number",
+                "--number-width"}
+
+
+def _explicit_operands(cmd, words):
+    """nl/rg reads with known options and explicit file operands only."""
+    long_args = _RG_ARG_LONG if cmd == "rg" else _NL_ARG_LONG
+    long_flags = _RG_FLAG_LONG if cmd == "rg" else {"--no-renumber"}
+    short_args = set("efgtTABCmMEj") if cmd == "rg" else set("bdfhilnsvw")
+    short_flags = set("nNHilsSIFwxcqoaUPuL0") if cmd == "rg" else {"p"}
+    operands, pattern_given, opts_done, i = [], False, False, 0
+    while i < len(words):
+        word = words[i]
+        i += 1
+        if opts_done or not word.startswith("-") or word == "-":
+            operands.append(word)
+            continue
+        if word == "--":
+            opts_done = True
+            continue
+        if word.startswith("--"):
+            name, sep, _ = word.partition("=")
+            if name in long_args:
+                pattern_given |= cmd == "rg" and name in ("--regexp", "--file")
+                if not sep:
+                    if i == len(words):
+                        return None
+                    i += 1
+            elif name not in long_flags or sep:
+                return None
+            continue
+        flags = word[1:]
+        for k, char in enumerate(flags):
+            if char in short_args:
+                pattern_given |= cmd == "rg" and char in "ef"
+                if k == len(flags) - 1:
+                    if i == len(words):
+                        return None
+                    i += 1
+                break
+            if char not in short_flags:
+                return None
+    return operands[1:] if cmd == "rg" and not pattern_given else operands
+
 
 def _lex(command: str) -> list[str] | None:
     lexer = shlex.shlex(command, posix=True, punctuation_chars="();<>|&\n")
@@ -137,6 +196,8 @@ def _lex(command: str) -> list[str] | None:
 def _operands(cmd: str, words: list[str]) -> list[str] | None:
     """The file operands of one read command, or None when it is not a read
     (sed without -n, sed -i, jq --args)."""
+    if cmd in ("nl", "rg"):
+        return _explicit_operands(cmd, words)
     arg_opts = _ARG_OPTS[cmd]
     operands: list[str] = []
     script_given = False               # sed -e/-f, grep -e/-f, jq -f
@@ -190,14 +251,16 @@ def _operands(cmd: str, words: list[str]) -> list[str] | None:
     return operands
 
 
-def bash_read_files(command: str, cwd: str | None) -> list[str]:
+def bash_read_files(command: str, cwd: str | None, *, diagnostics: dict | None = None) -> list[str]:
     """Absolute paths of existing files a Bash command plainly reads.
 
-    Conservative by construction: only cat/head/tail/less/sed -n/grep/jq at
+    Conservative by construction: only cat/head/tail/less/sed -n/grep/jq/nl/rg at
     the head of a pipeline segment, only operands without shell expansion,
     relative operands only while no `cd` has run, and only paths that exist
     as regular files. Missing a file is fine; inventing one is not.
     """
+    if diagnostics is not None:
+        diagnostics["outcome"] = "unsupported_command"
     if not isinstance(command, str) or "<<" in command:
         return []
     tokens = _lex(command)
@@ -213,6 +276,7 @@ def bash_read_files(command: str, cwd: str | None) -> list[str]:
     segments.append(cur)
 
     found: list[str] = []
+    supported, unresolved = False, False
     moved = False                      # a cd ran: relative operands are ambiguous
     for seg in segments:
         words, redirect_in = [], []
@@ -243,6 +307,7 @@ def bash_read_files(command: str, cwd: str | None) -> list[str]:
         operands = _operands(cmd, words[1:])
         if operands is None:
             continue
+        supported = True
         for op in operands + redirect_in:
             if op == "-" or not op or _UNSAFE_CHARS & set(op):
                 continue
@@ -250,6 +315,7 @@ def bash_read_files(command: str, cwd: str | None) -> list[str]:
                 op = os.path.expanduser(op)
             if not os.path.isabs(op):
                 if moved or cwd is None:
+                    unresolved = True
                     continue
                 op = os.path.join(cwd, op)
             path = os.path.realpath(op)
@@ -257,10 +323,14 @@ def bash_read_files(command: str, cwd: str | None) -> list[str]:
                 found.append(path)
             if len(found) >= FILE_RECALL_MAX_BASH_FILES:
                 return found
+    if diagnostics is not None:
+        diagnostics["outcome"] = ("unresolved_cwd" if unresolved else
+                                  "no_files" if supported else "unsupported_command")
     return found
 
 
-def file_targets(tool: str, tool_input: dict, cwd: str, *, shell_cwd_known: bool = True) -> list[str]:
+def file_targets(tool: str, tool_input: dict, cwd: str, *, shell_cwd_known: bool = True,
+                 diagnostics: dict | None = None) -> list[str]:
     """Absolute paths the tool call touched; empty for anything untracked."""
     field = _PATH_TOOLS.get(tool)
     if field:
@@ -272,8 +342,9 @@ def file_targets(tool: str, tool_input: dict, cwd: str, *, shell_cwd_known: bool
     if tool == "Bash":
         workdir = tool_input.get("workdir")
         if isinstance(workdir, str) and os.path.isabs(workdir):
-            return bash_read_files(tool_input.get("command"), workdir)
-        return bash_read_files(tool_input.get("command"), cwd if shell_cwd_known else None)
+            return bash_read_files(tool_input.get("command"), workdir, diagnostics=diagnostics)
+        return bash_read_files(tool_input.get("command"), cwd if shell_cwd_known else None,
+                               diagnostics=diagnostics)
     if tool == "apply_patch":
         return patch_files(tool_input.get("command") or tool_input.get("input"), cwd)
     return []
@@ -394,7 +465,8 @@ def _node_record(r: dict) -> dict:
 
 
 def build_file_recall(store, session_manager, hit: tuple[str, dict], project_path: str,
-                      tool: str, paths: list[str], claude_sid: str | None = None
+                      tool: str, paths: list[str], claude_sid: str | None = None,
+                      *, context: dict | None = None
                       ) -> tuple[str | None, bool]:
     """(text to inject or None, whether any node covers these files).
 
@@ -415,7 +487,7 @@ def build_file_recall(store, session_manager, hit: tuple[str, dict], project_pat
     def log(outcome, records=(), **extra):
         log_recall(FILE_RECALL_REASON, project_path, claude_sid, sid,
                    outcome=outcome, tool=tool, files=needles,
-                   nodes=[_node_record(r) for r in records], **extra)
+                   nodes=[_node_record(r) for r in records], **(context or {}), **extra)
 
     if not matches:
         log("no_nodes")

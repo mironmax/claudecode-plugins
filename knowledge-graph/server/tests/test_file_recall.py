@@ -410,8 +410,11 @@ def test_log_record():
     check("all_seen names what was seen", recs[2]["nodes"][0]["seen"] is True, recs[2])
     n = len(log_records())
     event(store, sm, proj, "WebFetch", {"url": "https://example.invalid/x"}, "cs-log")
+    check("non-shell non-file event writes no recall record", len(log_records()) == n)
     event(store, sm, proj, "Bash", {"command": "ls -la"}, "cs-log")
-    check("non-file events write no recall record", len(log_records()) == n)
+    check("unsupported shell command is diagnosed without logging command text",
+          len(log_records()) == n + 1 and file_records()[-1]["outcome"] == "unsupported_command"
+          and "command" not in file_records()[-1])
 
 
 def test_nudge_path():

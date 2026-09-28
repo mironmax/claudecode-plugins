@@ -241,6 +241,19 @@ Both recall channels log every decision to `recall.jsonl`, silences
 included: prompt recall under its own reasons with the prompt's terms, file
 recall under reason `file_recall` with an `outcome` and the files it looked up.
 
+Shell directory resolution (`mcp_http/shell_context.py`) precedes operand
+lookup. Explicit absolute `workdir` wins; otherwise a profile with trustworthy
+hook cwd uses it, while Codex requires an exact `tool_use_id` match to a completed
+`CommandExecution` in the same session/turn. The resolver reads one tail capped
+at 256 KiB and 2,048 records, checks a 50 ms elapsed budget, and caches up to
+16 snapshots by file identity, size and modification metadata. It accepts local
+absolute paths or local file URIs, rejects conflicting/missing/incomplete evidence,
+and never evaluates rollout JavaScript. Execution cwd changes path resolution,
+not the memory session's project scope. Shell logs include resolution source,
+reason and elapsed time; unsupported commands, unresolved cwd and ambiguous calls
+remain distinguishable without retaining commands. `nl` and `rg` accept explicit
+existing file operands with recognized options; directory expansion is excluded.
+
 Precision is the design constraint on this whole loop: an ambient channel that
 speaks too often trains the model to ignore it. Thresholds make silence the
 default — nothing repeats, weak matches stay quiet, first-time reads never
@@ -270,7 +283,7 @@ staleness.
 ### The Harness Layer
 
 The server makes every decision; a harness only carries events in and
-context out. Everything harness-shaped the server touches lives in
+context out. Harness detection and capability declarations live in
 `mcp_http/harness.py`: which harness sent an event, told apart structurally
 (a hook's `transcript_path` — Codex writes `rollout-*.jsonl` under
 `$CODEX_HOME/sessions` — or an MCP call's User-Agent, `codex-mcp-client/…`),
@@ -279,6 +292,8 @@ reads count as reads, and the hint a Codex session gets when the plugin's
 hooks have never reached the server (Codex keeps plugin hooks off until the
 user trusts them in `/hooks`). The hook scripts and `hooks.json` are shared
 unchanged; Codex reads the same `.claude-plugin/` manifest.
+The measured rollout completion format is parsed in `mcp_http/shell_context.py`
+when the profile says the hook's shell cwd is not trustworthy.
 
 Maintenance dispatch (`mcp_http/chore_dispatch.py`) is split the same way:
 target selection and every gate are harness-neutral, and a **runner** per
