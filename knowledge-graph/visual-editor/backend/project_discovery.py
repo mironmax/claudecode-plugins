@@ -4,13 +4,14 @@ Project discovery utilities for visual editor.
 The memory server is the single source of "what memory projects exist"
 (roadmap/tasks/08): discover_projects() asks its read-only GET /api/projects
 for every project graph under its storage root, for every harness, honoring
-KG_STORAGE_ROOT. A server that lacks the endpoint (older server) falls back,
-once per process, to the previous approach of scanning ~/.claude/projects/
-Claude Code history — which misses Codex-only projects, ignores
-KG_STORAGE_ROOT and can't tell a project's graph apart from an evaluation
-graph, but keeps the editor working.
+KG_STORAGE_ROOT. Against a server that lacks the endpoint (older server) or
+cannot be reached, it falls back to the previous approach of scanning
+~/.claude/projects/ Claude Code history — which misses Codex-only projects,
+ignores KG_STORAGE_ROOT and can't tell a project's graph apart from an
+evaluation graph, but keeps the editor working.
 """
 
+import json
 import logging
 import os
 from dataclasses import asdict, dataclass
@@ -25,11 +26,9 @@ logger = logging.getLogger(__name__)
 # the server, which resolves its own KG_STORAGE_ROOT).
 STORAGE_ROOT = Path(os.getenv("KG_STORAGE_ROOT", str(Path.home() / ".knowledge-graph")))
 
-MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8765")
-
 # Logged once per process, not once per request — the editor asks on every
 # page load, and repeating the warning on each one would just be noise.
-_fallback_warned = False
+_missing_route_warned = False
 
 
 @dataclass
@@ -59,8 +58,6 @@ def decode_claude_project_path_from_cwd(project_dir: Path) -> Path | None:
     Returns:
         Decoded project path or None if no sessions found
     """
-    import json
-
     # Find any .jsonl file (not agent-)
     session_files = [f for f in project_dir.glob("*.jsonl")
                      if not f.name.startswith("agent-")]
@@ -147,7 +144,6 @@ def load_graph_stats(project_path: Path) -> tuple[bool, Optional[int], Optional[
         return False, None, None
 
     try:
-        import json
         data = json.loads(graph_path.read_text())
         nodes = data.get("nodes", {})
         edges = data.get("edges", {})
@@ -159,17 +155,25 @@ def load_graph_stats(project_path: Path) -> tuple[bool, Optional[int], Optional[
         return True, None, None
 
 
-async def _fetch_server_projects() -> list[dict] | None:
+async def _fetch_server_projects(server_url: str) -> list[dict] | None:
     """GET /api/projects from the memory server, or None when it can't be
     used — the route is missing (older server) or the server is unreachable.
     Either way the caller falls back to scanning Claude Code history."""
+    global _missing_route_warned
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(f"{MCP_SERVER_URL}/api/projects")
+            response = await client.get(f"{server_url}/api/projects")
     except httpx.HTTPError as e:
         logger.warning(f"Cannot reach MCP server for project listing: {e}")
         return None
     if response.status_code == 404:
+        if not _missing_route_warned:
+            logger.warning(
+                "MCP server has no GET /api/projects (older server) — falling back "
+                "to scanning ~/.claude/projects/ history. Restart the MCP server "
+                "after updating the plugin to pick up the new endpoint."
+            )
+            _missing_route_warned = True
         return None
     if response.status_code != 200:
         logger.warning(f"MCP server /api/projects returned {response.status_code}")
@@ -273,27 +277,17 @@ def _discover_projects_from_claude_history() -> list[dict]:
     return projects
 
 
-async def discover_projects() -> list[dict]:
-    """All memory projects the server stores, most recently used first.
+async def discover_projects(server_url: str) -> list[dict]:
+    """All memory projects the server at server_url stores, most recently
+    used first.
 
     Server-backed by default (works for every harness, honors
-    KG_STORAGE_ROOT); falls back once per process to scanning Claude Code
-    history when the server has no GET /api/projects route.
+    KG_STORAGE_ROOT); falls back to scanning Claude Code history when the
+    server lacks GET /api/projects or cannot be reached.
     """
-    global _fallback_warned
-
-    rows = await _fetch_server_projects()
+    rows = await _fetch_server_projects(server_url)
     if rows is not None:
         return _projects_from_server_rows(rows)
-
-    if not _fallback_warned:
-        logger.warning(
-            "MCP server has no GET /api/projects (older server) — falling back "
-            "to scanning ~/.claude/projects/ history. Restart the MCP server "
-            "after updating the plugin to pick up the new endpoint."
-        )
-        _fallback_warned = True
-
     return _discover_projects_from_claude_history()
 
 
@@ -303,7 +297,8 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
 
-    projects = asyncio.run(discover_projects())
+    projects = asyncio.run(discover_projects(
+        os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8765")))
 
     print(f"\nFound {len(projects)} projects:\n")
 

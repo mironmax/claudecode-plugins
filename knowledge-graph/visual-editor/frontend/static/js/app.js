@@ -458,25 +458,25 @@ function applyLevelFilter(data, graphLevel) {
 }
 
 // Default readable view (roadmap 08): active nodes plus their one-hop
-// neighbours. Orphaned nodes — even ones that qualify as a neighbour — stay
-// hidden unless showOrphaned is on; archived neighbours are kept (dimmed by
-// CSS). `full` view skips this entirely and is unaffected by showOrphaned,
-// since it already shows everything.
+// neighbours; archived neighbours are kept (dimmed by CSS). Orphaned nodes
+// are hidden, even as neighbours, unless showOrphaned is on — then every
+// orphan is added, not only those adjacent to an active node (most orphans
+// are not). `full` view skips this entirely, since it already shows everything.
 function applyDefaultViewFilter(levelData, showOrphaned) {
     const activeIds = new Set(
         levelData.nodes.filter(n => !n.archived && !n.orphaned).map(n => n.id)
     );
-    const neighbourIds = new Set();
+    const keepIds = new Set(activeIds);
     levelData.links.forEach(l => {
         const src = l.source.id || l.source;
         const tgt = l.target.id || l.target;
-        if (activeIds.has(src)) neighbourIds.add(tgt);
-        if (activeIds.has(tgt)) neighbourIds.add(src);
+        if (activeIds.has(src)) keepIds.add(tgt);
+        if (activeIds.has(tgt)) keepIds.add(src);
     });
 
-    const keepIds = new Set([...activeIds, ...neighbourIds]);
-    let nodes = levelData.nodes.filter(n => keepIds.has(n.id));
-    if (!showOrphaned) nodes = nodes.filter(n => !n.orphaned);
+    const nodes = levelData.nodes.filter(n =>
+        n.orphaned ? showOrphaned : keepIds.has(n.id)
+    );
 
     const nodeIdSet = new Set(nodes.map(n => n.id));
     const links = levelData.links.filter(l => {
