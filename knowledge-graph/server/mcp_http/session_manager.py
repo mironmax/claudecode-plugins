@@ -10,7 +10,8 @@ import time
 import uuid
 from functools import wraps
 from pathlib import Path
-from core.constants import SESSION_ID_LENGTH, SESSION_TTL_SECONDS, sessions_file_path, safe_project_path
+from core.constants import (SESSION_ID_LENGTH, SESSION_TTL_SECONDS, memory_project_root,
+                            safe_project_path, sessions_file_path)
 
 logger = logging.getLogger(__name__)
 
@@ -36,23 +37,35 @@ def safe_transcript_path(transcript_path: str) -> str | None:
     return resolved
 
 
-def recover_kg_sid_from_transcript(transcript_path: str) -> str | None:
-    """Last KG session id our renders left in a (possibly forked) transcript."""
-    resolved = safe_transcript_path(transcript_path)
-    if resolved is None:
-        return None
+def _scan_kg_sid(resolved: str, start: int = 0) -> tuple[str | None, int]:
+    """(last KG session id our renders left after byte `start`, resume offset).
+
+    The offset stops before an unfinished last line, so a later scan of the
+    same file rereads it once complete instead of skipping it.
+    """
     last = None
+    offset = start
     try:
-        with open(resolved, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                if "ession" not in line:
+        with open(resolved, "rb") as f:
+            f.seek(start)
+            for raw in f:
+                if raw.endswith(b"\n"):
+                    offset += len(raw)
+                if b"ession" not in raw:
                     continue
+                line = raw.decode("utf-8", errors="replace")
                 for pat in _KG_SID_PATTERNS:
                     for m in pat.finditer(line):
                         last = m.group(1)
     except OSError:
-        return None
-    return last
+        return None, start
+    return last, offset
+
+
+def recover_kg_sid_from_transcript(transcript_path: str) -> str | None:
+    """Last KG session id our renders left in a (possibly forked) transcript."""
+    resolved = safe_transcript_path(transcript_path)
+    return _scan_kg_sid(resolved)[0] if resolved else None
 
 
 def _locked(method):
@@ -70,6 +83,12 @@ class HTTPSessionManager:
     Sessions store project root paths (not graph file paths).
     The store layer resolves project roots to centralized graph paths.
 
+    A session registered without a project is user-only (scope "user"): it
+    reads and writes the user graph alone. A record recreated by
+    ensure_session also has no project but no scope either: it lost its
+    project, and kg_read asks for the cwd again instead of carrying on
+    without it.
+
     Thread-safe: request handlers, the store's saver thread and the chore
     dispatcher all touch _sessions, and an unlocked iteration racing a
     registration raises mid-loop. Every method takes the reentrant _lock;
@@ -80,6 +99,9 @@ class HTTPSessionManager:
         self.session_ttl = session_ttl
         self._lock = threading.RLock()
         self._sessions: dict[str, dict] = {}
+        # harness sid -> (transcript, bytes scanned, last KG sid found): an
+        # unbound session's hooks rescan only what the transcript gained.
+        self._transcript_scans: dict[str, tuple[str, int, str | None]] = {}
         self._sessions_file = sessions_file_path()
         self._load_sessions()
 
@@ -88,10 +110,12 @@ class HTTPSessionManager:
                  harness: str | None = None) -> dict:
         """
         Register a new session with optional project root path.
-        Returns {"session_id": str, "start_ts": float}.
+        Returns {"session_id": str, "start_ts": float, "project_path": str | None}.
 
         Args:
-            project_path: Absolute path to the project root directory.
+            project_path: Absolute path to the project root directory. None,
+                or a folder memory_project_root reads as no project, makes
+                the session user-only.
             claude_sid: Claude Code session id to bind — ambient hooks resolve
                 their KG session through this binding, so recall dedup follows
                 the actual session instead of "newest in project". Codex sends
@@ -103,22 +127,52 @@ class HTTPSessionManager:
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
         ts = time.time()
 
-        resolved_project_path = str(safe_project_path(project_path)) if project_path else None
+        root = memory_project_root(project_path) if project_path else None
 
         self._sessions[session_id] = {
             "start_ts": ts,
-            "project_path": resolved_project_path,
+            "project_path": root,
             "last_activity": ts,
             "op_count": 0,
         }
+        if root is None:
+            self._sessions[session_id]["scope"] = "user"
         if harness:
             self._sessions[session_id]["harness"] = harness
         if claude_sid:
             self.bind_claude_sid(session_id, claude_sid, save=False)
 
-        logger.info(f"Session registered: {session_id} (project: {resolved_project_path or 'none'})")
+        logger.info(f"Session registered: {session_id} (project: {root or 'none, user-only'})")
         self.save_sessions()  # Persist immediately so project_path survives restarts
-        return {"session_id": session_id, "start_ts": ts}
+        return {"session_id": session_id, "start_ts": ts, "project_path": root}
+
+    @_locked
+    def attach_project(self, session_id: str, cwd: str) -> str | None:
+        """Give a session without a project the one cwd selects; returns it.
+
+        The session keeps its id and everything it has already seen: a
+        user-only conversation that turns to a project, or one whose record a
+        restart lost, carries on rather than starting over. A cwd that selects
+        no project leaves it user-only. Raises ValueError outside home.
+        """
+        root = memory_project_root(cwd)
+        session = self._sessions[session_id]
+        session["project_path"] = root
+        if root:
+            session.pop("scope", None)
+        else:
+            session["scope"] = "user"
+        self.save_sessions()
+        return root
+
+    @staticmethod
+    def scope_matches(data: dict, cwd: str | None) -> bool:
+        """Is this session's memory scope the one cwd selects?"""
+        try:
+            root = memory_project_root(cwd) if cwd else None
+        except ValueError:
+            return False
+        return data.get("project_path") == root if root else data.get("scope") == "user"
 
     @_locked
     def bind_claude_sid(self, session_id: str, claude_sid: str, save: bool = True) -> None:
@@ -170,13 +224,61 @@ class HTTPSessionManager:
                 return (sid, data)
         return None
 
+    def resolve_hook_session(self, harness_sid: str | None, cwd: str | None,
+                             transcript_path: str | None = None) -> tuple[str, dict] | None:
+        """The KG session a hook event belongs to, or None.
+
+        A supplied harness id resolves to its own binding only, or to a
+        session its transcript proves it used: the id our kg_read footer left
+        there when no preload made the binding. Falling back to the newest
+        session in the project handed one conversation another's seen,
+        full-read and throttle state. Events without an id, from hooks older
+        than the binding, still resolve by project.
+        """
+        if not harness_sid:
+            return self.find_by_project_path(cwd) if cwd else None
+        hit = self.find_by_claude_sid(harness_sid)
+        if hit or not transcript_path:
+            return hit
+        cand = self._transcript_kg_sid(harness_sid, transcript_path)
+        with self._lock:
+            data = self._sessions.get(cand) if cand else None
+            # Bound elsewhere, or another scope: an id quoted from some other
+            # conversation, not this one's own session.
+            if data is None or data.get("claude_sid") or not self.scope_matches(data, cwd):
+                return None
+            self.bind_claude_sid(cand, harness_sid)
+            return cand, data
+
+    def _transcript_kg_sid(self, harness_sid: str, transcript_path: str) -> str | None:
+        """Last KG sid in the transcript, scanning only bytes new since last time."""
+        resolved = safe_transcript_path(transcript_path)
+        if resolved is None:
+            return None
+        with self._lock:
+            prev = self._transcript_scans.get(harness_sid)
+        start, last = (prev[1], prev[2]) if prev and prev[0] == resolved else (0, None)
+        try:
+            if os.path.getsize(resolved) < start:     # rewritten, not appended
+                start, last = 0, None
+        except OSError:
+            return None
+        found, offset = _scan_kg_sid(resolved, start)
+        last = found or last
+        with self._lock:
+            if len(self._transcript_scans) > 256:
+                self._transcript_scans.clear()
+            self._transcript_scans[harness_sid] = (resolved, offset, last)
+        return last
+
     @_locked
     def lookup(self, session_id: str) -> dict | None:
         """Return the session record if it exists — no auto-recovery, no mutation.
 
         kg_read uses this to decide whether a caller-supplied session_id can be
-        reused (it must exist AND carry a project_path). ensure_session would
-        silently create a path-less session here, which breaks project reads.
+        reused (it must exist AND carry a project_path or user-only scope).
+        ensure_session would silently create a path-less session here, which
+        breaks project reads.
         """
         return self._sessions.get(session_id)
 

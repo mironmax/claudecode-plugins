@@ -26,6 +26,7 @@ import threading
 import time
 
 from core.constants import (
+    FILE_RECALL_REASON,
     NUDGE_COOLDOWN_SECONDS,
     NUDGE_MAX_PER_SESSION,
     NUDGE_TARGET_COOLDOWN_SECONDS,
@@ -42,6 +43,7 @@ from core.constants import (
     TOOL_EVENT_WEB_MIN_COUNT,
     TOOL_EVENTS_MAX_KEYS,
     get_storage_root,
+    memory_project_root,
     project_graph_path,
     project_namespace,
     safe_project_path,
@@ -227,19 +229,19 @@ def _hit_record(r: dict) -> dict:
 
 
 def build_prompt_recall(store, session_manager, project_path: str, prompt: str,
-                        claude_sid: str | None = None) -> str | None:
+                        claude_sid: str | None = None,
+                        transcript_path: str | None = None) -> str | None:
     """Text to inject for this prompt, or None to let the random pools speak."""
-    # Resolve by the Claude session id the hook payload carries — concurrent
-    # sessions in one project must each track their OWN seen-set (newest-by-
-    # path made the older session read and poison the newer one's dedup
-    # state, observed live as mid-session session_id drift). Path lookup
-    # stays as fallback for sessions registered before the binding existed.
-    hit = session_manager.find_by_claude_sid(claude_sid) if claude_sid else None
+    # Concurrent sessions in one project must each track their OWN seen-set
+    # (newest-by-path made the older session read and poison the newer one's
+    # dedup state, observed live as mid-session session_id drift).
+    hit = session_manager.resolve_hook_session(claude_sid, project_path, transcript_path)
     if not hit:
-        hit = session_manager.find_by_project_path(project_path)
-    if not hit:
-        # No registered session — nothing to attribute a record to, and the
-        # server has no view of this prompt at all. Deliberately unlogged.
+        # A supplied id nothing resolves is the one silence worth a record:
+        # it is a session the server cannot see. No session and no id at all
+        # leaves nothing to attribute a record to.
+        if claude_sid:
+            log_recall("unresolved_session", project_path, claude_sid)
         return None
     sid, data = hit
 
@@ -571,29 +573,33 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
     """One PostToolUse event: file recall for a file the memory covers, else
     (Read/WebFetch/WebSearch only) count the target and maybe nudge capture.
     Never both in one response."""
-    project_path = payload.get("cwd")
+    cwd = payload.get("cwd")
     tool = payload.get("tool_name")
-    claude_sid = payload.get("session_id") or "unknown"
+    harness_sid = payload.get("session_id")
+    claude_sid = harness_sid or "unknown"
     tool_input = payload.get("tool_input") or {}
     if not isinstance(tool_input, dict):
         tool_input = {}
-    if not project_path or not tool:
+    if not cwd or not tool:
         return None
     try:
-        project_path = str(safe_project_path(project_path))
+        cwd = str(safe_project_path(cwd))
     except ValueError:
         return None  # outside home — not a graph-bearing project
+    hit = session_manager.resolve_hook_session(harness_sid, cwd, payload.get("transcript_path"))
 
     recall, covered, paths = None, False, []
     from .harness import from_transcript, profile
     harness = profile(from_transcript(payload.get("transcript_path")))
     try:
         from .file_recall import build_file_recall, file_targets
-        paths = file_targets(tool, tool_input, project_path,
-                             shell_cwd_known=harness.shell_cwd_known)
-        if paths:
-            recall, covered = build_file_recall(store, session_manager, project_path,
-                                                tool, paths, payload.get("session_id"))
+        paths = file_targets(tool, tool_input, cwd, shell_cwd_known=harness.shell_cwd_known)
+        if paths and hit:
+            recall, covered = build_file_recall(store, session_manager, hit, cwd,
+                                                tool, paths, harness_sid)
+        elif paths and harness_sid:
+            log_recall(FILE_RECALL_REASON, cwd, harness_sid,
+                       outcome="unresolved_session", tool=tool)
     except Exception:
         logger.exception("file recall failed")
 
@@ -605,6 +611,11 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
         return recall
     kind, target = extracted
 
+    # Capture counts live beside a project graph; a user-only scope has none
+    # to keep them in (and a count there would create the folder's storage).
+    project_path = hit[1].get("project_path") if hit else memory_project_root(cwd)
+    if not project_path:
+        return recall
     if kind == "read":
         needle = _normalize_file(target, project_path)
         if not needle:
@@ -625,11 +636,10 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
         entry["last_ts"] = now
 
         nudge = None
-        if not covered:
+        if not covered and hit:
             try:
-                nudge = _decide_nudge(store, session_manager, data, entry,
-                                      project_path, kind, needle, now,
-                                      claude_sid=claude_sid)
+                nudge = _decide_nudge(store, hit[0], data, entry,
+                                      project_path, kind, needle, now)
             except Exception:
                 logger.exception("tool_event nudge decision failed")
         _save_events(path, data)
@@ -637,8 +647,7 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
     return recall or nudge
 
 
-def _decide_nudge(store, session_manager, data, entry, project_path, kind, needle, now,
-                  claude_sid=None):
+def _decide_nudge(store, kg_sid, data, entry, project_path, kind, needle, now):
     threshold_met = (
         len(entry["sessions"]) >= TOOL_EVENT_FILE_MIN_SESSIONS
         if kind == "read"
@@ -648,13 +657,6 @@ def _decide_nudge(store, session_manager, data, entry, project_path, kind, needl
         return None
     if now - entry.get("nudged_ts", 0) < NUDGE_TARGET_COOLDOWN_SECONDS:
         return None
-
-    hit = session_manager.find_by_claude_sid(claude_sid) if claude_sid else None
-    if not hit:
-        hit = session_manager.find_by_project_path(project_path)
-    if not hit:
-        return None  # nobody in context to act on a nudge
-    kg_sid = hit[0]
 
     # Graphs load lazily; make sure the project graph is in memory before the
     # coverage scan (only reached on the rare threshold-met path).

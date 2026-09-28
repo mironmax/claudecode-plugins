@@ -76,7 +76,8 @@ def main():
               session_manager.find_by_claude_sid("cc-aaaa")[0] == sid_b)
         check("old holder unbound",
               session_manager._sessions[sid_a].get("claude_sid") is None)
-        session_manager.bind_claude_sid(sid_a, "cc-aaaa")  # restore for later
+        session_manager.bind_claude_sid(sid_a, "cc-aaaa")  # restore both for later
+        session_manager.bind_claude_sid(sid_b, "cc-bbbb")
 
         # --- 2. transcript recovery ------------------------------------------
         print("transcript recovery:")

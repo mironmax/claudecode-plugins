@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -491,6 +492,31 @@ def safe_project_path(project_root: str) -> Path:
     if not (resolved_str + "/").startswith(str(home) + "/"):
         raise ValueError(f"Project path must be within home directory: {resolved_str}")
     return Path(resolved_str)
+
+
+# A folderless Codex app chat runs in ~/Documents/Codex/<date>/<slug>. Matched
+# as that exact shape, never as everything under Documents/Codex: a folder the
+# user keeps there on purpose stays a project.
+_CODEX_SCRATCH = re.compile(r"Documents/Codex/\d{4}-\d{2}-\d{2}/[^/]+")
+
+
+def memory_project_root(cwd: str) -> str | None:
+    """The project whose memory a working directory selects, or None.
+
+    None is user-only scope: the home directory and a harness's per-chat
+    scratch folder are where a session lands when nobody chose a project, and
+    binding one would grow a graph for every chat. Once a graph exists there,
+    someone did choose it, so it stays a project. Raises ValueError outside home.
+
+    Looks only at the slug's own graph file: project_graph_path would read
+    every stored graph looking for a rename, and may migrate one.
+    """
+    root = safe_project_path(cwd)
+    home = Path.home().resolve()
+    if root == home or _CODEX_SCRATCH.fullmatch(str(root.relative_to(home))):
+        if not (get_storage_root() / "projects" / project_slug(str(root)) / "graph.json").exists():
+            return None
+    return str(root)
 
 
 def _safe_slug(slug: str) -> str:

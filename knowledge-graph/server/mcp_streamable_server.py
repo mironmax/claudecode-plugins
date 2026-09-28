@@ -65,6 +65,12 @@ connection_manager: ConnectionManager | None = None
 mcp_server: Server | None = None
 
 
+def _user_only_notice(session_id: str) -> str:
+    return (f"\n\nUser-only session: only the user graph is loaded, no project memory. "
+            f"If the work belongs to a project folder, kg_read(session_id='{session_id}', "
+            f"cwd='<project root>') attaches its memory to this session.")
+
+
 def _mcp_requirement() -> str:
     """The declared mcp range, read from requirements.txt.
 
@@ -128,13 +134,13 @@ def create_mcp_server() -> Server:
         return [
             Tool(
                 name="kg_read",
-                description="Read the knowledge graph. First call: pass cwd to initialize the session — the result includes session_id; pass that session_id on every later call (cwd then optional). Without id/ids: full graph — active nodes (gist), archived anchors (id only), live edges — always fits inline. With id or ids: full node content (gist + notes + touches + the node's edges); archived nodes get promoted to active. Reading several related nodes via ids in ONE call is cheaper than sequential single reads.",
+                description="Read the knowledge graph. First call: pass cwd to initialize the session (no cwd: user memory only) — the result includes session_id; pass that session_id on every later call (cwd then optional). Without id/ids: full graph — active nodes (gist), archived anchors (id only), live edges — always fits inline. With id or ids: full node content (gist + notes + touches + the node's edges); archived nodes get promoted to active. Reading several related nodes via ids in ONE call is cheaper than sequential single reads.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "cwd": {
                             "type": "string",
-                            "description": "Project root directory. Required on the FIRST call (initializes session, loads project graph). Optional afterwards when session_id is passed."
+                            "description": "Project root directory. On the FIRST call it initializes the session and loads the project graph; omitted, the session is user-only. With a user-only session_id, attaches that project. Optional afterwards."
                         },
                         "session_id": {
                             "type": "string",
@@ -401,32 +407,46 @@ def create_mcp_server() -> Server:
 
                 # Resolve the session. A valid caller-supplied session_id is
                 # reused as-is — no re-registration, no sessions.json fsync per
-                # crumb read. Only the true first call (cwd, no session) mints a
-                # session. lookup() is deliberately non-mutating: an unknown or
-                # path-less session_id falls through to cwd registration rather
-                # than being silently auto-created without a project path.
+                # crumb read. Only a true first call (no session) mints one:
+                # with cwd for that project, without it user-only. lookup() is
+                # deliberately non-mutating: a record ensure_session recreated
+                # has lost its project and carries on only once cwd names it.
                 session_id = None
                 notice = ""
-                if sid_arg:
-                    info = session_manager.lookup(sid_arg)
-                    if info and info.get("project_path"):
+                info = session_manager.lookup(sid_arg) if sid_arg else None
+                if info is not None:
+                    bound = info.get("project_path")
+                    if cwd and not bound:
+                        root = session_manager.attach_project(sid_arg, cwd)
+                        notice = (f"\n\nProject memory attached: {root}." if root
+                                  else _user_only_notice(sid_arg))
+                    elif cwd and bound:
+                        # Never re-bound: seen-state must not carry across projects.
+                        root = str(Path(cwd).resolve())
+                        if not (root + "/").startswith(bound + "/"):
+                            notice = (f"\n\nThis session stays bound to {bound}; cwd {root} "
+                                      f"was ignored. For memory of {root}, start a separate "
+                                      f"session: kg_read(cwd='{root}') without session_id.")
+                    if info.get("project_path") or info.get("scope") == "user":
                         session_id = sid_arg
                         session_manager.increment_ops(session_id)
                 if not session_id:
-                    if not cwd:
+                    if sid_arg and not cwd:
                         return [TextContent(
                             type="text",
-                            text="Error: pass cwd on the first kg_read call (or a valid session_id from it)."
+                            text=f"Error: session_id '{sid_arg}' is unknown or lost its "
+                                 "project — pass cwd=<project root> with it."
                         )]
-                    project_root = str(Path(cwd).resolve())
+                    result = session_manager.register(cwd, harness=client)
+                    session_id = result["session_id"]
                     # A first call with cwd means no preload reached this
-                    # session. Missing project-wide hook evidence warrants a
+                    # session. Missing hook evidence for its scope warrants a
                     # trust hint, not a claim about this session's hook state.
                     hint = harness.profile(client).no_hooks_hint
-                    if hint and not session_manager.hooks_seen(project_root, client):
+                    if cwd and hint and not session_manager.hooks_seen(result["project_path"], client):
                         notice = "\n\n" + hint
-                    result = session_manager.register(project_root, harness=client)
-                    session_id = result["session_id"]
+                    if not result["project_path"]:
+                        notice += _user_only_notice(session_id)
 
                 # Single or batch node read — full content, compact text.
                 ids = list(node_ids) if node_ids else ([node_id] if node_id else None)

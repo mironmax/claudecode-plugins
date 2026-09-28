@@ -171,7 +171,12 @@ def main():
         out = build_prompt_recall(store, session_manager, "/nonexistent/project",
                                   "hello", claude_sid="cc-unknown")
         check("no session -> no injection", out is None)
-        check("no session -> no record", read_log() == [], read_log())
+        log = read_log()
+        check("unresolved harness id -> one record, no kg session",
+              [(r["reason"], r["kg_session"]) for r in log] == [("unresolved_session", None)], log)
+        clear_log()
+        build_prompt_recall(store, session_manager, "/nonexistent/project", "hello")
+        check("no id, no session -> no record", read_log() == [], read_log())
 
         # --- 4. rotation ------------------------------------------------------
         print("rotation:")

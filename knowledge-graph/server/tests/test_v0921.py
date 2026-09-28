@@ -91,7 +91,7 @@ def test_session_full_read_tracking():
         from mcp_http.session_manager import HTTPSessionManager
 
         mgr = HTTPSessionManager()
-        home = str(Path.home())
+        home = str(Path.home() / "kg-test-v0921-project")   # never created
         sid = mgr.register(home)["session_id"]
 
         check("fresh session has no full read", not mgr.has_full_read(sid))

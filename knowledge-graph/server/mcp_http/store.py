@@ -325,7 +325,11 @@ class MultiProjectGraphStore:
 
             project_root = self.session_manager.get_project_path(session_id)
             if not project_root:
-                raise ValueError(f"Session {session_id} has no project_path registered")
+                # Never redirected to the user graph: the caller chose a level.
+                raise ValueError(
+                    f"Session {session_id} has no project. To write project memory, first "
+                    f"attach one: kg_read(session_id='{session_id}', cwd='<project root>'). "
+                    "Cross-project knowledge belongs at level='user'.")
 
             return project_namespace(project_root)
 

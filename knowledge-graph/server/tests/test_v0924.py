@@ -145,13 +145,17 @@ def main():
         check("same-session re-read still silent (1 distinct)",
               read_event(target, "cs1") is None)
 
+        # A nudge reaches only a session the event's harness id is bound to.
+        session_manager.bind_claude_sid(sid, "cs2")
         nudge = read_event(target, "cs2")
         check("2nd distinct session nudges", nudge is not None and "src/engine.py" in nudge,
               nudge)
         check("nudge names the kg session", nudge and sid in nudge, nudge)
         check("nudge suggests kg_put_node", nudge and "kg_put_node" in nudge)
+        session_manager.bind_claude_sid(sid, "cs3")
         check("same target re-nudge blocked (target cooldown)",
               read_event(target, "cs3") is None)
+        session_manager.bind_claude_sid(sid, "cs2")
 
         ev_path = _events_path(project_dir)
         data = json.loads(ev_path.read_text())
@@ -164,7 +168,8 @@ def main():
                        gist="engine core", touches=["src/other.py"], session_id=sid)
         covered = os.path.join(project_dir, "src", "other.py")
         read_event(covered, "cs1")
-        check("covered target never nudges", read_event(covered, "cs2") is None)
+        check("covered target never nudges",
+              "KG capture" not in (read_event(covered, "cs2") or ""))
 
         # Session throttle: clear cooldown, exhaust the per-session budget.
         data = json.loads(ev_path.read_text())
@@ -192,6 +197,7 @@ def main():
                 "cwd": project_dir, "tool_name": "WebFetch",
                 "session_id": "cs1", "tool_input": {"url": url}})
 
+        session_manager.bind_claude_sid(sid, "cs1")
         check("first fetch silent", web_event("https://docs.example.com/api") is None)
         wn = web_event("https://docs.example.com/api")
         check("2nd fetch of same URL nudges",
@@ -223,6 +229,7 @@ def main():
         data["throttle"] = {}
         ev_path.write_text(json.dumps(data))
         t4 = os.path.join(project_dir, "src", "fourth.py")
+        session_manager.bind_claude_sid(sid, "csB")
         client.post("/api/tool_event", json={
             "cwd": project_dir, "tool_name": "Read", "session_id": "csA",
             "tool_input": {"file_path": t4}})

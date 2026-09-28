@@ -17,7 +17,7 @@ import time
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from core.constants import project_namespace, safe_project_path
+from core.constants import project_namespace
 from core.exceptions import KGError, NodeNotFoundError, SessionNotFoundError
 from .security import origin_allowed
 
@@ -134,11 +134,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 cand = recover_kg_sid_from_transcript(transcript_path)
                 if cand:
                     data = session_manager.lookup(cand)
-                    try:
-                        resolved = str(safe_project_path(project_path))
-                    except ValueError:
-                        resolved = None
-                    if data and resolved and data.get("project_path") == resolved:
+                    if data and session_manager.scope_matches(data, project_path):
                         # Still bound to another Claude session: that one may
                         # be alive (a fork), so it keeps the original record.
                         if claude_session_id and data.get("claude_sid") not in (None, claude_session_id):
@@ -265,11 +261,15 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         # in use — the only moment a maintenance chore both can and should
         # run. Considered off the request thread: the hook allows itself one
         # second for the whole round trip, and the decision reads graphs.
+        # The project candidate is the session's memory scope, never the raw
+        # cwd: a user-only session must not offer its folder for gardening.
         try:
             if chore_dispatch.enabled():
+                hit = session_manager.resolve_hook_session(
+                    payload.get("session_id"), payload.get("cwd"), payload.get("transcript_path"))
                 threading.Thread(
                     target=chore_dispatch.maybe_dispatch,
-                    args=(store, session_manager, payload.get("cwd") or None),
+                    args=(store, session_manager, hit[1].get("project_path") if hit else None),
                     daemon=True, name="kg-chore-dispatch",
                 ).start()
         except Exception:
@@ -280,6 +280,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 store, session_manager,
                 payload.get("cwd") or "", payload.get("prompt") or "",
                 claude_sid=payload.get("session_id"),
+                transcript_path=payload.get("transcript_path"),
             )
         except Exception:
             logger.exception("prompt_context failed")

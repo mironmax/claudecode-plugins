@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Changed
+- **Sessions without a project are user-only, and everything obeys that scope.** `kg_read()` without cwd opens a user-only session (Claude Desktop chat has no folder to give); the home directory and a folderless Codex app chat (`~/Documents/Codex/<date>/<slug>`) are user-only too, unless a graph already exists there. Such a session is reused by its id, refuses project writes with the call that attaches a project, and attaches one when a later `kg_read` passes cwd, keeping its id and what it has seen. A session bound to a project ignores a different cwd and says so. File recall, capture counting and maintenance follow the session's scope instead of the hook's cwd, so a home-directory session no longer loads, counts into or offers a project graph for its folder.
+
+### Fixed
+- A hook event whose harness session id matches no KG session no longer borrows the newest session in the project (its seen-set, full-read state and nudge throttle). It resolves only through its own binding, or through a session id its transcript shows it used; otherwise recall.jsonl records `unresolved_session`. Events without any id, from older hooks, keep the project fallback.
+
 ## [0.10.2] - 2026-09-27
 
 ### Fixed

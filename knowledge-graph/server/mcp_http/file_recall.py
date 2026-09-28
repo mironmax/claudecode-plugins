@@ -331,17 +331,19 @@ def reset_throttle() -> None:
 # Recall
 # --------------------------------------------------------------------------
 
-def _matches(store, root: str, needles: list[str], seen: set) -> list[dict]:
+def _matches(store, root: str | None, needles: list[str], seen: set) -> list[dict]:
     """Node records for every live node touching one of the files, project
-    graph first, in file order."""
-    proj_key = project_namespace(root)
+    graph first, in file order. No root: user-only scope, user graph alone."""
+    graphs = [("user", "user")]
     with store.lock:
-        try:
-            store._ensure_project_loaded(root)
-        except Exception:
-            logger.debug("file recall: project graph not loadable", exc_info=True)
+        if root:
+            graphs.insert(0, (project_namespace(root), "project"))
+            try:
+                store._ensure_project_loaded(root)
+            except Exception:
+                logger.debug("file recall: project graph not loadable", exc_info=True)
         found: dict[str, dict] = {}
-        for graph_key, level in ((proj_key, "project"), ("user", "user")):
+        for graph_key, level in graphs:
             graph = store.graphs.get(graph_key)
             if graph is None:
                 continue
@@ -391,23 +393,21 @@ def _node_record(r: dict) -> dict:
             "archived": r["archived"], "file": r["file"]}
 
 
-def build_file_recall(store, session_manager, project_path: str, tool: str,
-                      paths: list[str], claude_sid: str | None = None
+def build_file_recall(store, session_manager, hit: tuple[str, dict], project_path: str,
+                      tool: str, paths: list[str], claude_sid: str | None = None
                       ) -> tuple[str | None, bool]:
     """(text to inject or None, whether any node covers these files).
 
-    project_path is the hook's cwd; relative touches resolve against the
-    session's registered project root. Every decision for a registered
-    session is logged, silences included.
+    hit is the event's resolved (kg sid, session record); project_path is the
+    hook's cwd, logged as such. Relative touches resolve against the session's
+    project root — never against the cwd, which would load whatever graph the
+    folder names into a user-only session. Every decision is logged, silences
+    included.
     """
-    hit = session_manager.find_by_claude_sid(claude_sid) if claude_sid else None
-    if not hit:
-        hit = session_manager.find_by_project_path(project_path)
-    if not hit:
-        return None, False
     sid, data = hit
-    root = data.get("project_path") or project_path
-    needles = list(dict.fromkeys(file_key(p, root) for p in paths))
+    root = data.get("project_path")
+    needles = list(dict.fromkeys(file_key(p, root) if root else os.path.realpath(p)
+                                 for p in paths))
     seen = session_manager.get_seen(sid)
     viewed_at = time.time()
     matches = _matches(store, root, needles, seen)

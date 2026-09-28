@@ -214,7 +214,7 @@ def test_session_reuse():
             check("lookup unknown id returns None (no auto-create)", sm.lookup("nope1234") is None)
             check("lookup did not create the session", sm.count() == 0)
 
-            reg = sm.register(os.path.expanduser("~"))
+            reg = sm.register(tmp)
             sid = reg["session_id"]
             info = sm.lookup(sid)
             check("lookup finds registered session with path", info is not None and info["project_path"])
