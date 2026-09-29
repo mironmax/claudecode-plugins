@@ -249,9 +249,11 @@ at 256 KiB and 2,048 records, checks a 50 ms elapsed budget, and caches up to
 16 snapshots by file identity, size and modification metadata. It accepts local
 absolute paths or local file URIs, rejects conflicting/missing/incomplete evidence,
 and never evaluates rollout JavaScript. Execution cwd changes path resolution,
-not the memory session's project scope. Shell logs include resolution source,
-reason and elapsed time; unsupported commands, unresolved cwd and ambiguous calls
-remain distinguishable without retaining commands. `nl` and `rg` accept explicit
+not the memory session's project scope. A partial last line is skipped as a
+later record still being written. Shell recall records carry resolution source,
+reason and elapsed time, never the command; a Bash call with no file to recall
+is logged only when a relative operand could not be placed (`unresolved_cwd`,
+`ambiguous_call`). `nl` and `rg` accept explicit
 existing file operands with recognized options; directory expansion is excluded.
 
 Precision is the design constraint on this whole loop: an ambient channel that

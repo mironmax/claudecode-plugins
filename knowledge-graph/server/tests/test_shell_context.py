@@ -270,12 +270,17 @@ class HookTests(Files):
         self.assertIn("memory-b", json.dumps(response))
         self.assertEqual(self.last_log()["cwd_source"], "explicit_workdir")
 
-    def test_unsupported_commands_have_compact_diagnostics(self):
+    def test_unsupported_commands_write_no_log_line(self):
+        log = Path(_storage.name) / "recall.jsonl"
+        before = log.read_text() if log.exists() else ""
         self.assertEqual(self.post(tool_input={"command": "echo nothing-to-recall"}), {})
-        log = self.last_log()
-        self.assertEqual(log["outcome"], "unsupported_command")
-        self.assertIn("cwd_elapsed_ms", log)
-        self.assertNotIn("nothing-to-recall", json.dumps(log))
+        self.assertEqual(log.read_text() if log.exists() else "", before)
+
+    def test_a_partial_last_line_does_not_hide_a_completed_call(self):
+        self.write_records(completion("exec-a", (self.root / "a").as_uri()))
+        with self.transcript.open("a") as f:
+            f.write(json.dumps(completion("exec-b", self.root.as_uri()))[:30])
+        self.assertEqual(self.resolve().cwd, str(self.root / "a"))
 
 
 if __name__ == "__main__":

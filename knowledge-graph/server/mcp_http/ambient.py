@@ -608,10 +608,10 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
         elif paths and harness_sid:
             log_recall(FILE_RECALL_REASON, cwd, harness_sid,
                        outcome="unresolved_session", tool=tool, **context)
-        elif tool == "Bash":
-            outcome = diagnostics.get("outcome", "no_files")
-            if outcome == "unresolved_cwd" and context.get("cwd_reason") == "ambiguous_call":
-                outcome = "ambiguous_call"
+        elif tool == "Bash" and diagnostics.get("outcome") == "unresolved_cwd":
+            # Only a relative read the cwd could not place is worth a line:
+            # every other Bash call would flood recall.jsonl with no signal.
+            outcome = "ambiguous_call" if context.get("cwd_reason") == "ambiguous_call" else "unresolved_cwd"
             log_recall(FILE_RECALL_REASON, cwd, harness_sid, hit[0] if hit else None,
                        outcome=outcome, tool=tool, **context)
     except Exception:

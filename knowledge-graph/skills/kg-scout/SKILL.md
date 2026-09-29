@@ -41,7 +41,7 @@ kg_progress(session_id, task_id="scout")  # Check where you left off
 Resolve the history root from `CODEX_HOME`, falling back to `~/.codex`.
 `history.jsonl` is an optional prompt index, not a complete history of app
 sessions. Enumerate `sessions/**/rollout-*.jsonl`; read `session_meta` for
-`id` (or `session_id`), `cwd`, originator and version. Filter projects using
+`id` (or `session_id`), `cwd`, `originator` and `cli_version`. Filter projects using
 that cwd, never the date directories or a path guessed from the filename.
 Keep the memory session bound to the requested project even while reading
 another project's history. If metadata is missing or conflicting, report

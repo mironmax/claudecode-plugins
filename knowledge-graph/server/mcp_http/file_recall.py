@@ -259,8 +259,6 @@ def bash_read_files(command: str, cwd: str | None, *, diagnostics: dict | None =
     relative operands only while no `cd` has run, and only paths that exist
     as regular files. Missing a file is fine; inventing one is not.
     """
-    if diagnostics is not None:
-        diagnostics["outcome"] = "unsupported_command"
     if not isinstance(command, str) or "<<" in command:
         return []
     tokens = _lex(command)
@@ -276,7 +274,7 @@ def bash_read_files(command: str, cwd: str | None, *, diagnostics: dict | None =
     segments.append(cur)
 
     found: list[str] = []
-    supported, unresolved = False, False
+    unresolved = False
     moved = False                      # a cd ran: relative operands are ambiguous
     for seg in segments:
         words, redirect_in = [], []
@@ -307,7 +305,6 @@ def bash_read_files(command: str, cwd: str | None, *, diagnostics: dict | None =
         operands = _operands(cmd, words[1:])
         if operands is None:
             continue
-        supported = True
         for op in operands + redirect_in:
             if op == "-" or not op or _UNSAFE_CHARS & set(op):
                 continue
@@ -323,9 +320,8 @@ def bash_read_files(command: str, cwd: str | None, *, diagnostics: dict | None =
                 found.append(path)
             if len(found) >= FILE_RECALL_MAX_BASH_FILES:
                 return found
-    if diagnostics is not None:
-        diagnostics["outcome"] = ("unresolved_cwd" if unresolved else
-                                  "no_files" if supported else "unsupported_command")
+    if diagnostics is not None and unresolved:
+        diagnostics["outcome"] = "unresolved_cwd"
     return found
 
 

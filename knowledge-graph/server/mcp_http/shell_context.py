@@ -84,8 +84,9 @@ def _snapshot(filename, deadline):
             return None, "transcript_changed"
     if start:
         data = data.partition(b"\n")[2]  # first line may begin outside the tail
-    if data and not data.endswith(b"\n"):
-        return None, "incomplete_record"
+    # A partial last line is a later record still being written; the call a
+    # hook reports completed before the hook fired.
+    data = data[:data.rfind(b"\n") + 1]
     lines = data.splitlines()
     if len(lines) > MAX_RECORDS:
         return None, "record_limit"
