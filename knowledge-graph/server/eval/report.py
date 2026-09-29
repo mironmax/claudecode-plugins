@@ -193,6 +193,10 @@ def format_text(rep: dict) -> str:
         out.append(f"Descriptive — {proj}")
         out.extend(_desc_lines(d))
 
+    if "followthrough" in rep:
+        from .followthrough import format_followthrough
+        out.extend(format_followthrough(rep["followthrough"]))
+
     rp = rep.get("replay")
     if rp:
         out.append("")
@@ -242,7 +246,8 @@ def format_text(rep: dict) -> str:
 # --------------------------------------------------------------------------
 
 def build_report(root, recall_path=None, useful_path=None, since=None, until=None,
-                 variants=("baseline",)) -> dict:
+                 variants=("baseline",), *, transcripts=False, claude_projects=None,
+                 codex_home=None) -> dict:
     """The whole report as a JSON-ready dict. Replay runs when a storage
     root is given; the baseline always runs first, since every other variant
     is compared against it."""
@@ -250,11 +255,12 @@ def build_report(root, recall_path=None, useful_path=None, since=None, until=Non
     from .replay import Replayer, score_variant, seen_agreement
 
     skipped: dict = {}
-    recall, useful = load_logs(root, recall_path, useful_path, since, until, skipped)
+    recall, useful = load_logs(root, recall_path, useful_path, since, until, skipped,
+                              references=transcripts)
     # Unwindowed logs: a session's registered project, and whether it was
     # still active once the endorsement log began (the log runs for every
     # project at once), do not depend on the window.
-    all_recall, all_useful = load_logs(root, recall_path, useful_path)
+    all_recall, all_useful = load_logs(root, recall_path, useful_path, references=transcripts)
     log_start = min((u.get("ts") or 0 for u in all_useful), default=None)
     logged_sessions = set() if log_start is None else {
         r.get("kg_session") for r in all_recall + all_useful if (r.get("ts") or 0) >= log_start}
@@ -270,6 +276,11 @@ def build_report(root, recall_path=None, useful_path=None, since=None, until=Non
         "descriptive": describe(recall, useful, logged_sessions),
         "caveats": CAVEATS,
     }
+    if transcripts:
+        from .followthrough import build_followthrough
+        rep["followthrough"] = build_followthrough(
+            history, recall, useful, session_projects(root, all_useful), all_useful=all_useful,
+            until=until, claude_projects=claude_projects, codex_home=codex_home)
     if root is None:
         rep["replay_skipped"] = "no storage root, so no graphs to replay against"
         return rep

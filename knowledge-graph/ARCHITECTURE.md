@@ -351,6 +351,45 @@ are not replayed. The descriptive block reports them on their own line, apart
 from the prompt statistics; what they injected counts as seen in the
 reconstructed seen-set, from the record's time on.
 
+`--transcripts` adds an optional **Activity after staged recall** block.
+It reads Claude Code transcripts from `~/.claude/projects` and Codex rollouts
+from `${CODEX_HOME:-~/.codex}/sessions`; `--claude-projects` and `--codex-home`
+can override those roots. Without the flag the evaluator remains log-only,
+with the same output. `--json` includes private per-exposure evidence paths
+and line numbers, so keep that output local.
+
+The unit is a recall event × graph level × node. Prompt and file routes,
+harnesses, unseen injections, seen anchors, all-seen file candidates and
+throttled unseen candidates are counted separately, with distinct
+session/node and session/level/node counts alongside repeated exposures.
+The window covers the current response and two later human requests, ending
+before the third later request or after 30 minutes; a five-minute view uses
+the same boundary. Tool decisions already underway at injection are excluded,
+including the file operation that triggered a PostToolUse hook.
+
+Signals are explicit `kg_read(id/ids)` requests, exact ids or unique eight-word
+historical gist spans in assistant prose, exact-level `kg_put_node` requests,
+and accepted exact-session/level endorsements in `useful.jsonl`. Later exact
+touched-path read/edit requests and recorded completions are counted apart:
+ongoing work often involves those files regardless of recall. Requests do
+not prove success. Literal search operands can name directories; matches
+remain exact and do not expand to descendants. A completion means the tool
+finished, not that a particular file's contents were read. Tool results,
+injected context, summaries, replay and
+inherited fork prefixes do not count as model-use prose. Codex adapters use
+structured completed calls and exact ids, deduplicate UI copies, never execute
+JavaScript, and leave ambiguous parallel completions unknown.
+
+Missing/ambiguous transcripts, no later activity, unknown operations, and
+missing historical nodes are coverage gaps, not negative labels. Gists and
+touches come only from known or approximate git snapshots; current graphs
+never substitute for missing history. Rates name their observable denominator,
+and endorsement windows predating the endorsement log are censored. The
+combined memory-specific rate uses windows observable for every constituent
+signal; positive counts outside that denominator remain visible. These
+are descriptive associations: the cohorts have different selection, repeated
+windows overlap, and none of the comparisons estimates causal benefit.
+
 It is read-only: logs and graph files are only read, git only through
 `log`/`show` with optional locks off, and nothing it imports starts the
 server.

@@ -11,7 +11,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.constants import RECALL_LOG_NAME, USEFUL_LOG_NAME, project_slug
+from core.constants import FILE_RECALL_REASON, RECALL_LOG_NAME, USEFUL_LOG_NAME, project_slug
 from core.persistence import GraphPersistence
 
 # Graph state labels, strongest first. "known": git history proves the file
@@ -21,6 +21,15 @@ from core.persistence import GraphPersistence
 KNOWN, APPROX, CURRENT = "known", "approx", "current"
 
 USER_GRAPH_REL = "user.json"
+
+
+def records_of(value) -> list[dict]:
+    """A logged list of node records, tolerating null and junk entries."""
+    return [x for x in value if isinstance(x, dict)] if isinstance(value, list) else []
+
+
+def is_file_record(record: dict) -> bool:
+    return record.get("reason") == FILE_RECALL_REASON
 
 
 def project_graph_rel(project_path: str) -> str | None:
@@ -47,7 +56,7 @@ def parse_time(value: str | None) -> float | None:
     return dt.timestamp()
 
 
-def read_jsonl(path: Path, skipped: list | None = None) -> list[dict]:
+def read_jsonl(path: Path, skipped: list | None = None, *, references=False) -> list[dict]:
     """Records of one log and its rotated .prev, oldest first.
 
     Lines that are not a JSON object with a numeric ts are skipped (and
@@ -61,7 +70,7 @@ def read_jsonl(path: Path, skipped: list | None = None) -> list[dict]:
             text = p.read_text(encoding="utf-8")
         except (FileNotFoundError, IsADirectoryError):
             continue
-        for line in text.splitlines():
+        for lineno, line in enumerate(text.splitlines(), 1):
             line = line.strip()
             if not line:
                 continue
@@ -71,6 +80,8 @@ def read_jsonl(path: Path, skipped: list | None = None) -> list[dict]:
                 rec = None
             ts = rec.get("ts") if isinstance(rec, dict) else None
             if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+                if references:
+                    rec["_source"] = {"file": str(p), "line": lineno}
                 records.append(rec)
             else:
                 bad += 1
@@ -87,7 +98,7 @@ def in_window(rec: dict, since: float | None, until: float | None) -> bool:
 
 def load_logs(root: Path | None, recall_path: Path | None = None,
               useful_path: Path | None = None, since: float | None = None,
-              until: float | None = None, skipped: dict | None = None
+              until: float | None = None, skipped: dict | None = None, *, references=False
               ) -> tuple[list[dict], list[dict]]:
     """(recall records, useful records) inside the window. Explicit paths
     win over the storage root's default file names. Unreadable line counts
@@ -96,8 +107,8 @@ def load_logs(root: Path | None, recall_path: Path | None = None,
     useful_path = useful_path or (root / USEFUL_LOG_NAME if root else None)
     bad_r: list = []
     bad_u: list = []
-    recall = read_jsonl(recall_path, bad_r) if recall_path else []
-    useful = read_jsonl(useful_path, bad_u) if useful_path else []
+    recall = read_jsonl(recall_path, bad_r, references=references) if recall_path else []
+    useful = read_jsonl(useful_path, bad_u, references=references) if useful_path else []
     if skipped is not None:
         skipped.update(recall=sum(bad_r), useful=sum(bad_u))
     return ([r for r in recall if in_window(r, since, until)],

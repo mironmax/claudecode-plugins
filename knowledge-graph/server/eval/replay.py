@@ -19,10 +19,10 @@ gates, which is what "baseline reproduces production" has to mean.
 
 from collections import defaultdict
 
-from core.constants import FILE_RECALL_REASON
 from core.utils import active_node_ids
 
-from .data import KNOWN, GraphHistory, USER_GRAPH_REL, project_graph_rel
+from .data import (KNOWN, GraphHistory, USER_GRAPH_REL, is_file_record,
+                   project_graph_rel, records_of)
 from .variants import Graphs, baseline_decision, resolve
 
 # Records that carry the terms the ranking saw. File recall records carry
@@ -34,18 +34,9 @@ DUG_UP_VIAS = ("search", "read", None)
 MISMATCH_EXAMPLES = 5
 
 
-def records_of(value) -> list[dict]:
-    """A logged list of node records, tolerating null and junk entries."""
-    return [x for x in value if isinstance(x, dict)] if isinstance(value, list) else []
-
-
 def _ids(recs, only_unseen=False):
     return [r.get("id") for r in records_of(recs)
             if r.get("id") and not (only_unseen and r.get("seen"))]
-
-
-def is_file_record(r: dict) -> bool:
-    return r.get("reason") == FILE_RECALL_REASON
 
 
 def file_injected_ids(r: dict) -> list:

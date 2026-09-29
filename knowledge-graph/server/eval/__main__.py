@@ -29,7 +29,15 @@ def main(argv=None) -> int:
                     help=f"variant to replay besides the baseline; repeatable. "
                          f"Registered: {', '.join(sorted(REGISTRY))}; or module:function")
     ap.add_argument("--json", action="store_true", help="machine-readable output")
+    ap.add_argument("--transcripts", action="store_true",
+                    help="opt in to a local, private report of activity after recall")
+    ap.add_argument("--claude-projects", type=Path,
+                    help="Claude transcript root (default: ~/.claude/projects; requires --transcripts)")
+    ap.add_argument("--codex-home", type=Path,
+                    help="Codex history root (default: CODEX_HOME or ~/.codex; requires --transcripts)")
     args = ap.parse_args(argv)
+    if not args.transcripts and (args.claude_projects or args.codex_home):
+        ap.error("transcript paths require --transcripts")
 
     root = None if args.no_root else (args.root or get_storage_root()).expanduser()
     if root is not None and not root.is_dir():
@@ -38,7 +46,8 @@ def main(argv=None) -> int:
     try:
         rep = build_report(root, args.recall, args.useful,
                            parse_time(args.since), parse_time(args.until),
-                           variants=args.variant)
+                           variants=args.variant, transcripts=args.transcripts,
+                           claude_projects=args.claude_projects, codex_home=args.codex_home)
     except (KeyError, ValueError, ImportError, AttributeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
