@@ -107,9 +107,9 @@ as unavailable, not reviewed.
 
 ## Tension-Driven Investigation
 
-Don't read full sessions blindly. Use history.jsonl to identify **tension signals**:
+Don't read full sessions blindly. Use the prompt index to identify **tension signals**:
 
-| Signal | What it looks like in history.jsonl | Action |
+| Signal | What it looks like in the prompt index | Action |
 |--------|-------------------------------------|--------|
 | Repetition | Same topic appears 3+ times | Deep-dive one session to capture pattern |
 | Correction | "no I meant", "that's wrong", "actually" | Check session for preference/clarification |
@@ -128,15 +128,24 @@ kg_progress(session_id, task_id="scout")
 For Claude history, continue from `last_ts`. For Codex, use the per-rollout
 cursor above. If empty, begin with a bounded inventory of the requested scope.
 
-### Step 2: Scan the chosen harness's prompt index
+### Step 2: Scan the prompt index
 
-Read `~/.claude/history.jsonl` (or tail recent lines if very large). Group by:
+- **Claude Code:** read `~/.claude/history.jsonl` (or tail recent lines if very large).
+- **Codex:** use the rollout inventory above: `session_meta` of each changed
+  rollout, then its genuine user prompts. Codex's `history.jsonl` is optional
+  and misses app sessions, so it is never the index on its own.
+
+Group by:
 - **Frequency:** Topics asked about repeatedly
 - **Tension signals:** Lines matching signal patterns above
 - **Recency:** Prioritize recent sessions
 
-Summarize the promising signals. Continue the requested investigation; ask for
-scope only when the user has not supplied enough to choose relevant sessions.
+**Checkpoint before deep-diving.** When the user is present, list the
+candidate sessions with their signal and rough size, and let the user choose
+which get a deep-dive: full transcripts are the expensive tier, and they may
+hold things the user would rather not have mined. Skip the checkpoint when the
+request already names specific sessions or a topic narrow enough to need only
+a few reads, and in unattended runs (below).
 
 ### Step 3: Selective Deep-Dive
 
@@ -184,6 +193,35 @@ kg_progress(session_id, task_id="scout", state={
 | Extract & create nodes | ~500 | Per session |
 
 **Total productive scout: 5-10k tokens.** Compare: blindly reading 10 sessions = 50-100k tokens, mostly noise.
+
+## Unattended runs
+
+Nobody is there to approve, so never stop to ask. Pick the deep-dives yourself
+from the tension table, strongest signal and most recent first, and record in
+the progress state what you chose and what you skipped, for later review.
+
+Quota is the brake instead. Read the runner's own gauge before the first
+deep-dive and again before each further session:
+- **Claude Code:** `jq . ~/.claude/last-limits.json`, which gives
+  `five_hour_pct`, `seven_day_pct` and `seven_day_resets_at`.
+- **Codex:** the newest `rate_limits` event in your own rollout. Its windows
+  are told apart by `window_minutes` (300 = 5h, 10080 = weekly), each with
+  `used_percent` and `resets_at`.
+
+Continue only while all three hold. These are the gates a maintenance pass uses:
+- 5h below 40%;
+- weekly below 70%;
+- weekly pace at most 1.0, where
+
+      pace = weekly_pct / (100 × fraction of the week elapsed)
+      fraction = 1 − (weekly resets_at − now) / 604800
+
+A pace at or under 1.0 means the week is on course to leave quota unused, and
+that surplus is what unattended mining may spend. Stop if the gauge is
+missing or unreadable, or if the pace cannot be computed yet (in the first
+~3 hours of a new week). When a gate fails, save the cursor and pending
+candidates (Step 5) before stopping. Never leave a session half-read without
+saving progress.
 
 ## When to Scout
 

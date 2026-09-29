@@ -1,65 +1,110 @@
-# Staged recall follow-through (proposal)
+# 10 — Staged recall follow-through
 
-Extend `knowledge-graph/server/eval/report.py` with an opt-in offline
-follow-through report. Endorsement alone misses observable uses of a recalled
-node. This measure describes subsequent activity; it cannot establish that
-recall caused that activity or improved the outcome.
+## Goal
 
-## Unit and window
+An opt-in offline report in the evaluation harness that says what a session
+did after recall showed it a memory: whether the agent read the node, used
+it, updated it or endorsed it. The report describes activity and makes no
+claim that recall caused it.
 
-Use one `(recall event, graph level, node id)` exposure. Keep prompt and file
-routes separate and report each harness separately. Report unseen injected
-nodes, already-seen anchors in the same injection, all-seen file candidates,
-and throttled unseen file candidates as distinct cohorts. These are descriptive
-comparisons, not randomized controls. Also summarize distinct session/node
-pairs so repeated or overlapping exposures cannot inflate apparent evidence.
+## Why
 
-Look forward through the current request/response cycle and two subsequent
-human requests, capped at 30 minutes. Include a five-minute sensitivity view.
-Exclude tools the assistant had already requested when the hook fired:
-PostToolUse cannot cause the triggering read or edit. Report transcript absence,
-ambiguous identity, missing future activity and unobservable operations
-explicitly; do not count these as negative evidence.
+Endorsements are the only usefulness signal the evaluator reads, and they
+barely credit staged recall. Of the 143 endorsements logged when the audit
+below began, 6 had first reached the session through prompt recall and 1
+through file recall. A local exploratory
+audit then looked at what followed each injection. It covered 447 injections
+(374 prompt, 73 file) over four weeks; 441 had a transcript. Within the next
+three human requests, capped at 30 minutes, it found:
 
-## Observable signals
+| Route | Cohort | Exposures | Memory-specific follow-through |
+|---|---|---:|---:|
+| Prompt, Claude Code | unseen, injected | 1,809 | 35 (1.9%) |
+| Prompt, Claude Code | already seen (anchor) | 1,399 | 66 (4.7%) |
+| Prompt, Codex | unseen, injected | 89 | 3 (3.4%) |
+| File, Claude Code | unseen, injected | 118 | 4 (3.4%) |
+| File, Claude Code | all seen, withheld | 341 | 50 (14.7%) |
+| File, Claude Code | throttled, withheld | 368 | 10 (2.7%) |
 
-- Exact node id in an explicit `kg_read(id/ids)` call.
-- Exact id or a distinctive historical gist phrase in assistant prose.
-- A requested read or edit of an exact historical touched path, with completion
-  status when the transcript records it. Label requested versus successful.
-- A `kg_put_node` update of that id.
-- Accepted endorsement from useful.jsonl, distinct from an endorsement request.
+So follow-through exists beyond endorsements, but it is sparse, and the
+comparison cohorts show activity too. The cohorts are selected differently,
+so none of this is causal. It still gives a far richer signal than 7
+endorsements, and the evaluator should compute it reproducibly instead of
+through a one-off script.
 
-Keep memory-specific signals separate from touched-file activity: a file may
-have been central to the task before recall, and multiple nodes may touch it.
-Gist/touches require historical graph state, with known/approx/current coverage
-reported separately. An unchanged filename or a current gist is not proof of
-what was injected. Exclude results, injected memories, replayed history,
-summaries and inherited fork prefixes from model-use signals. Report prior use
-of the same id and sensitivity to overlapping exposure windows.
+## Where things are
 
-## Inputs and integration
+- `knowledge-graph/server/eval/`: `__main__.py` (CLI: `--root`, `--recall`,
+  `--useful`, `--since`, `--until`, `--json`), `data.py` (`load_logs`,
+  `GraphHistory`, the graph as it stood at a given time), `report.py`
+  (`build_report`, `describe`, `format_text`), `replay.py` (`is_file_record`).
+- Inputs: `recall.jsonl` (reasons `injected` and `file_recall`; file outcomes
+  include `injected`, `all_seen` and `throttled`) and `useful.jsonl` (accepted
+  endorsements).
+- Transcripts. Claude Code: `~/.claude/projects/<encoded-path>/<session>.jsonl`,
+  where tool requests are assistant `tool_use` blocks. Codex:
+  `${CODEX_HOME:-~/.codex}/sessions/**/rollout-*.jsonl`, where completed
+  `CommandExecution`, `McpToolCall` and `FileChange` items describe inner
+  calls. The Codex recipe in `knowledge-graph/skills/kg-scout/SKILL.md`
+  documents the rollout format.
+- Tests: `knowledge-graph/server/tests/test_v0940.py` covers the evaluator.
 
-Add an explicit transcript-root option; default evaluation remains log-only.
-Resolve sessions by exact transcript/session identity, never newest-by-project.
-Claude tool requests come from assistant tool_use blocks. Codex completed
-CommandExecution/McpToolCall/FileChange items supply structured inner calls;
-parse direct JSON calls and never execute JavaScript wrappers. Deduplicate
-response and UI copies by ids, retain source file/line provenance, and mark
-unattributable calls unknown. Private transcripts and report details stay local.
+## What to build
 
-Return an optional `followthrough` block containing cohort counts, coverage,
-per-signal rates and evidence references. Render it under a clearly descriptive
-heading, alongside existing endorsement statistics. Reuse GraphHistory and
-log loaders without importing a live store or writing to storage.
+1. **Unit.** One exposure is (recall event, graph level, node id). Keep
+   prompt and file routes separate, and report each harness separately. Report
+   these cohorts apart: unseen injected nodes, already-seen anchors in the
+   same injection, all-seen file candidates, and throttled unseen file
+   candidates. Also count distinct (session, node) pairs, so repeated or
+   overlapping exposures cannot inflate the evidence.
+2. **Window.** Look forward through the current request/response cycle and
+   two more human requests, capped at 30 minutes, and add a five-minute view.
+   Exclude tool calls already requested when the hook fired: a PostToolUse
+   hook cannot cause the read or edit that triggered it.
+3. **Signals, memory-specific.** The exact node id in an explicit
+   `kg_read(id/ids)`; the exact id, or a distinctive gist phrase as it read at
+   the time, in assistant prose; a `kg_put_node` update of that id; an
+   accepted endorsement in `useful.jsonl`, not merely requested.
+4. **Signals, file.** A later read or edit request of an exact path the node
+   touched at the time, labelled requested or completed. Report this apart
+   from the memory-specific signals: the file may have been central to the
+   task before recall, and several nodes may touch it.
+5. **Output.** An optional `followthrough` block with cohort counts,
+   coverage, per-signal rates and evidence references (file and line), shown
+   under a plainly descriptive heading next to the endorsement statistics.
+   Enable it with a new `--transcripts` option; without it the evaluator stays
+   log-only.
 
-## Validation gate before implementation
+## Constraints
 
-Use synthetic fixtures for post-hook exclusion, result/summary echo, direct and
-wrapped Codex calls, reversed parallel completion, missing transcripts, resumed
-append, graph revisions, same ids in different levels, repeated exposures and
-accepted-versus-refused endorsements. Manually review sampled positive and
-negative local events. A causal-value claim needs a separately designed trial.
+- Read-only. Reuse `GraphHistory` and the log loaders; never import a live
+  store or write to storage.
+- Resolve sessions by exact transcript and session identity, never by the
+  newest session in a project.
+- Never execute Codex JavaScript wrappers. Parse direct JSON calls, prefer
+  completed items, deduplicate response and UI copies by id, and mark calls
+  that cannot be attributed as unknown.
+- Report as coverage, not as negative evidence: a missing transcript,
+  ambiguous identity, no later activity, or an unobservable operation.
+- Exclude tool results, injected memories, replayed history, summaries and
+  inherited fork prefixes from the model-use signals.
+- Graph state for gists and touches must come from history. Report known and
+  approximate coverage separately. A current gist or an unchanged filename
+  does not show what was injected.
+- Transcripts are private. They and any per-exposure detail stay local, and
+  tests use synthetic fixtures only.
 
-Status: proposal only. The local exploratory audit is not a production-quality
-adapter and should not be folded into the evaluator without these gates.
+## Done when
+
+- Fixtures cover: post-hook exclusion; results and summaries that echo an
+  id; direct and wrapped Codex calls; parallel calls completing in reverse
+  order; missing transcripts; a resumed rollout that was appended to; graph
+  revisions; the same id at both levels; repeated exposures; and accepted
+  versus refused endorsements.
+- `python -m eval --root ~/.knowledge-graph --transcripts` prints the block,
+  and without the flag the output is unchanged.
+- A local run over the real logs reproduces the audit's cohort counts, within
+  the differences its coverage notes explain, and a person has reviewed sampled
+  positive and negative events.
+- Running the fixture tests needs no local data, so a cloud session can do
+  everything except the local run.
