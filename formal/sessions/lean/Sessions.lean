@@ -91,12 +91,15 @@ def maxC := 3
 still bound to another Claude session, the new one gets a CLONE (the parent's seen
 state, appended as newest) bound to it and is told the clone's id by the
 continuity note; the recovered session keeps its binding.
+`fixUnbound` is the F12 fix (rest.py:140): the clone is made whenever the recovered
+session is not bound to this same Claude session, unbound included — the server cannot
+tell whether the Claude session that registered it is still alive.
 `noPreload` swaps every session's startup from the normal hook-bound register
 (rest.py:128-139/145-146) for the kg_read-only path (mcp_streamable_server.py
 :401,429): c starts alive but its told session is UNBOUND — the case the NEW
 rule's evidence route exists for.
 `newRule` picks `resolveNewRule` over `resolve` for the hook step. -/
-def next (allowFork fixFork noPreload newRule : Bool) (s : S) : List (String × S) :=
+def next (allowFork fixFork fixUnbound noPreload newRule : Bool) (s : S) : List (String × S) :=
   let cid := s.cs.length
   let startMv := if cid < maxC && !noPreload then
       [(s!"c{cid} startup -> register k{s.ks.length}",
@@ -114,7 +117,7 @@ def next (allowFork fixFork noPreload newRule : Bool) (s : S) : List (String × 
     -- bootstrap for the new sid c: find_by_claude_sid(c) misses (new sid);
     -- transcript markers name pc.told -> lookup + same project -> reuse + bind (rest.py:128-139)
     let kp := s.ks[pc.told]!
-    let clone := fixFork && kp.claude.isSome && kp.claude != some cid
+    let clone := fixFork && (fixUnbound || kp.claude.isSome) && kp.claude != some cid
     let mk (fork : Bool) :=
       let cs := s.cs.set p { pc with alive := fork }
       if clone then
@@ -148,7 +151,7 @@ def next (allowFork fixFork noPreload newRule : Bool) (s : S) : List (String × 
           (if suppressed then " -> SUPPRESSED as seen" else " -> injected"), s')
   startMv ++ startNoPreload ++ inherit ++ hooks
 
-partial def bfs (allowFork fixFork noPreload newRule : Bool) (bad : S → Bool) (init : S) :
+partial def bfs (allowFork fixFork fixUnbound noPreload newRule : Bool) (bad : S → Bool) (init : S) :
     Option (List String) × Nat := Id.run do
   let mut seen : Std.HashSet S := ({} : Std.HashSet S).insert init
   let mut frontier : Array (S × List String) := #[(init, [])]
@@ -158,7 +161,7 @@ partial def bfs (allowFork fixFork noPreload newRule : Bool) (bad : S → Bool) 
     for (s, tr) in frontier do
       n := n + 1
       if bad s then return (some tr.reverse, n)
-      for (l, s') in next allowFork fixFork noPreload newRule s do
+      for (l, s') in next allowFork fixFork fixUnbound noPreload newRule s do
         if !seen.contains s' then
           seen := seen.insert s'
           nf := nf.push (s', l :: tr)
@@ -177,25 +180,28 @@ def init : S := { cs := [], ks := [], violD := false, violI := false }
 def main : IO Unit := do
   IO.println "=== OLD RULE: resolve = bound, else newest-in-project (code before ef38555) ==="
   IO.println "--- with fork events (code before the F8 fix)"
-  report "D dedup soundness" (bfs true false false false (·.violD) init)
-  report "I hook identity" (bfs true false false false (·.violI) init)
+  report "D dedup soundness" (bfs true false false false false (·.violD) init)
+  report "I hook identity" (bfs true false false false false (·.violI) init)
   IO.println "--- same model, fork events removed (isolates the cause)"
-  report "D dedup soundness" (bfs false false false false (·.violD) init)
-  report "I hook identity" (bfs false false false false (·.violI) init)
+  report "D dedup soundness" (bfs false false false false false (·.violD) init)
+  report "I hook identity" (bfs false false false false false (·.violI) init)
   IO.println "--- with fork events, F8 fix (clone a still-bound session)"
-  report "D dedup soundness" (bfs true true false false (·.violD) init)
-  report "I hook identity" (bfs true true false false (·.violI) init)
+  report "D dedup soundness" (bfs true true false false false (·.violD) init)
+  report "I hook identity" (bfs true true false false false (·.violI) init)
   IO.println ""
   IO.println "=== NEW RULE: resolveNewRule = bound, else evidence-if-unbound, else none (ef38555) ==="
-  IO.println "--- with forks, normal preload (current server: F8 fix + new rule)"
-  report "D dedup soundness" (bfs true true false true (·.violD) init)
-  report "I hook identity" (bfs true true false true (·.violI) init)
+  IO.println "--- with forks, normal preload (current server: F8 + F12 fixes, new rule)"
+  report "D dedup soundness" (bfs true true true false true (·.violD) init)
+  report "I hook identity" (bfs true true true false true (·.violI) init)
   IO.println "--- without forks, normal preload"
-  report "D dedup soundness" (bfs false true false true (·.violD) init)
-  report "I hook identity" (bfs false true false true (·.violI) init)
-  IO.println "--- with forks, kg_read-registered event (preload never happened)"
-  report "D dedup soundness" (bfs true true true true (·.violD) init)
-  report "I hook identity" (bfs true true true true (·.violI) init)
+  report "D dedup soundness" (bfs false true true false true (·.violD) init)
+  report "I hook identity" (bfs false true true false true (·.violI) init)
+  IO.println "--- with forks, kg_read-registered event (preload never happened), before the F12 fix"
+  report "D dedup soundness" (bfs true true false true true (·.violD) init)
+  report "I hook identity" (bfs true true false true true (·.violI) init)
+  IO.println "--- with forks, kg_read-registered event, F12 fix (clone unless bound to this session)"
+  report "D dedup soundness" (bfs true true true true true (·.violD) init)
+  report "I hook identity" (bfs true true true true true (·.violI) init)
   IO.println "--- without forks, kg_read-registered event"
-  report "D dedup soundness" (bfs false true true true (·.violD) init)
-  report "I hook identity" (bfs false true true true (·.violI) init)
+  report "D dedup soundness" (bfs false true true true true (·.violD) init)
+  report "I hook identity" (bfs false true true true true (·.violI) init)

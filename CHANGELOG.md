@@ -14,6 +14,7 @@ All notable changes to this project are documented here.
 
 ### Fixed
 - A hook event whose harness session id matches no KG session no longer borrows the newest session in the project (its seen-set, full-read state and nudge throttle). It resolves only through its own binding, or through a session id its transcript shows it used; otherwise recall.jsonl records `unresolved_session`. Events without any id, from older hooks, keep the project fallback.
+- **A fork no longer takes over a session no hook has bound yet (F12).** When the preload never ran, `kg_read` registers a session that stays unbound until the first hook binds it. A fork (or resume) before that hook took the session over: the parent's hooks lost it, and the parent's reads counted as seen for the fork, so the fork was never shown those nodes. Recovery now clones the session for any new Claude session, as it already did for a bound one. The Lean model (`formal/sessions/`, roadmap 09) with this fix: dedup and hook identity hold under the new hook rule, with and without a preload.
 
 ## [0.10.2] - 2026-09-27
 

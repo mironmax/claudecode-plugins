@@ -111,8 +111,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         re-nagging and re-injecting everything. The existing session is reused
         via the claude_session_id binding, or — resume/fork mints a NEW Claude
         sid — recovered from the KG markers our own renders left in the
-        transcript; a recovered session still bound to another Claude session
-        is cloned for this one rather than taken over. Recovery is deliberately source-agnostic (only "clear"
+        transcript; a recovered session is cloned for this one rather than
+        taken over, since its owner may still be alive. Recovery is deliberately source-agnostic (only "clear"
         hard-resets): the transcript markers ARE the evidence of inherited
         context, and source values Claude Code adds later ("fork" arrived
         unannounced and re-preloaded for a week) then degrade gracefully — a
@@ -135,15 +135,14 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 if cand:
                     data = session_manager.lookup(cand)
                     if data and session_manager.scope_matches(data, project_path):
-                        # Still bound to another Claude session: that one may
-                        # be alive (a fork), so it keeps the original record.
-                        if claude_session_id and data.get("claude_sid") not in (None, claude_session_id):
+                        # Whoever registered it may still be alive (a fork),
+                        # bound or not yet (kg_read registers unbound until a
+                        # hook binds it), so it keeps the original record.
+                        if claude_session_id:
                             session_id = session_manager.fork(cand, claude_session_id)
                             forked_from = cand if session_id else None
                         else:
                             session_id = cand
-                            if claude_session_id:
-                                session_manager.bind_claude_sid(cand, claude_session_id)
                         reused = session_id is not None
             if session_id is None:
                 reg = session_manager.register(project_path, claude_sid=claude_session_id,

@@ -19,13 +19,13 @@ $ lean --run sessions/lean/Sessions.lean
 ✓ I hook identity: none (316 states, exhaustive)
 
 === NEW RULE: resolveNewRule = bound, else evidence-if-unbound, else none (ef38555) ===
---- with forks, normal preload (current server: F8 fix + new rule)
+--- with forks, normal preload (current server: F8 + F12 fixes, new rule)
 ✓ D dedup soundness: none (316 states, exhaustive)
 ✓ I hook identity: none (316 states, exhaustive)
 --- without forks, normal preload
 ✓ D dedup soundness: none (316 states, exhaustive)
 ✓ I hook identity: none (316 states, exhaustive)
---- with forks, kg_read-registered event (preload never happened)
+--- with forks, kg_read-registered event (preload never happened), before the F12 fix
 ✗ D dedup soundness: COUNTEREXAMPLE (230 states)
     c0 startup, preload never ran -> kg_read registers k0 (unbound)
     c0 FORKED as c1 (parent lives) -> reuse k0
@@ -33,6 +33,9 @@ $ lean --run sessions/lean/Sessions.lean
     c0 resumed as c2 (parent dies) -> clone k0 as k1
     hook for c2 resolves k1 (c2 uses k1) shows gist 0 -> SUPPRESSED as seen
 ✓ I hook identity: none (482 states, exhaustive)
+--- with forks, kg_read-registered event, F12 fix (clone unless bound to this session)
+✓ D dedup soundness: none (417 states, exhaustive)
+✓ I hook identity: none (417 states, exhaustive)
 --- without forks, kg_read-registered event
-✓ D dedup soundness: none (341 states, exhaustive)
-✓ I hook identity: none (341 states, exhaustive)
+✓ D dedup soundness: none (325 states, exhaustive)
+✓ I hook identity: none (325 states, exhaustive)

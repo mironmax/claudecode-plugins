@@ -161,9 +161,11 @@ def main():
         r = client.get("/api/session_bootstrap", params={
             "project_path": project_dir, "claude_session_id": "cc-boot-4",
             "source": "resume", "transcript_path": str(unbound_tf)}).json()
-        check("resume of an unbound session reuses it and binds",
-              r["reused"] is True and r["session_id"] == unbound
-              and session_manager.find_by_claude_sid("cc-boot-4")[0] == unbound, r)
+        check("resume of an unbound session clones it; the original stays unbound (F12)",
+              r["reused"] is True and r["session_id"] != unbound
+              and session_manager.lookup(r["session_id"])["forked_from"] == unbound
+              and session_manager.find_by_claude_sid("cc-boot-4")[0] == r["session_id"]
+              and not session_manager.lookup(unbound).get("claude_sid"), r)
 
         r = client.get("/api/session_bootstrap", params={
             "project_path": project_dir, "claude_session_id": "cc-boot-3",
