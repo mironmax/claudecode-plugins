@@ -27,6 +27,7 @@ run rename/evidence/model.log                lean --run rename/lean/Rename.lean
 run rename/evidence/repro.log                $PY rename/repro/repro_rename.py
 run sessions/evidence/model.log              lean --run sessions/lean/Sessions.lean
 run sessions/evidence/repro-fork.log         $PY sessions/repro/repro_fork.py
+run sessions/evidence/repro-fork-unbound.log $PY sessions/repro/repro_fork_unbound.py
 run sessions/evidence/repro-saver-amplified.log timeout 120 $PY sessions/repro/repro_saver_death.py amplified
 run sessions/evidence/repro-saver-default.log   timeout 120 $PY sessions/repro/repro_saver_death.py default
 run websocket/evidence/repro.log             $PY websocket/repro/repro_ws.py

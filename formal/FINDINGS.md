@@ -310,6 +310,39 @@ truncated gists and does not count as a view. Tests:
 **Not covered:** edges carry `notes` too and are replaced the same way; an
 edge is rarely edited, so it is left for now.
 
+## F12 — A fork takes over a session no hook has bound yet
+
+**Status:** open. Found by the sessions model under the new hook rule
+(roadmap 09).
+
+**Where:** `mcp_http/rest.py:140`. Transcript recovery clones the recovered
+KG session only when it is bound to another Claude session. A session that
+`kg_read` registered without a harness id (`mcp_streamable_server.py:440`,
+the preload never ran) stays unbound until its first hook binds it through
+the transcript evidence (`session_manager.py:240-251`). A fork taken before
+that hook reuses the session and binds it to the fork, while the parent
+keeps passing the same id to its `kg_*` calls.
+
+**Model** (`sessions/lean/Sessions.lean`, ≤3 Claude sessions, exhaustive).
+With the new rule and normal preload, D and I hold with and without forks
+(316 states each). With the kg_read-registered start, I holds (482 states)
+but D fails in 5 steps: c0 registers unbound k0, c0 forks as c1 (reuse k0),
+c1's hook injects gist 0 into k0, c0 resumes as c2 and gets a clone of k0
+carrying c1's seen state, and c2's hook suppresses gist 0, which c2 never saw.
+Without forks, both hold (341 states).
+
+**Reproduced** (`sessions/repro/repro_fork_unbound.py`) through the real
+bootstrap and session manager, by a shorter route than the model's trace:
+the fork reuses k0; the parent's `kg_read` marks a node seen in k0, so the
+fork's hooks treat it as seen; and the parent's hooks resolve to nothing,
+since k0 is now bound to the fork.
+
+**Also seen:** removing the evidence route's "unbound" check from the model
+changes neither verdict. I does not rest on it here, because the model has no
+session whose transcript names a session bound elsewhere and alive. I checks
+that a hook never resolves to the wrong session, not that it resolves at all,
+so a parent left without recall does not show as a violation.
+
 ---
 
 ## Checked and found sound

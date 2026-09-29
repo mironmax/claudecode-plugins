@@ -1,0 +1,7 @@
+$ python3 sessions/repro/repro_fork_unbound.py
+parent C0 uses k0=94479047; fork C1 bootstrap: session_id=94479047 reused=True
+parent C0's hook resolves to: None
+BUG fork and live parent share one KG session
+BUG D: the fork's hooks treat a node only the parent read as seen, so it is never injected
+BUG the parent's hooks resolve to nothing: k0 is now bound to the fork
+RESULT: FAIL
