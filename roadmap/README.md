@@ -55,6 +55,7 @@ an agent working only from this repository.
 | 08 | [Visual editor: readable graphs, server-owned project list](tasks/08-visual-editor-readable-graphs.md) | A mature graph opens as a picture of what is live; projects come from the server, for every harness | done: PR #38 (unreleased) |
 | 09 | [Sessions model without the project fallback](tasks/09-sessions-model-no-fallback.md) | Re-check hook identity and dedup under the new resolution rule | done: both hold after the F12 fix (unreleased) |
 | 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | open; fixtures in the cloud, the real run local |
+| 11 | [Antigravity CLI mapping](../docs/harnesses/antigravity-mapping.md) | Bring the Codex lessons to a third harness before building it | research done (`agy` 1.2.14, mock model); decisions open |
 
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
@@ -74,7 +75,9 @@ events can carry context at the moment a tool is about to run.
 - **A with/without benchmark** on hard tasks, using only cross-project
   principles, to test whether a well-kept memory multiplies what the model
   can do. Held until its design is agreed.
-- **More harnesses**: Cursor and Antigravity each have a gap no adapter
-  closes (see `docs/harnesses/instrument-matrix.md`).
+- **More harnesses**: Cursor has a gap no adapter closes (see
+  `docs/harnesses/instrument-matrix.md`). Antigravity's context channels
+  turned out to exist once the CLI was run; its open problem is the MCP read
+  path (item 11).
 - **Desktop apps**: Claude Desktop chat gets the tools but no hooks; the
   Codex desktop app is untested.
