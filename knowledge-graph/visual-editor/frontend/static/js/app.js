@@ -1798,11 +1798,18 @@ function updateViewModeButton(viewData = null) {
 async function initialize() {
     console.log('Initializing Knowledge Graph Visual Editor...');
 
+    // Recovery must be wired before health can fail. Startup has not yet
+    // registered the ordinary graph-reload handler in that case.
+    const retry = document.getElementById('retry-btn');
+    retry.onclick = initialize;
+    retry.disabled = true;
     const healthy = await checkHealth();
+    retry.disabled = false;
     if (!healthy) {
         showError('Cannot connect to MCP server. Please ensure the server is running.');
         return;
     }
+    retry.onclick = null;
 
     connectWebSocket();
 

@@ -16,12 +16,16 @@ class Element {
         this.attributes = {};
         this.dataset = {};
         this.listeners = {};
+        this.listenerCounts = {};
         this.children = [];
         this.value = '';
         this.style = {};
     }
     setAttribute(name, value) { this.attributes[name] = value; }
-    addEventListener(name, callback) { this.listeners[name] = callback; }
+    addEventListener(name, callback) {
+        this.listeners[name] = callback;
+        this.listenerCounts[name] = (this.listenerCounts[name] || 0) + 1;
+    }
     appendChild(child) { this.children.push(child); }
     replaceChildren() { this.children = []; }
     querySelectorAll() { return []; }
@@ -60,6 +64,7 @@ globalThis.app = {
     renderSearchResults, buildNodeScoreContent, fetchNodeScore,
     CONFIG, checkHealth, gistCounterText, bindGistCounter,
     openEditNodeModal, renderNodeDetails, submitNodeForm, saveInlineEdit,
+    initialize,
 };
 // D3 drawing and layout are not emulated. Keep the real view/state logic.
 renderGraph = data => {
@@ -341,6 +346,45 @@ await check('Inline and modal saves accept long gists, while empty gists remain 
     await app.submitNodeForm(true);
     assert.equal(requests.length, 3);
     assert.equal(context.toasts.at(-1).type, 'error');
+});
+
+await check('Retry stays usable if the memory server is down when the editor first opens', async () => {
+    context.fetch = async () => ({ json: async () => ({ status: 'ok', mcp_server: { status: 'down' } }) });
+    await app.initialize();
+    assert.ok(!element('graph-error').classes.has('hidden'));
+    const retry = element('retry-btn').onclick || element('retry-btn').listeners.click;
+    assert.equal(typeof retry, 'function', 'The visible Retry button must have a handler after failed startup');
+    assert.equal(element('retry-btn').disabled, false);
+});
+
+await check('Retry bootstraps a recovered server, disables duplicate clicks, then becomes graph refresh', async () => {
+    vm.runInContext(`
+        globalThis.socketStarts = 0;
+        globalThis.projectLoads = 0;
+        globalThis.graphLoads = 0;
+        connectWebSocket = () => socketStarts++;
+        loadProjects = async () => projectLoads++;
+        loadGraph = async () => graphLoads++;
+        initializeGraph = () => ({ svg: null, container: null });
+    `, context);
+    state.graphData = null;
+    state.graphLevel = null;
+    state.selectedNode = null;
+    let finish;
+    context.fetch = () => new Promise(resolve => { finish = resolve; });
+    const retrying = element('retry-btn').onclick();
+    assert.equal(element('retry-btn').disabled, true);
+    finish({ json: async () => ({ status: 'ok', mcp_server: { status: 'ok' }, limits: { gist_target_chars: 300 } }) });
+    await retrying;
+    assert.equal(element('retry-btn').disabled, false);
+    assert.equal(element('retry-btn').onclick, null);
+    assert.equal(element('retry-btn').listenerCounts.click, 1);
+    assert.equal(context.socketStarts, 1);
+    assert.equal(context.projectLoads, 1);
+    assert.equal(element('connection-text').textContent, 'Connected');
+    assert.ok(element('graph-error').classes.has('hidden'));
+    await element('retry-btn').listeners.click();
+    assert.equal(context.graphLoads, 1);
 });
 
 console.log(`${passed} UI behavior checks passed (visual layout not tested).`);
