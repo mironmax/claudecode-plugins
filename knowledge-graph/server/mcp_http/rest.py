@@ -335,6 +335,23 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
     # Write API Endpoints
     # ========================================================================
 
+    @rest_api.post("/api/antigravity/hook/{event_name}")
+    async def rest_antigravity_hook(event_name: str, payload: dict):
+        from .antigravity import handle_event
+        try:
+            return handle_event(store, session_manager, event_name, payload)
+        except Exception:
+            logger.exception("Antigravity hook failed")
+            return {"output": {}}
+
+    @rest_api.post("/api/antigravity/ack")
+    async def rest_antigravity_ack(payload: dict):
+        from .harness import ANTIGRAVITY
+        hit = session_manager.find_by_claude_sid(payload.get("conversationId"))
+        if not hit or hit[1].get("harness") != ANTIGRAVITY:
+            return {"ok": False}
+        return {"ok": session_manager.acknowledge_context(hit[0], payload.get("delivery_id"))}
+
     @rest_api.post("/api/nodes")
     async def rest_create_node(data: NodeCreateRequest):
         """Create or update a node."""

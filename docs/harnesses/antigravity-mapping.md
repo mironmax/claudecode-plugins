@@ -6,6 +6,12 @@
 > observed on `agy 1.2.14` against this repository's server v0.10.2 on
 > 2026-10-01. Where this document recommends something, it says so.
 
+> **Follow-up (2026-10-02):** the first CLI iteration is now implemented on
+> `codex/antigravity-cli`. See [implementation](antigravity-cli.md) for the
+> chosen scope and 1.2.15 measurements, including the per-tool eager setting.
+> This document retains the original proposal; pagination fallback and the
+> maintenance runner are not part of v1, and pending reads survive a new prompt.
+
 The Codex integration (0.10.0 to the unreleased fixes) taught a list of
 nuances, most of them found only after the first version shipped. This
 document takes each one, says what Antigravity CLI does at that point, and

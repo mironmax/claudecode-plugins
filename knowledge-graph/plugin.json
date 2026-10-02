@@ -1,0 +1,4 @@
+{
+  "name": "knowledge-graph",
+  "description": "Persistent knowledge-graph memory. Experimental Antigravity CLI adapter with session, prompt and file recall."
+}

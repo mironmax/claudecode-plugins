@@ -458,7 +458,7 @@ _events_lock = threading.Lock()
 _NOISE_FRAGMENTS = (
     "/tmp/", "/node_modules/", "/venv/", "/.venv/", "/__pycache__/",
     "/.git/", "/dist/", "/build/", "/.claude/", "/.knowledge-graph/",
-    "/scratchpad/", "/.codex/",
+    "/scratchpad/", "/.codex/", "/.gemini/",
 )
 
 
@@ -590,7 +590,7 @@ def handle_tool_event(store, session_manager, payload: dict) -> str | None:
 
     recall, covered, paths = None, False, []
     from .harness import from_transcript, profile
-    harness = profile(from_transcript(payload.get("transcript_path")))
+    harness = profile(payload.get("harness") or from_transcript(payload.get("transcript_path")))
     try:
         from .file_recall import build_file_recall, file_targets
         context, diagnostics = {}, {}

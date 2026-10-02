@@ -18,7 +18,14 @@ running it (`agy` 1.2.14 against a mock model, no account). The
 Antigravity column of the [instrument matrix](instrument-matrix.md) is
 redone, and the [Antigravity mapping](antigravity-mapping.md) takes each
 lesson of the Codex integration to Antigravity. It is a proposal; nothing
-under `knowledge-graph/` changed.
+under `knowledge-graph/` changed in that research commit.
+
+**Update (2026-10-02):** the first CLI iteration is implemented on
+`codex/antigravity-cli`: native packaging, eager schemas and hook delivery of
+large replies. See [implementation and validation](antigravity-cli.md) and
+the [development guide](../../knowledge-graph/ANTIGRAVITY.md). Native transport
+was checked on `agy 1.2.15` with a mock model; real-model lifecycle and quota
+checks remain. The mapping retains the original research snapshot.
 
 Start with the [proposal](proposal.md). Its first section answers the
 deciding question, whether Codex CLI can add context to the model's input on

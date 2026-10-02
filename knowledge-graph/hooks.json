@@ -1,0 +1,18 @@
+{
+  "knowledge-graph": {
+    "SessionStart": [
+      {"type": "command", "command": "bash hooks/kg-agy.sh SessionStart", "timeout": 8}
+    ],
+    "PreInvocation": [
+      {"type": "command", "command": "bash hooks/kg-agy.sh PreInvocation", "timeout": 5}
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "view_file|write_to_file|replace_file_content|multi_replace_file_content|run_command|read_url_content|search_web",
+        "hooks": [
+          {"type": "command", "command": "bash hooks/kg-agy.sh PostToolUse", "timeout": 5}
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "kg": {
+      "serverUrl": "http://127.0.0.1:8765/",
+      "tools": {
+        "kg_read": {"eager": true},
+        "kg_search": {"eager": true},
+        "kg_put_node": {"eager": true},
+        "kg_put_edge": {"eager": true},
+        "kg_rename_node": {"eager": true},
+        "kg_delete_node": {"eager": true},
+        "kg_delete_edge": {"eager": true},
+        "kg_sync": {"eager": true},
+        "kg_useful": {"eager": true},
+        "kg_progress": {"eager": true}
+      }
+    }
+  }
+}

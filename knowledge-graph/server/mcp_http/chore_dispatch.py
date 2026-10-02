@@ -158,7 +158,8 @@ def chore_env(base: dict | None = None) -> dict:
     """
     src = os.environ if base is None else base
     env = {k: v for k, v in src.items()
-           if not k.startswith(_LAUNCHER_ENV_PREFIX) and k not in _LAUNCHER_ENV_KEYS}
+           if not k.startswith((_LAUNCHER_ENV_PREFIX, "ANTIGRAVITY_"))
+           and k not in _LAUNCHER_ENV_KEYS}
     env["KG_CHORE"] = "1"
     return env
 

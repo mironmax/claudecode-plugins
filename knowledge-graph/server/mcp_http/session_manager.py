@@ -208,6 +208,9 @@ class HTTPSessionManager:
         clone.update(start_ts=ts, last_activity=ts, op_count=0, forked_from=parent_sid,
                      last_synced_ts=parent.get("last_synced_ts", parent["start_ts"]))
         clone.pop("claude_sid", None)
+        # Pending output belongs to its original conversation, not a fork.
+        for key in ("agy_pending", "agy_delivery", "agy_hooks_seen", "agy_prompt_key"):
+            clone.pop(key, None)
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
         self._sessions[session_id] = clone
         self.bind_claude_sid(session_id, claude_sid)
@@ -517,10 +520,59 @@ class HTTPSessionManager:
                 return True
         return False
 
-    def mark_synced(self, session_id: str) -> None:
+    @_locked
+    def mark_synced(self, session_id: str, at: float | None = None) -> None:
         """Update last_synced_ts so kg_sync only returns changes after this point."""
         if session_id in self._sessions:
-            self._sessions[session_id]["last_synced_ts"] = time.time()
+            data = self._sessions[session_id]
+            data["last_synced_ts"] = max(data.get("last_synced_ts", 0),
+                                         at if at is not None else time.time())
+
+    @_locked
+    def queue_context(self, session_id: str, text: str, kind: str, effects=()) -> bool:
+        from .delivery import enqueue
+        data = self._sessions.get(session_id)
+        if data is None or not enqueue(data, text, kind, list(effects)):
+            return False
+        self.save_sessions()
+        return True
+
+    @_locked
+    def has_pending_context(self, session_id: str, kind: str | None = None) -> bool:
+        queue = (self._sessions.get(session_id) or {}).get("agy_pending") or []
+        return any(item["kind"] == kind for item in queue) if kind else bool(queue)
+
+    @_locked
+    def prepare_context(self, session_id: str) -> dict | None:
+        from .delivery import prepare
+        data = self._sessions.get(session_id)
+        if data is None:
+            return None
+        packet = prepare(data, session_id)
+        if packet:
+            self.save_sessions()
+        return packet
+
+    @_locked
+    def acknowledge_context(self, session_id: str, delivery_id: str) -> bool:
+        from .delivery import acknowledge
+        data = self._sessions.get(session_id)
+        if data is None or not acknowledge(self, data, delivery_id):
+            return False
+        self.save_sessions()
+        return True
+
+    @_locked
+    def note_antigravity_hook(self, session_id: str, prompt_key: str | None = None) -> bool:
+        """Record evidence for this conversation; dedup repeated prompt hooks."""
+        data = self._sessions[session_id]
+        data["agy_hooks_seen"] = True
+        self._update_activity(session_id)
+        if prompt_key is None:
+            return False
+        fresh = data.get("agy_prompt_key") != prompt_key
+        data["agy_prompt_key"] = prompt_key
+        return fresh
 
     @_locked
     def get_sync_ts(self, session_id: str) -> float:

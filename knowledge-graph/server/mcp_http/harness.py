@@ -19,6 +19,7 @@ from core.constants import BOOTSTRAP_CHAR_BUDGET, CODEX_BOOTSTRAP_CHAR_BUDGET
 
 CLAUDE_CODE = "claude-code"
 CODEX = "codex"
+ANTIGRAVITY = "antigravity-cli"
 
 
 @dataclass(frozen=True)
@@ -48,12 +49,21 @@ PROFILES = {
         "knowledge-graph hooks, and start a new session. With hooks off there is no "
         "preload, per-prompt recall or file recall; the kg_* tools work as usual.",
     ),
+    ANTIGRAVITY: Profile(
+        ANTIGRAVITY, BOOTSTRAP_CHAR_BUDGET, False, False,
+        "No Antigravity memory hook has been observed for this conversation. "
+        "Install the native knowledge-graph plugin, check agy -p /hooks and "
+        "start a new conversation. Large KG replies require PreInvocation; "
+        "see the plugin's Antigravity setup guide.",
+    ),
 }
 
 
 def from_transcript(transcript_path: str | None) -> str:
     """Harness of a hook event, from the transcript path it carries."""
     if transcript_path:
+        if f"{os.sep}.gemini{os.sep}antigravity-cli{os.sep}" in transcript_path:
+            return ANTIGRAVITY
         name = os.path.basename(transcript_path)
         if name.startswith("rollout-") or f"{os.sep}.codex{os.sep}" in transcript_path:
             return CODEX
@@ -65,6 +75,22 @@ def from_user_agent(user_agent: str | None) -> str:
     if user_agent and user_agent.lower().startswith("codex"):
         return CODEX
     return CLAUDE_CODE
+
+
+def antigravity_conversation(meta) -> str | None:
+    """Every CLI MCP call carries this id; its Go User-Agent is ambiguous."""
+    if hasattr(meta, "model_dump"):
+        meta = meta.model_dump(by_alias=True)
+    value = meta.get("antigravity.google/conversation_id") if isinstance(meta, dict) else None
+    return value if isinstance(value, str) and 0 < len(value) <= 128 else None
+
+
+def hook_output(name: str, text: str) -> dict:
+    if not text:
+        return {}
+    if name == ANTIGRAVITY:
+        return {"injectSteps": [{"systemMessage": {"systemMessage": text}}]}
+    raise ValueError(f"No native hook envelope for {name}")
 
 
 def profile(name: str | None) -> Profile:

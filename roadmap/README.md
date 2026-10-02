@@ -55,7 +55,7 @@ an agent working only from this repository.
 | 08 | [Visual editor: readable graphs, server-owned project list](tasks/08-visual-editor-readable-graphs.md) | A mature graph opens as a picture of what is live; projects come from the server, for every harness | done: PR #38 (unreleased) |
 | 09 | [Sessions model without the project fallback](tasks/09-sessions-model-no-fallback.md) | Re-check hook identity and dedup under the new resolution rule | done: both hold after the F12 fix (unreleased) |
 | 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | open; fixtures in the cloud, the real run local |
-| 11 | [Antigravity CLI mapping](../docs/harnesses/antigravity-mapping.md) | Bring the Codex lessons to a third harness before building it | research done (`agy` 1.2.14, mock model); decisions open |
+| 11 | [Antigravity CLI](../docs/harnesses/antigravity-cli.md) | Bring the Codex lessons to a third harness | experimental v1 on `codex/antigravity-cli`; native 1.2.15 mock gate passed, real-model/lifecycle tests remain |
 
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
