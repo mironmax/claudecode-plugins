@@ -165,6 +165,7 @@ def main():
         (root / "stdout.jsonl").write_text(run.stdout)
         (root / "stderr.txt").write_text(run.stderr)
         input_text = json.dumps(model_requests, ensure_ascii=False)
+        final_input = json.dumps(model_requests[-1], ensure_ascii=False) if model_requests else ""
         sessions = json.loads((root / "storage/sessions.json").read_text())
         cli_sessions = [data for data in sessions.values() if data.get("harness") == "antigravity-cli"]
         checks = {
@@ -173,6 +174,7 @@ def main():
             "plugin_rule_loaded": "A queued receipt alone does not" in input_text,
             "full_graph_delivered": "Full graph now in context" in input_text,
             "large_unicode_end_delivered": "SMOKE_LARGE_BEGIN" in input_text and "SMOKE_LARGE_END" in input_text,
+            "unicode_payload_complete_in_final_input": final_input.count("界") == 8000 and final_input.count("🙂") == 8000,
             "chunk_continuation_used": "KG delivery continues" in input_text,
             "post_tool_recall_delivered": "SMOKE_FILE_CONTEXT" in input_text,
             "no_spilled_or_truncated_reply": "output was truncated" not in input_text and "The output was large and was saved" not in input_text,
