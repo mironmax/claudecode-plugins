@@ -38,7 +38,8 @@ class NodeScorer:
             adj.setdefault(f, ([], []))[1].append(t)   # t is an out-neighbour of f
         return adj
 
-    def _connectedness(self, node_id: str, active_ids: set, archived_ids: set, adj: dict) -> float:
+    def _connectedness_details(self, node_id: str, active_ids: set, archived_ids: set,
+                               adj: dict, include_counts: bool = True) -> dict:
         """Weighted in/out degree, using the prebuilt adjacency index.
 
         An edge to an active neighbour counts at full weight (1.0); an edge to an
@@ -63,7 +64,32 @@ class NodeScorer:
         in_degree = sum(weight(nid) for nid in in_neighbours)
         out_degree = sum(weight(nid) for nid in out_neighbours)
         hub_floor = HUB_FLOOR_WEIGHT * math.log1p(len(in_neighbours) + len(out_neighbours))
-        return max(0.66 * in_degree + 0.33 * out_degree, hub_floor)
+        weighted_degree = 0.66 * in_degree + 0.33 * out_degree
+        result = {
+            "raw": max(weighted_degree, hub_floor),
+            "weighted_in": in_degree, "weighted_out": out_degree,
+            "weighted_degree": weighted_degree, "hub_floor": hub_floor,
+            "archived_neighbor_weight": ARCHIVED_EDGE_WEIGHT,
+            "hub_floor_weight": HUB_FLOOR_WEIGHT,
+        }
+        if not include_counts:
+            return result
+        result.update({
+            "incoming": {
+                "active": sum(nid in active_ids for nid in in_neighbours),
+                "archived": sum(nid in archived_ids for nid in in_neighbours),
+                "unweighted": sum(nid not in active_ids and nid not in archived_ids for nid in in_neighbours),
+            },
+            "outgoing": {
+                "active": sum(nid in active_ids for nid in out_neighbours),
+                "archived": sum(nid in archived_ids for nid in out_neighbours),
+                "unweighted": sum(nid not in active_ids and nid not in archived_ids for nid in out_neighbours),
+            },
+        })
+        return result
+
+    def _connectedness(self, node_id: str, active_ids: set, archived_ids: set, adj: dict) -> float:
+        return self._connectedness_details(node_id, active_ids, archived_ids, adj, include_counts=False)["raw"]
 
     def _recency(self, node_id: str, node: dict, versions: dict, current_time: float) -> float:
         """Most recent of last write or last read. Higher = fresher."""
@@ -93,14 +119,21 @@ class NodeScorer:
         return (current_time - created_ts) >= self.grace_period_seconds
 
     def score_all(self, nodes: dict, edges: dict, versions: dict, include_archived: bool = False) -> dict[str, float]:
+        """The canonical scores used by compaction, refill and read ranking."""
+        return {nid: item["score"] for nid, item in self.score_breakdown(
+            nodes, edges, versions, include_archived=include_archived,
+        ).items()}
+
+    def score_breakdown(self, nodes: dict, edges: dict, versions: dict,
+                        include_archived: bool = False, current_time: float | None = None) -> dict:
         """
         Score eligible nodes using percentile-based ranking.
 
         include_archived=True: score archived nodes alongside active ones (for resurrection pass).
-        Returns dict of {node_id: score}. Higher score = more valuable = keep longer.
+        Returns the raw factors, percentile ranks and final score per node.
         Grace period based on _created_ts only — updates and reads do not reset it.
         """
-        current_time = time.time()
+        current_time = time.time() if current_time is None else current_time
         active_ids = {nid for nid, n in nodes.items() if self._is_active(n)}
         # Archived (but not orphaned) neighbours contribute reduced connectedness so a
         # cluster that archived together isn't scored as fully disconnected (see
@@ -160,12 +193,75 @@ class NodeScorer:
         assign_percentiles(eligible, "connectedness_raw", "connectedness_pct")
         assign_percentiles(eligible, "usefulness_raw", "usefulness_pct")
 
-        scores = {}
         for item in eligible:
-            scores[item["id"]] = (
+            item["score"] = (
                 SCORE_WEIGHT_RECENCY * item["recency_pct"]
                 + SCORE_WEIGHT_CONNECTEDNESS * item["connectedness_pct"]
                 + SCORE_WEIGHT_USEFULNESS * item["usefulness_pct"]
             )
 
-        return scores
+        return {item["id"]: item for item in eligible}
+
+    def explain(self, node_id: str, nodes: dict, edges: dict, versions: dict) -> dict:
+        """Explain this node's current automatic score without changing it.
+
+        Active nodes use the compaction pool; archived nodes use the unified
+        refill pool. Orphaned and grace-protected nodes have no automatic
+        score: show a clearly marked preview as an eligible node instead.
+        """
+        node = nodes[node_id]
+        now = time.time()
+        orphaned = "_orphaned_ts" in node
+        protected = not self._past_grace(node, now)
+        include_archived = bool(node.get("_archived")) and not orphaned
+        eligible = not orphaned and not protected
+        scoring_nodes = nodes
+        if not eligible:
+            preview = dict(node)
+            preview["_created_ts"] = min(node.get("_created_ts", 0), now - self.grace_period_seconds - 1)
+            if orphaned:
+                preview.pop("_orphaned_ts", None)
+                preview.pop("_archived", None)
+            scoring_nodes = {**nodes, node_id: preview}
+        breakdown = self.score_breakdown(scoring_nodes, edges, versions,
+                                         include_archived=include_archived, current_time=now)
+        item = breakdown[node_id]
+        active_ids = {nid for nid, n in scoring_nodes.items() if self._is_active(n)}
+        archived_ids = {nid for nid, n in scoring_nodes.items()
+                        if n.get("_archived") and "_orphaned_ts" not in n}
+        connections = self._connectedness_details(node_id, active_ids, archived_ids,
+                                                   self._build_adjacency(edges))
+        write_ts = versions.get(f"node:{node_id}", {}).get("ts", 0)
+        components = []
+        for key, label, weight in (
+            ("recency", "Recency", SCORE_WEIGHT_RECENCY),
+            ("connectedness", "Connectedness", SCORE_WEIGHT_CONNECTEDNESS),
+            ("usefulness", "Usefulness", SCORE_WEIGHT_USEFULNESS),
+        ):
+            components.append({
+                "key": key, "label": label, "weight": weight,
+                "raw": item[f"{key}_raw"], "percentile": item[f"{key}_pct"],
+                "contribution": weight * item[f"{key}_pct"],
+            })
+        reason = ("Preview if recalled to active; orphaned nodes are excluded from automatic ranking."
+                  if orphaned else "Preview after the creation grace period; this node is currently protected."
+                  if protected else "Used for refill and orphaning among eligible active and archived nodes."
+                  if include_archived else "Used for archival among eligible active nodes.")
+        return {
+            "id": node_id, "score": item["score"] if eligible else None,
+            "preview_score": item["score"] if not eligible else None,
+            "eligible": eligible, "reason": reason,
+            "pool": {"size": len(breakdown), "include_archived": include_archived},
+            "components": components, "connectedness": connections,
+            "recency": {"write_ts": write_ts, "read_ts": node.get("_last_read_ts", 0)},
+            "usefulness": {
+                "endorsements": len(node.get("_useful_ts", [])),
+                "half_life_days": USEFUL_HALF_LIFE_DAYS,
+            },
+            "grace": {
+                "protected": protected,
+                "days": self.grace_period_seconds / 86400,
+                "ends_ts": node.get("_created_ts", 0) + self.grace_period_seconds,
+            },
+            "calculated_at": now,
+        }

@@ -17,7 +17,10 @@ Browser ─HTTP─► Visual Editor (FastAPI, port 8766)
                     └─WS────► MCP Server WebSocket (localhost:8765/ws)
 ```
 
-The visual editor stores no data. All reads and writes are proxied to the MCP server. Real-time graph updates arrive via the WebSocket proxy.
+The visual editor stores no data. Reads and writes use the MCP server. Search
+runs the shared `server/core/search.py` helpers on its read-only graph snapshot;
+score explanations come from the server's live scorer and version metadata.
+Real-time graph updates arrive via the WebSocket proxy.
 
 ## File Structure
 
@@ -25,7 +28,7 @@ The visual editor stores no data. All reads and writes are proxied to the MCP se
 visual-editor/
 ├── backend/
 │   ├── server.py            # FastAPI app: REST proxy + WS proxy + static serving
-│   └── project_discovery.py # Scans ~/.claude/projects/ for /api/projects
+│   └── project_discovery.py # Server-owned projects; legacy history fallback
 ├── frontend/
 │   ├── index.html
 │   └── static/
@@ -33,6 +36,7 @@ visual-editor/
 │       └── js/app.js        # D3 force-directed graph, three-panel UI, inline editing
 ├── manage_visual.sh         # start | stop | restart | status | logs
 ├── requirements.txt
+├── tests/                  # API integration and UI state regression tests
 └── README.md                # this file
 ```
 
@@ -66,9 +70,11 @@ All under `http://localhost:$EDITOR_PORT`:
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/` | Serve SPA |
-| GET | `/api/health` | Editor + MCP server status |
-| GET | `/api/projects` | Projects discovered from Claude Code's session history |
+| GET | `/api/health` | Editor + MCP server status and canonical gist length target |
+| GET | `/api/projects` | Stored memory projects from the server (legacy history fallback) |
 | GET | `/api/graph` | Read graph (proxies to MCP `/api/graph/read`, served from the server's memory) |
+| GET | `/api/search` | All-tier search of the selected graph; kg_search ranking and top-five connecting paths |
+| GET | `/api/nodes/{level}/{id}/score` | Read-only archival score and factors from the live scorer |
 | POST | `/api/nodes` | Create/update node |
 | DELETE | `/api/nodes/{level}/{id}` | Delete node |
 | GET | `/api/nodes/{level}/{id}` | Read single node (auto-promotes archived/orphaned) |
@@ -80,9 +86,25 @@ All under `http://localhost:$EDITOR_PORT`:
 
 - Desktop only — minimum 1366px screen width
 - Edge creation requires typing target node ID (no click-to-connect)
-- No undo, no multi-select, no in-graph search
+- No undo, no multi-select
 - Live updates cover the user graph only; project-graph changes need Refresh
-- Projects used only from Codex are not discovered yet
+- Score explanations require a memory server with the score endpoint; search
+  works with older servers through the existing graph snapshot endpoint
+
+## Verification
+
+With a Python environment containing both server and editor requirements:
+
+```bash
+python tests/test_api.py
+node tests/test_ui.mjs
+```
+
+The API tests run the editor against the real memory REST app with in-process
+ASGI transports and temporary storage. The UI tests cover filters, async
+responses, selection, view controls, escaping, score rendering, and saving
+over-target gists with server-supplied character counters without
+browser dependencies. Visual layout still needs a browser check. CI runs both.
 
 ## License
 

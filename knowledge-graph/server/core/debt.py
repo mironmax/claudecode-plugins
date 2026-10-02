@@ -30,11 +30,11 @@ import time
 from pathlib import Path
 
 from .constants import NODE_ID_TARGET_WORDS
-from .utils import node_id_has_date, node_id_words
+from .utils import GIST_SCAN_LIMIT, node_id_has_date, node_id_words
 
 # Gist length the kg-core capture standard targets; beyond it a gist reads as a
 # wall, and oversized gists are the documented compactor-stall root cause.
-GIST_OVERSIZE_CHARS = 300
+GIST_OVERSIZE_CHARS = GIST_SCAN_LIMIT
 
 # --- Smear detection -------------------------------------------------------
 # A term is "smeared" when many nodes re-describe one entity in prose instead

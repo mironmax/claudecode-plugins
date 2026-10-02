@@ -70,17 +70,37 @@ The selected entry is highlighted with a blue left border. The header shows whic
 |---|---|
 | Identity | ID (read-only), status badges (level, archived, orphaned) |
 | Description | Gist — the one-line summary |
+| Archival score | Total score, factor ranks and contributions, expandable raw calculation |
 | Notes | Detailed notes, one per entry |
 | Files & Artifacts | Touches — related file paths |
 | Connections | All edges: outgoing (→) and incoming (←) |
 
 Click any peer name in **Connections** to jump selection to that node.
 
+### Archival Score
+
+The card uses the memory server's live scorer. Its three factors are
+**recency (25%)**, **connectedness (40%)**, and **usefulness (35%)**. Each
+factor is ranked within the eligible pool in this graph; equal raw values
+share a percentile. The weighted contributions add up to a score from 0 to 1.
+Higher scores stay longer, with archival and refill also depending on the
+graph's context budget.
+
+Expand **Raw values and calculation** to see the latest write/read time,
+incoming and outgoing connection counts and weights, the hub floor, and
+explicit endorsements with their 90-day decay half-life.
+
+Active nodes show the score used for archival among eligible active nodes.
+Archived nodes show the score used for refill among eligible active and
+archived nodes. Nodes still protected by their creation grace period have a
+marked preview after that period; orphaned nodes have a preview as if recalled
+to active. The card names its comparison pool and never recalls a node.
+
 ### Inline Editing
 
 Hover over the **Description**, **Notes**, or **Files** section header — a pen icon (✎) appears. Click it to edit inline:
 
-- **Gist**: Single-line textarea. Hard limit: **120 characters** (counter turns red if over; Save is blocked until under limit).
+- **Gist**: A textarea with a live character counter. The server's current target is **300 characters**. Longer gists remain editable and can be saved; the counter turns red and says “over target.” The target comes from the server, and character counts match its Unicode counting.
 - **Notes**: Multi-line textarea, one note per line.
 - **Touches**: Multi-line textarea, one file path per line.
 
@@ -99,12 +119,40 @@ Right-click any node:
 
 ---
 
+## Views and Search
+
+The **Visible nodes** and **All nodes** choices stay above the canvas:
+
+- **Visible nodes** is the default: active nodes and their immediate
+  neighbors. Archived neighbors appear dimmed. **Include orphaned** adds every
+  orphaned node to this view.
+- **All nodes** shows every stored node, including archived and orphaned
+  nodes. The footer reports how many nodes are shown; edges are counted as
+  drawn, hidden, or dangling when an endpoint is unavailable in this graph.
+
+Type in the search field, press **Search**, or use **Ctrl / ⌘ K** to focus it.
+Search uses `kg_search`'s matching and ranking over IDs, descriptions, notes,
+and file references. It searches every tier of the **selected graph**,
+regardless of the current view.
+
+The right panel lists matches in ranked order with matching text highlighted.
+The canvas shows the top five numbered matches and their connecting paths.
+**Show all matches** adds the remaining hits to the canvas. Select any result
+to reveal it and inspect its details, including a node hidden by the default
+view. Search, selection, view changes, and score inspection are read-only.
+
+**Clear** or **Escape** in the search field returns to the previous graph
+view. Choosing **Visible nodes** or **All nodes** also exits search. Switching
+graphs clears the query so results always belong to the selected graph.
+
+---
+
 ## Creating Nodes
 
 Click **+ New Node** in the graph toolbar:
 
 - **Node ID**: kebab-case, e.g. `my-concept` (lowercase letters, digits, hyphens)
-- **Gist**: One-line summary, ≤120 characters
+- **Gist**: A concise summary, ideally within the server's 300-character target. The form warns above the target and still allows saving.
 - **Notes**: Optional, one per line
 - **Touches**: Optional file paths, one per line
 

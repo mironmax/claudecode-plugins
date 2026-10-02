@@ -5,19 +5,27 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 # Import project discovery utilities
 sys.path.insert(0, str(Path(__file__).parent))
 from project_discovery import discover_projects
+
+# Reuse kg_search's pure ranking and path helpers on the server's snapshot.
+# This also works with an older running MCP server; no second search engine
+# or direct access to its storage is needed.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "server"))
+from core.search import connection_paths, rank_nodes, search_terms
+from core.utils import GIST_SCAN_LIMIT
 
 # Configure logging
 logging.basicConfig(
@@ -100,7 +108,10 @@ async def health_check():
     return {
         "status": "ok",
         "editor_version": EDITOR_VERSION,
-        "mcp_server": mcp_status
+        "mcp_server": mcp_status,
+        # Prefer the running server's policy; older servers use this checkout's
+        # canonical soft target instead of a separate frontend constant.
+        "limits": mcp_status.get("limits", {"gist_target_chars": GIST_SCAN_LIMIT}),
     }
 
 
@@ -159,6 +170,8 @@ async def get_graph(session_id: str | None = None, project_path: str | None = No
 
             return response.json()
 
+    except HTTPException:
+        raise
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="MCP server timeout")
     except httpx.ConnectError:
@@ -169,6 +182,76 @@ async def get_graph(session_id: str | None = None, project_path: str | None = No
     except Exception as e:
         logger.exception("Error fetching graph from MCP server")
         raise HTTPException(status_code=500, detail="Failed to fetch graph")
+
+
+def _search_record(node_id: str, node: dict, level: str, score: float,
+                   terms: list[str]) -> dict:
+    """Compact hit with evidence from the fields kg_search actually scans."""
+    fields = {
+        "ID": [node_id],
+        "Description": [node.get("gist", "")],
+        "Notes": node.get("notes", []),
+        "Files": node.get("touches", []),
+    }
+    matched_fields = []
+    excerpt = ""
+    for label, values in fields.items():
+        matching = [value for value in values if any(t in value.lower() for t in terms)]
+        if not matching:
+            continue
+        matched_fields.append(label)
+        if label in ("Notes", "Files") and not excerpt:
+            value = matching[0]
+            first_match = min(value.lower().find(t) for t in terms if t in value.lower())
+            start = max(0, first_match - 45)
+            excerpt = ("…" if start else "") + value[start:start + 180]
+            if start + 180 < len(value):
+                excerpt += "…"
+    return {
+        "id": node_id, "level": level, "gist": node.get("gist", ""),
+        "archived": node.get("_archived", False), "orphaned": "_orphaned_ts" in node,
+        "score": round(score, 4), "matched_fields": matched_fields, "excerpt": excerpt,
+    }
+
+
+@app.get("/api/search")
+async def search_graph(query: str = Query(min_length=1, max_length=500),
+                       level: Literal["user", "project"] = "user",
+                       project_path: str | None = None):
+    """Search every tier of the selected graph without recalling any nodes.
+
+    kg_search's field weights, stemming, bigrams, RRF/IDF ranking and top-five
+    connecting paths are shared directly. All remaining hits are included for
+    browsing in the editor, rather than clipped to a text response budget.
+    """
+    if level == "project" and not project_path:
+        raise HTTPException(status_code=400, detail="Select a project graph to search")
+    query = query.strip()
+    terms, bigrams = search_terms(query)
+    if not terms:
+        return {"top": [], "more": [], "connectors": [], "path_edges": [],
+                "total": 0, "terms": []}
+    snapshot = await get_graph(project_path=project_path if level == "project" else None)
+    graph = snapshot.get(level) or {}
+    node_data = graph.get("nodes", [])
+    nodes = node_data if isinstance(node_data, dict) else {node["id"]: node for node in node_data}
+    edge_data = graph.get("edges", [])
+    edges = list(edge_data.values()) if isinstance(edge_data, dict) else edge_data
+    scores, _meta = rank_nodes(nodes, terms, bigrams)
+    records = [_search_record(nid, nodes[nid], level, score, terms)
+               for nid, score in scores.items()]
+    # kg_search ranks its rounded scores, including stable ties.
+    records.sort(key=lambda record: record["score"], reverse=True)
+    top = records[:5]
+    paths = connection_paths([record["id"] for record in top], set(nodes),
+                             edges)
+    hit_ids = set(scores)
+    connector_ids = dict.fromkeys(nid for edge in paths for nid in (edge["from"], edge["to"])
+                                  if nid not in hit_ids)
+    connectors = [{"id": nid, "level": level, "gist": nodes[nid].get("gist", "")}
+                  for nid in connector_ids]
+    return {"top": top, "more": records[5:], "connectors": connectors,
+            "path_edges": paths, "total": len(records), "terms": terms}
 
 
 # ============================================================================
@@ -294,6 +377,30 @@ async def delete_edge(level: str, from_id: str, to_id: str, rel: str, session_id
     except Exception as e:
         logger.exception("Error deleting edge")
         raise HTTPException(status_code=500, detail="Failed to delete edge")
+
+@app.get("/api/nodes/{level}/{node_id}/score")
+async def node_score(level: Literal["user", "project"], node_id: str,
+                     session_id: str | None = None, project_path: str | None = None):
+    """Proxy the live server's read-only scoring explanation."""
+    params = {}
+    if session_id:
+        params["session_id"] = session_id
+    if project_path:
+        params["project_path"] = project_path
+    try:
+        async with httpx.AsyncClient(timeout=MCP_TIMEOUT) as client:
+            response = await client.get(
+                f"{MCP_SERVER_URL}/api/nodes/{level}/{quote(node_id, safe='')}/score", params=params,
+            )
+            _raise_upstream(response)
+            return response.json()
+    except HTTPException:
+        raise
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="MCP server timeout")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail="Cannot connect to MCP server")
+
 
 @app.get("/api/nodes/{level}/{node_id}")
 async def read_node(level: str, node_id: str, session_id: str | None = None,

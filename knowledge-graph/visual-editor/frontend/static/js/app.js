@@ -31,7 +31,7 @@ function icon(name, size = '') {
 
 const CONFIG = {
     apiBaseUrl: window.location.origin,
-    gistMaxLen: 120,
+    gistTargetLen: null, // Supplied by /api/health; a warning, never an edit cap.
     simulation: {
         linkDistance: 120,
         linkStrength: 0.4,
@@ -71,6 +71,14 @@ const state = {
     viewMode: 'default',
     // Only affects 'default' view — 'full' always shows orphaned nodes.
     showOrphaned: false,
+    graphRequestId: 0,
+    nodeScoreCache: new Map(),
+    revealedNodeIds: new Set(),
+    fitNextRender: false,
+    search: {
+        query: '', result: null, loading: false, error: null,
+        requestId: 0, controller: null, timer: null, showAllMatches: false,
+    },
 };
 
 // ============================================================================
@@ -251,6 +259,8 @@ async function checkHealth() {
     try {
         const response = await fetch(`${CONFIG.apiBaseUrl}/api/health`);
         const health = await response.json();
+        const target = health.limits?.gist_target_chars ?? health.mcp_server?.limits?.gist_target_chars;
+        CONFIG.gistTargetLen = Number.isInteger(target) && target > 0 ? target : null;
 
         if (health.status === 'ok' && health.mcp_server?.status === 'ok') {
             setConnectionStatus('connected', 'Connected');
@@ -336,6 +346,7 @@ function selectUserGraph() {
 
     state.graphLevel = 'user';
     state.selectedProject = null;
+    resetGraphSelection();
     loadGraph();
 }
 
@@ -346,7 +357,22 @@ function selectProject(projectPath) {
 
     state.graphLevel = 'project';
     state.selectedProject = projectPath;
+    resetGraphSelection();
     loadGraph();
+}
+
+function resetGraphSelection() {
+    clearSearch(false);
+    state.graphData = null;
+    state.nodeScoreCache.clear();
+    state.selectedNode = null;
+    state.editingField = null;
+    state.fitNextRender = true;
+    state.simulation?.stop();
+    state.svgElements?.container.selectAll('*').remove();
+    showDetailEmpty();
+    updateCurrentGraphLabel();
+    updateViewModeButton();
 }
 
 // ============================================================================
@@ -451,7 +477,7 @@ function applyLevelFilter(data, graphLevel) {
     const filteredNodes = data.nodes.filter(n => n.level === graphLevel);
     const nodeIds = new Set(filteredNodes.map(n => n.id));
     const filteredLinks = data.links.filter(
-        l => nodeIds.has(l.source.id || l.source) && nodeIds.has(l.target.id || l.target)
+        l => l.level === graphLevel && nodeIds.has(l.source.id || l.source) && nodeIds.has(l.target.id || l.target)
     );
 
     return { nodes: filteredNodes, links: filteredLinks };
@@ -488,6 +514,184 @@ function applyDefaultViewFilter(levelData, showOrphaned) {
     return { nodes, links };
 }
 
+// Search is a read-only view over the full snapshot, independent of tier
+// visibility. Every path endpoint is kept, even if it is a lower-ranked hit.
+function applySearchViewFilter(levelData, result, showAllMatches, revealedIds) {
+    const hits = showAllMatches ? [...result.top, ...result.more] : result.top;
+    const keepIds = new Set([...hits.map(n => n.id), ...revealedIds]);
+    result.path_edges.forEach(edge => {
+        keepIds.add(edge.from);
+        keepIds.add(edge.to);
+    });
+    const nodes = levelData.nodes.filter(n => keepIds.has(n.id));
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const links = levelData.links.filter(l =>
+        nodeIds.has(l.source.id || l.source) && nodeIds.has(l.target.id || l.target)
+    );
+    return { nodes, links };
+}
+
+function graphScopeKey() {
+    return `${state.graphLevel}:${state.selectedProject || ''}`;
+}
+
+function cancelSearchRequest() {
+    clearTimeout(state.search.timer);
+    state.search.controller?.abort();
+    state.search.requestId++;
+}
+
+function clearSearch(render = true) {
+    cancelSearchRequest();
+    Object.assign(state.search, {
+        query: '', result: null, loading: false, error: null,
+        controller: null, timer: null, showAllMatches: false,
+    });
+    state.revealedNodeIds.clear();
+    document.getElementById('graph-search-input').value = '';
+    hideElement('clear-search-btn');
+    hideElement('search-results-panel');
+    updateViewModeButton();
+    if (render && state.graphData) renderGraph(state.graphData);
+}
+
+function scheduleSearch() {
+    const query = document.getElementById('graph-search-input').value.trim();
+    if (!query) { clearSearch(); return; }
+    cancelSearchRequest();
+    state.search.query = query;
+    state.search.result = null;
+    state.search.loading = true;
+    state.search.error = null;
+    state.revealedNodeIds.clear();
+    renderSearchResults();
+    updateViewModeButton();
+    state.search.timer = setTimeout(runSearch, 300);
+}
+
+async function runSearch() {
+    const query = document.getElementById('graph-search-input').value.trim();
+    if (!query) { clearSearch(); return; }
+    if (!state.graphData || !state.graphLevel) return;
+
+    cancelSearchRequest();
+    const requestId = state.search.requestId;
+    const scope = graphScopeKey();
+    const controller = new AbortController();
+    Object.assign(state.search, {
+        query, controller, result: null, loading: true, error: null,
+    });
+    state.revealedNodeIds.clear();
+    renderSearchResults();
+    updateViewModeButton();
+    const params = new URLSearchParams({ query, level: state.graphLevel });
+    if (state.graphLevel === 'project') params.set('project_path', state.selectedProject);
+
+    try {
+        const response = await fetch(`${CONFIG.apiBaseUrl}/api/search?${params}`, { signal: controller.signal });
+        if (!response.ok) throw new Error(await errDetail(response));
+        const result = await response.json();
+        if (requestId !== state.search.requestId || scope !== graphScopeKey()) return;
+        state.search.result = result;
+        state.search.loading = false;
+        state.search.controller = null;
+        state.fitNextRender = true;
+        renderSearchResults();
+        renderGraph(state.graphData);
+    } catch (error) {
+        if (error.name === 'AbortError' || requestId !== state.search.requestId || scope !== graphScopeKey()) return;
+        state.search.loading = false;
+        state.search.error = error.message;
+        state.search.controller = null;
+        renderSearchResults();
+        renderGraph(state.graphData);
+    }
+}
+
+// Build markup from escaped slices, rather than applying a regex to HTML.
+function highlightSearchText(value, terms) {
+    const text = String(value || '');
+    const lower = text.toLowerCase();
+    const ranges = [];
+    terms.forEach(term => {
+        if (!term) return;
+        let start = lower.indexOf(term);
+        while (start !== -1) {
+            ranges.push([start, start + term.length]);
+            start = lower.indexOf(term, start + term.length);
+        }
+    });
+    ranges.sort((a, b) => a[0] - b[0]);
+    const merged = [];
+    ranges.forEach(range => {
+        const previous = merged[merged.length - 1];
+        if (previous && range[0] <= previous[1]) previous[1] = Math.max(previous[1], range[1]);
+        else merged.push([...range]);
+    });
+    let cursor = 0;
+    let html = '';
+    merged.forEach(([start, end]) => {
+        html += escapeHtml(text.slice(cursor, start)) + `<mark>${escapeHtml(text.slice(start, end))}</mark>`;
+        cursor = end;
+    });
+    return html + escapeHtml(text.slice(cursor));
+}
+
+function renderSearchResults() {
+    if (!state.search.query) { hideElement('search-results-panel'); return; }
+    showElement('search-results-panel');
+    showElement('clear-search-btn');
+    const list = document.getElementById('search-results');
+    const summary = document.getElementById('search-result-summary');
+    const help = document.getElementById('search-result-help');
+    list.replaceChildren();
+    hideElement('search-all-matches-btn');
+    hideElement('search-result-help');
+    if (state.search.loading) { summary.textContent = 'Searching all nodes…'; return; }
+    if (state.search.error) {
+        summary.textContent = `Search failed: ${state.search.error}. Press Search to retry.`;
+        return;
+    }
+    const result = state.search.result;
+    if (!result) return;
+    summary.textContent = result.total
+        ? `${result.total} ${result.total === 1 ? 'match' : 'matches'} · all node tiers`
+        : 'No matches. Try a different term or another graph.';
+    if (!result.total) return;
+    showElement('search-result-help');
+    help.textContent = 'Numbered nodes are the top matches; other nodes connect them. Select a result to inspect it.';
+    if (result.more.length) {
+        showElement('search-all-matches-btn');
+        const allBtn = document.getElementById('search-all-matches-btn');
+        allBtn.textContent = state.search.showAllMatches ? 'Show top 5' : 'Show all matches';
+        allBtn.setAttribute('aria-pressed', String(state.search.showAllMatches));
+    }
+    [...result.top, ...result.more].forEach((hit, index) => {
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'search-result';
+        row.dataset.nodeId = hit.id;
+        row.classList.toggle('active', hit.id === state.selectedNode?.id);
+        row.setAttribute('aria-pressed', String(hit.id === state.selectedNode?.id));
+        const status = hit.orphaned ? 'Orphaned' : hit.archived ? 'Archived' : 'Active';
+        row.innerHTML = `
+            <span class="search-result-title"><span class="search-result-rank">${index + 1}</span><span class="search-result-id">${highlightSearchText(hit.id, result.terms)}</span></span>
+            <span class="search-result-gist">${highlightSearchText(hit.gist, result.terms)}</span>
+            <span class="search-result-meta">${status} · ${escapeHtml(hit.matched_fields.join(', '))}</span>
+            ${hit.excerpt ? `<span class="search-result-excerpt">${highlightSearchText(hit.excerpt, result.terms)}</span>` : ''}`;
+        row.addEventListener('click', () => selectNodeById(hit.id));
+        list.appendChild(row);
+    });
+}
+
+function updateSearchSelection() {
+    document.querySelectorAll('.search-result').forEach(row => {
+        const selected = row.dataset.nodeId === state.selectedNode?.id;
+        row.classList.toggle('active', selected);
+        row.setAttribute('aria-pressed', String(selected));
+    });
+}
+
 // ============================================================================
 // Modal System
 // ============================================================================
@@ -511,6 +715,26 @@ function closeModal() {
     document.getElementById('modal-overlay').classList.add('hidden');
 }
 
+function gistCounterText(value) {
+    // Match Python's len(): an emoji outside the BMP counts as one character.
+    const len = Array.from(value).length;
+    const target = CONFIG.gistTargetLen;
+    return target ? `${len}/${target}${len > target ? ' · over target' : ''}` : `${len} ${len === 1 ? 'character' : 'characters'}`;
+}
+
+function bindGistCounter(textareaId, counterId) {
+    const textarea = document.getElementById(textareaId);
+    const counter = document.getElementById(counterId);
+    if (!textarea || !counter) return;
+    const update = () => {
+        const len = Array.from(textarea.value).length;
+        counter.textContent = gistCounterText(textarea.value);
+        counter.classList.toggle('over-limit', CONFIG.gistTargetLen !== null && len > CONFIG.gistTargetLen);
+    };
+    textarea.addEventListener('input', update);
+    update();
+}
+
 function openEditNodeModal(node = null) {
     const isEdit = node !== null;
     const title = isEdit ? `Edit Node: ${escapeHtml(node.id)}` : 'Create New Node';
@@ -524,7 +748,9 @@ function openEditNodeModal(node = null) {
             </div>
             <div class="form-group">
                 <label>Description (Gist)</label>
-                <textarea id="node-gist" rows="3" required>${isEdit ? escapeHtml(node.gist) : ''}</textarea>
+                <textarea id="node-gist" rows="3" required aria-describedby="node-gist-counter node-gist-help">${isEdit ? escapeHtml(node.gist) : ''}</textarea>
+                <span class="char-counter" id="node-gist-counter" aria-live="polite">${gistCounterText(isEdit ? node.gist : '')}</span>
+                <p class="gist-guidance" id="node-gist-help">Longer gists can still be saved. Move detail to Notes for faster scanning.</p>
             </div>
             <div class="form-group">
                 <label>Notes (one per line)</label>
@@ -545,6 +771,7 @@ function openEditNodeModal(node = null) {
     `;
 
     openModal(title, content, actions);
+    bindGistCounter('node-gist', 'node-gist-counter');
 }
 
 async function submitNodeForm(isEdit) {
@@ -555,11 +782,6 @@ async function submitNodeForm(isEdit) {
 
     if (!id || !gist) {
         showToast('ID and Description required', 'error');
-        return;
-    }
-
-    if (gist.length > CONFIG.gistMaxLen) {
-        showToast(`Gist must be ≤${CONFIG.gistMaxLen} characters`, 'error');
         return;
     }
 
@@ -766,10 +988,6 @@ async function saveInlineEdit(field) {
     if (field === 'gist') {
         const val = document.getElementById('inline-gist')?.value.trim();
         if (!val) { showToast('Gist cannot be empty', 'error'); return; }
-        if (val.length > CONFIG.gistMaxLen) {
-            showToast(`Gist must be ≤${CONFIG.gistMaxLen} characters`, 'error');
-            return;
-        }
         gist = val;
     } else if (field === 'notes') {
         const raw = document.getElementById('inline-notes')?.value ?? '';
@@ -937,10 +1155,24 @@ function renderGraph(graphData) {
     });
     const maxDegree = Math.max(1, ...Object.values(degreeMap));
 
-    const viewData = state.viewMode === 'full'
-        ? levelData
-        : applyDefaultViewFilter(levelData, state.showOrphaned);
+    let viewData = state.search.result
+        ? applySearchViewFilter(levelData, state.search.result, state.search.showAllMatches, state.revealedNodeIds)
+        : state.viewMode === 'full' ? levelData : applyDefaultViewFilter(levelData, state.showOrphaned);
+    // Connection links in Details can also reveal a node outside the default
+    // view. This changes only the canvas, never a node's archival state.
+    if (!state.search.result && state.revealedNodeIds.size) {
+        const ids = new Set([...viewData.nodes.map(n => n.id), ...state.revealedNodeIds]);
+        viewData = {
+            nodes: levelData.nodes.filter(n => ids.has(n.id)),
+            links: levelData.links.filter(l => ids.has(l.source.id || l.source) && ids.has(l.target.id || l.target)),
+        };
+    }
     const hiddenByView = levelData.links.length - viewData.links.length;
+    const searchHits = new Map([...(state.search.result?.top || []), ...(state.search.result?.more || [])]
+        .map((hit, index) => [hit.id, index + 1]));
+    const pathKeys = new Set((state.search.result?.path_edges || []).map(e => `${e.from}\0${e.to}\0${e.rel}`));
+
+    updateViewModeButton(viewData);
 
     updateStats({
         nodesShown: viewData.nodes.length,
@@ -952,9 +1184,10 @@ function renderGraph(graphData) {
     });
 
     if (viewData.nodes.length === 0) {
-        showEmptyState(levelData.nodes.length > 0
-            ? 'No active nodes here — try Full Graph to see everything'
-            : 'No nodes to display');
+        state.simulation.stop();
+        showEmptyState(state.search.result
+            ? 'No search matches — try another term'
+            : levelData.nodes.length > 0 ? 'No visible nodes — choose All nodes to see everything' : 'No nodes to display');
         return;
     }
 
@@ -972,7 +1205,8 @@ function renderGraph(graphData) {
         .data(viewData.links)
         .enter()
         .append('line')
-        .attr('class', 'link')
+        .attr('class', d => pathKeys.has(`${d.source.id || d.source}\0${d.target.id || d.target}\0${d.rel}`)
+            ? 'link link-search-path' : 'link')
         .attr('stroke-width', 1.5);
 
     const linkLabel = container.append('g')
@@ -1007,10 +1241,21 @@ function renderGraph(graphData) {
             const classes = ['node', `node-${d.level}`];
             if (d.archived) classes.push('node-archived');
             if (d.orphaned) classes.push('node-orphan');
+            if (state.search.result) classes.push(searchHits.has(d.id) ? 'node-search-hit' : 'node-search-connector');
+            if (d.id === state.selectedNode?.id) classes.push('selected');
             return classes.join(' ');
         })
+        .attr('tabindex', 0)
+        .attr('role', 'button')
+        .attr('aria-label', d => `${d.id}${searchHits.has(d.id) ? `, search result ${searchHits.get(d.id)}` : ''}`)
         .attr('r', d => d._radius)
         .on('click', (event, d) => handleNodeClick(event, d))
+        .on('keydown', (event, d) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                handleNodeClick(event, d);
+            }
+        })
         .on('contextmenu', (event, d) => {
             event.preventDefault();
             showContextMenu(event.pageX, event.pageY, d);
@@ -1029,10 +1274,24 @@ function renderGraph(graphData) {
             let cls = 'node-label';
             if (d.archived) cls += ' node-label-archived';
             if (d.orphaned) cls += ' node-label-orphan';
+            if (state.search.result) cls += ' node-label-search';
             return cls;
         })
         .attr('dy', d => -(d._radius + 6))
-        .text(d => truncateText(d.id, 20));
+        .text(d => truncateText(d.id, state.search.result ? 28 : 20));
+
+    const ranks = container.append('g').selectAll('text')
+        .data(viewData.nodes.filter(n => searchHits.has(n.id) && searchHits.get(n.id) <= 5))
+        .enter().append('text').attr('class', 'search-rank').attr('dy', '0.35em')
+        .text(d => searchHits.get(d.id));
+
+    // Controls and result rows change the available canvas size. Recenter the
+    // forces from the current viewport rather than the initial layout.
+    const viewport = document.getElementById('graph-container');
+    state.simulation.force('center').x(viewport.clientWidth / 2).y(viewport.clientHeight / 2);
+    state.simulation.force('x').x(viewport.clientWidth / 2);
+    state.simulation.force('y').y(viewport.clientHeight / 2);
+    let ticks = 0;
 
     state.simulation.force('charge', d3.forceManyBody().strength(d => {
         const contentRatio = d._contentWeight / maxContent;
@@ -1066,10 +1325,29 @@ function renderGraph(graphData) {
             nodeLabel
                 .attr('x', d => d.x)
                 .attr('y', d => d.y);
+            ranks.attr('x', d => d.x).attr('y', d => d.y);
+            if (state.fitNextRender && ++ticks >= 35) {
+                fitGraphToNodes(viewData.nodes);
+                state.fitNextRender = false;
+            }
         });
 
     state.simulation.force('link').links(viewData.links);
     state.simulation.alpha(1).restart();
+}
+
+function fitGraphToNodes(nodes) {
+    if (!nodes.length || !state.svgElements) return;
+    const viewport = document.getElementById('graph-container');
+    const xs = nodes.map(n => n.x).filter(Number.isFinite);
+    const ys = nodes.map(n => n.y).filter(Number.isFinite);
+    if (!xs.length || !ys.length) return;
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const scale = Math.min(1.4, viewport.clientWidth / (maxX - minX + 160), viewport.clientHeight / (maxY - minY + 120));
+    const transform = d3.zoomIdentity.translate(viewport.clientWidth / 2, viewport.clientHeight / 2)
+        .scale(scale).translate(-(minX + maxX) / 2, -(minY + maxY) / 2);
+    state.svgElements.svg.transition().duration(250).call(state.zoom.transform, transform);
 }
 
 function showEmptyState(message) {
@@ -1141,9 +1419,13 @@ function selectNodeById(nodeId) {
     if (!node) return;
     state.selectedNode = node;
     state.editingField = null;
+    state.revealedNodeIds.add(nodeId);
+    state.fitNextRender = true;
+    renderGraph(state.graphData);
     d3.selectAll('.node').classed('selected', false);
     d3.selectAll('.node').filter(d => d.id === nodeId).classed('selected', true);
     renderNodeDetails(node);
+    updateSearchSelection();
 }
 
 // ============================================================================
@@ -1157,6 +1439,7 @@ function handleNodeClick(event, node) {
     state.selectedNode = node;
     state.editingField = null;
     renderNodeDetails(node);
+    updateSearchSelection();
 }
 
 function showDetailEmpty() {
@@ -1170,6 +1453,81 @@ function showDetailEmpty() {
     `;
 }
 
+function scoreCacheKey(node) {
+    return `${graphScopeKey()}:${node.id}`;
+}
+
+function scoreDate(timestamp) {
+    return timestamp ? new Date(timestamp * 1000).toLocaleString() : 'Never';
+}
+
+function buildNodeScoreContent(node) {
+    const cached = state.nodeScoreCache.get(scoreCacheKey(node));
+    if (!cached || cached.loading) return '<p class="score-note">Calculating score…</p>';
+    if (cached.error) return `<p class="score-note">${escapeHtml(cached.error)}</p>`;
+    const data = cached.data;
+    const total = data.score ?? data.preview_score;
+    const preview = !data.eligible;
+    const connected = data.connectedness;
+    const incoming = connected.incoming, outgoing = connected.outgoing;
+    const raw = key => data.components.find(c => c.key === key).raw.toFixed(3);
+    const edgeCount = Object.values(incoming).reduce((a, b) => a + b, 0)
+        + Object.values(outgoing).reduce((a, b) => a + b, 0);
+    const rows = data.components.map(component => `<tr>
+        <th scope="row" class="score-factor-${component.key}">${escapeHtml(component.label)}</th>
+        <td>${(component.percentile * 100).toFixed(1)}%</td>
+        <td>${(component.weight * 100).toFixed(0)}%</td>
+        <td>+${component.contribution.toFixed(3)}</td>
+    </tr>`).join('');
+    return `
+        <div class="score-total"><strong>${total.toFixed(3)}</strong><span>/ 1.000${preview ? ' · preview' : ''}</span></div>
+        <p class="score-note">${escapeHtml(data.reason)}</p>
+        <div class="score-bar" aria-hidden="true">${data.components.map(c =>
+            `<span class="score-bar-${c.key}" style="width:${(c.contribution * 100).toFixed(2)}%"></span>`).join('')}</div>
+        <table class="score-table">
+            <thead><tr><th scope="col">Factor</th><th scope="col">Rank</th><th scope="col">Weight</th><th scope="col">Adds</th></tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+        <p class="score-note">Ranks among ${data.pool.size} eligible ${data.pool.include_archived ? 'active and archived' : 'active'} nodes in this graph. Equal values share a rank.</p>
+        <details class="score-calculation"><summary>Raw values and calculation</summary><dl class="score-factors">
+            <dt>Recency</dt>
+            <dd>Latest write or read: ${escapeHtml(scoreDate(data.components[0].raw))}<br>Write: ${escapeHtml(scoreDate(data.recency.write_ts))}<br>Read: ${escapeHtml(scoreDate(data.recency.read_ts))}</dd>
+            <dt>Connectedness · ${raw('connectedness')}</dt>
+            <dd>Incoming: ${incoming.active} active, ${incoming.archived} archived, ${incoming.unweighted} unweighted.<br>Outgoing: ${outgoing.active} active, ${outgoing.archived} archived, ${outgoing.unweighted} unweighted.<br>Active neighbors count ×1; archived ×${connected.archived_neighbor_weight}; others ×0.<br>0.66 × ${connected.weighted_in.toFixed(2)} + 0.33 × ${connected.weighted_out.toFixed(2)} = ${connected.weighted_degree.toFixed(3)}.<br>Hub floor: ${connected.hub_floor_weight} × ln(1 + ${edgeCount}) = ${connected.hub_floor.toFixed(3)}. The larger value is used.</dd>
+            <dt>Usefulness · ${raw('usefulness')}</dt>
+            <dd>${data.usefulness.endorsements} explicit endorsements, decayed with a ${data.usefulness.half_life_days}-day half-life. Each contributes 0.5<sup>age / ${data.usefulness.half_life_days}</sup>.</dd>
+        </dl></details>
+        ${data.grace.protected ? `<p class="score-note">Creation grace: ${data.grace.days} days, until ${escapeHtml(scoreDate(data.grace.ends_ts))}.</p>` : ''}
+        <p class="score-note">Higher scores stay longer. Graph size and available context also determine archival and refill.</p>`;
+}
+
+async function fetchNodeScore(node) {
+    const key = scoreCacheKey(node);
+    if (state.nodeScoreCache.has(key)) return;
+    const generation = state.graphRequestId;
+    const scope = graphScopeKey();
+    state.nodeScoreCache.set(key, { loading: true });
+    try {
+        const response = await fetch(`${CONFIG.apiBaseUrl}/api/nodes/${node.level}/${encodeURIComponent(node.id)}/score${nodeApiQuery()}`);
+        if (!response.ok) {
+            const message = response.status === 404
+                ? 'Score unavailable on the running server. The updated memory server must be running.'
+                : `Score unavailable: ${await errDetail(response)}`;
+            throw new Error(message);
+        }
+        const data = await response.json();
+        if (generation !== state.graphRequestId || scope !== graphScopeKey()) return;
+        state.nodeScoreCache.set(key, { data });
+    } catch (error) {
+        if (generation !== state.graphRequestId || scope !== graphScopeKey()) return;
+        state.nodeScoreCache.set(key, { error: error.message });
+    }
+    if (state.selectedNode?.id === node.id && state.selectedNode.level === node.level) {
+        const content = document.getElementById('node-score-content');
+        if (content) content.innerHTML = buildNodeScoreContent(node);
+    }
+}
+
 function renderNodeDetails(node) {
     const container = document.getElementById('detail-content');
     const ef = state.editingField;
@@ -1177,16 +1535,19 @@ function renderNodeDetails(node) {
     // ---- Gist field ----
     const gistHtml = ef === 'gist'
         ? `<div class="inline-edit-wrap">
-               <textarea id="inline-gist" rows="3" maxlength="${CONFIG.gistMaxLen}">${escapeHtml(node.gist)}</textarea>
+               <textarea id="inline-gist" rows="3" aria-describedby="gist-counter inline-gist-help">${escapeHtml(node.gist)}</textarea>
                <div class="inline-edit-meta">
-                   <span class="char-counter" id="gist-counter">${node.gist.length}/${CONFIG.gistMaxLen}</span>
+                   <span class="char-counter" id="gist-counter" aria-live="polite">${gistCounterText(node.gist)}</span>
                    <div class="inline-edit-actions">
                        <button class="btn btn-xs" onclick="cancelInlineEdit()">Cancel</button>
                        <button class="btn btn-xs btn-primary" onclick="saveInlineEdit('gist')">${icon('check','sm')} Save</button>
                    </div>
                </div>
+               <p class="gist-guidance" id="inline-gist-help">Longer gists can still be saved. Move detail to Notes for faster scanning.</p>
            </div>`
-        : `<div class="detail-value">${escapeHtml(node.gist)}</div>`;
+        : `<div class="detail-value">${escapeHtml(node.gist)}</div>
+           ${CONFIG.gistTargetLen !== null && Array.from(node.gist).length > CONFIG.gistTargetLen
+               ? `<span class="char-counter over-limit">${gistCounterText(node.gist)}</span>` : ''}`;
 
     const gistEditBtn = ef === 'gist' ? '' :
         `<button class="edit-btn" onclick="startInlineEdit('gist')" title="Edit gist">
@@ -1271,6 +1632,11 @@ function renderNodeDetails(node) {
             </div>
 
             <div class="detail-section">
+                <h3>Archival score</h3>
+                <div id="node-score-content">${buildNodeScoreContent(node)}</div>
+            </div>
+
+            <div class="detail-section">
                 <h3>Notes</h3>
                 <div class="detail-field">
                     <div class="detail-field-header">
@@ -1304,15 +1670,8 @@ function renderNodeDetails(node) {
     // Wire up live char counter for gist
     if (ef === 'gist') {
         const ta = document.getElementById('inline-gist');
-        const counter = document.getElementById('gist-counter');
-        if (ta && counter) {
-            const updateCounter = () => {
-                const len = ta.value.length;
-                counter.textContent = `${len}/${CONFIG.gistMaxLen}`;
-                counter.classList.toggle('over-limit', len > CONFIG.gistMaxLen);
-            };
-            ta.addEventListener('input', updateCounter);
-            updateCounter(); // apply immediately so existing over-limit values show red
+        bindGistCounter('inline-gist', 'gist-counter');
+        if (ta) {
             ta.focus();
             ta.setSelectionRange(ta.value.length, ta.value.length);
         }
@@ -1321,6 +1680,7 @@ function renderNodeDetails(node) {
     } else if (ef === 'touches') {
         document.getElementById('inline-touches')?.focus();
     }
+    fetchNodeScore(node);
 }
 
 function dragStarted(event, d) {
@@ -1348,12 +1708,19 @@ async function loadGraph() {
     if (!state.graphLevel) return;
     if (state.graphLevel === 'project' && !state.selectedProject) return;
 
+    const requestId = ++state.graphRequestId;
+    const scope = graphScopeKey();
+    // Cancel an in-flight search before refreshing its underlying snapshot.
+    // Re-run the current query only after this graph response is accepted.
+    cancelSearchRequest();
     try {
         hideElement('graph-error');
         hideElement('graph-welcome');
         showElement('graph-loading');
 
         const rawData = await fetchGraphData();
+        if (requestId !== state.graphRequestId || scope !== graphScopeKey()) return;
+        state.nodeScoreCache.clear();
         state.graphData = transformGraphData(rawData);
         state.rawEdgeTotals = {
             user: Object.keys(rawData.user?.edges || {}).length,
@@ -1371,9 +1738,11 @@ async function loadGraph() {
             if (refreshed) {
                 state.selectedNode = refreshed;
                 if (!state.editingField) renderNodeDetails(refreshed);
-            }
+            } else { state.selectedNode = null; showDetailEmpty(); }
         }
+        if (state.search.query) await runSearch();
     } catch (error) {
+        if (requestId !== state.graphRequestId || scope !== graphScopeKey()) return;
         console.error('Failed to load graph:', error);
         showError(`Failed to load graph: ${error.message}`);
     }
@@ -1390,16 +1759,40 @@ function showWelcome() {
     updateCurrentGraphLabel();
 }
 
-// Reflects state.viewMode in the toggle button's label/title/style.
-function updateViewModeButton() {
-    const btn = document.getElementById('view-mode-btn');
-    if (!btn) return;
+// The choices stay in place; their pressed state names the current view.
+// Choosing either view clears search and returns to graph browsing.
+function updateViewModeButton(viewData = null) {
+    const all = document.getElementById('view-mode-btn');
+    const visible = document.getElementById('visible-view-btn');
     const full = state.viewMode === 'full';
-    btn.textContent = full ? 'Default View' : 'Full Graph';
-    btn.classList.toggle('btn-primary', full);
-    btn.title = full
-        ? 'Showing every node — click to switch back to active + neighbours'
-        : 'Showing active nodes and their neighbours — click to see the full graph';
+    const searching = Boolean(state.search.query);
+    const ready = Boolean(state.graphData);
+    all.setAttribute('aria-pressed', String(full && !searching));
+    visible.setAttribute('aria-pressed', String(!full && !searching));
+    all.disabled = visible.disabled = !ready;
+    const orphaned = document.getElementById('show-orphaned-toggle');
+    orphaned.disabled = !ready || full || searching;
+    orphaned.checked = full || state.showOrphaned;
+    document.getElementById('graph-search-input').disabled = !ready;
+    document.getElementById('search-btn').disabled = !ready;
+    const summary = document.getElementById('graph-view-summary');
+    if (!ready) { summary.textContent = 'Select a graph to explore its nodes'; return; }
+    if (searching) {
+        if (state.search.loading) summary.textContent = 'Searching every node in this graph…';
+        else if (state.search.error) summary.textContent = 'Search unavailable · graph browsing is still available';
+        else {
+            const result = state.search.result;
+            summary.textContent = state.search.showAllMatches
+                ? `Search · all ${result?.total || 0} matches and connecting nodes`
+                : `Search · top ${result?.top.length || 0} matches and their connecting paths`;
+        }
+    } else if (full) summary.textContent = 'All nodes · includes archived and orphaned';
+    else {
+        const levelData = applyLevelFilter(state.graphData, state.graphLevel);
+        const shown = viewData || applyDefaultViewFilter(levelData, state.showOrphaned);
+        const hidden = levelData.nodes.length - shown.nodes.length;
+        summary.textContent = `Active nodes + neighbors${state.showOrphaned ? ' + orphaned' : ''}${hidden ? ` · ${hidden} hidden` : ''}`;
+    }
 }
 
 async function initialize() {
@@ -1435,14 +1828,39 @@ async function initialize() {
     });
 
     updateViewModeButton();
-    document.getElementById('view-mode-btn').addEventListener('click', () => {
-        state.viewMode = state.viewMode === 'full' ? 'default' : 'full';
-        updateViewModeButton();
-        if (state.graphData) renderGraph(state.graphData);
-    });
+    const chooseView = mode => {
+        state.viewMode = mode;
+        state.fitNextRender = true;
+        clearSearch();
+    };
+    document.getElementById('visible-view-btn').addEventListener('click', () => chooseView('default'));
+    document.getElementById('view-mode-btn').addEventListener('click', () => chooseView('full'));
     document.getElementById('show-orphaned-toggle').addEventListener('change', (e) => {
         state.showOrphaned = e.target.checked;
         if (state.graphData) renderGraph(state.graphData);
+    });
+
+    document.getElementById('graph-search-form').addEventListener('submit', event => {
+        event.preventDefault();
+        runSearch();
+    });
+    document.getElementById('graph-search-input').addEventListener('input', scheduleSearch);
+    document.getElementById('graph-search-input').addEventListener('keydown', event => {
+        if (event.key === 'Escape') { event.preventDefault(); clearSearch(); }
+    });
+    document.getElementById('clear-search-btn').addEventListener('click', () => clearSearch());
+    document.getElementById('search-all-matches-btn').addEventListener('click', () => {
+        state.search.showAllMatches = !state.search.showAllMatches;
+        state.revealedNodeIds.clear();
+        state.fitNextRender = true;
+        renderSearchResults();
+        if (state.graphData) renderGraph(state.graphData);
+    });
+    document.addEventListener('keydown', event => {
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && state.graphData) {
+            event.preventDefault();
+            document.getElementById('graph-search-input').focus();
+        }
     });
 
     document.getElementById('zoom-in-btn').addEventListener('click', () => {

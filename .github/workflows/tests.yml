@@ -26,12 +26,14 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: knowledge-graph/server/requirements.txt
+          cache-dependency-path: |
+            knowledge-graph/server/requirements.txt
+            knowledge-graph/visual-editor/requirements.txt
 
       - name: Create a fresh virtual environment
         run: |
           python -m venv "$RUNNER_TEMP/venv"
-          "$RUNNER_TEMP/venv/bin/python" -m pip install --disable-pip-version-check -r requirements.txt
+          "$RUNNER_TEMP/venv/bin/python" -m pip install --disable-pip-version-check -r requirements.txt -r ../visual-editor/requirements.txt
           "$RUNNER_TEMP/venv/bin/python" --version
 
       # Tests put their temporary project dirs in ~/.cache so the projects sit
@@ -62,3 +64,8 @@ jobs:
             exit 1
           fi
           echo "All test files passed."
+
+      - name: Run editor API and UI behavior tests
+        run: |
+          "$RUNNER_TEMP/venv/bin/python" ../visual-editor/tests/test_api.py
+          node ../visual-editor/tests/test_ui.mjs

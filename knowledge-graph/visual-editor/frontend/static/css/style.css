@@ -473,6 +473,142 @@ html, body {
     cursor: pointer;
 }
 
+/* View and search controls share the existing panel/button vocabulary. */
+.graph-tools {
+    padding: 0.75rem 0.875rem;
+    background: var(--bg-medium);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.graph-view-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+}
+
+.view-modes {
+    display: inline-flex;
+    gap: 2px;
+    padding: 3px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 0.4375rem;
+}
+
+.view-modes .btn { border-color: transparent; }
+.view-modes .btn[aria-pressed="true"] {
+    background: var(--bg-light);
+    color: var(--text-primary);
+    border-color: var(--primary-color);
+}
+
+.graph-view-summary, .search-help {
+    font-size: 0.6875rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+    margin-top: 0.375rem;
+}
+
+.graph-search {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    padding: 0.375rem 0.5rem;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: 0.4375rem;
+    color: var(--text-secondary);
+}
+
+.graph-search:focus-within { border-color: var(--primary-color); }
+.graph-search input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    padding: 0.25rem 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.8125rem;
+}
+.graph-search input::placeholder { color: var(--text-secondary); }
+.graph-search input::-webkit-search-cancel-button { display: none; }
+.graph-search .btn { flex-shrink: 0; }
+
+.btn:disabled, .graph-search input:disabled { opacity: 0.45; cursor: default; }
+.btn:focus-visible, .search-result:focus-visible, .node:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 3px;
+}
+
+.search-results-panel {
+    display: flex;
+    flex-direction: column;
+    max-height: 48%;
+    min-height: 0;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+.search-result-summary, .search-result-help {
+    font-size: 0.75rem;
+    line-height: 1.4;
+    padding: 0.5rem 0.875rem 0;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+}
+.search-result-summary { color: var(--text-primary); }
+.search-result-help { padding-top: 0.25rem; padding-bottom: 0.5rem; font-size: 0.6875rem; }
+.search-results { overflow-y: auto; min-height: 0; padding-bottom: 0.375rem; }
+.search-result {
+    display: block;
+    width: 100%;
+    border: 0;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+    padding: 0.625rem 0.875rem;
+    text-align: left;
+    font: inherit;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+.search-result:hover { background: var(--bg-light); }
+.search-result.active { background: rgba(101, 150, 243, 0.1); border-left-color: var(--primary-color); }
+.search-result-title { display: flex; align-items: baseline; gap: 0.5rem; font-size: 0.8125rem; }
+.search-result-id { overflow-wrap: anywhere; min-width: 0; }
+.search-result-rank { color: var(--accent-gold); font-size: 0.6875rem; flex-shrink: 0; }
+.search-result-gist {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--text-secondary);
+}
+.search-result-meta { display: block; font-size: 0.625rem; color: var(--text-secondary); margin-top: 0.375rem; }
+.search-result-excerpt {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.6875rem;
+    color: var(--accent-teal);
+    margin-top: 0.25rem;
+}
+.search-result mark { background: rgba(234, 208, 148, 0.15); color: var(--accent-gold); }
+
+.node.node-search-hit { opacity: 1; stroke: var(--primary-color); stroke-width: 3px; }
+.node.node-search-connector { opacity: 0.8; stroke: var(--text-secondary); stroke-dasharray: 2 2; }
+.node-label.node-label-search { opacity: 1; fill: var(--text-primary); }
+.search-rank { font-size: 10px; font-weight: 700; text-anchor: middle; fill: var(--text-primary); pointer-events: none; }
+.link.link-search-path { stroke: var(--accent-lavender); stroke-opacity: 0.65; }
+
 .graph-viewport {
     flex: 1;
     position: relative;
@@ -634,6 +770,27 @@ html, body {
     border-bottom: 1px solid var(--border-color);
 }
 
+.score-total { display: flex; align-items: baseline; gap: 0.375rem; }
+.score-total strong { font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.score-total span, .score-note { font-size: 0.6875rem; color: var(--text-secondary); line-height: 1.5; }
+.score-note { margin-top: 0.375rem; }
+.score-bar { display: flex; height: 6px; border-radius: 3px; background: var(--bg-light); overflow: hidden; margin: 0.625rem 0; }
+.score-bar-recency { background: var(--primary-color); }
+.score-bar-connectedness { background: var(--accent-teal); }
+.score-bar-usefulness { background: var(--accent-gold); }
+.score-table { width: 100%; border-collapse: collapse; font-size: 0.6875rem; font-variant-numeric: tabular-nums; }
+.score-table th, .score-table td { padding: 0.3125rem 0.125rem; text-align: right; border-bottom: 1px solid var(--border-color); }
+.score-table th:first-child { text-align: left; }
+.score-table thead th { color: var(--text-secondary); font-weight: 400; }
+.score-table tbody th { font-weight: 400; }
+.score-factor-recency { color: var(--primary-color); }
+.score-factor-connectedness { color: var(--accent-teal); }
+.score-factor-usefulness { color: var(--accent-gold); }
+.score-calculation { margin-top: 0.625rem; font-size: 0.75rem; line-height: 1.5; }
+.score-calculation summary { cursor: pointer; color: var(--text-primary); }
+.score-factors dt { color: var(--text-primary); margin-top: 0.625rem; font-weight: 500; }
+.score-factors dd { color: var(--text-secondary); margin-top: 0.125rem; font-size: 0.6875rem; overflow-wrap: anywhere; }
+
 /* ---- Editable field row ---- */
 
 .detail-field {
@@ -747,6 +904,13 @@ html, body {
 .char-counter.over-limit {
     color: var(--error-color);
     font-weight: 600;
+}
+
+.gist-guidance {
+    margin: 0.375rem 0 0;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
 }
 
 .inline-edit-actions {

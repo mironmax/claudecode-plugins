@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from core.constants import project_namespace
 from core.exceptions import KGError, NodeNotFoundError, SessionNotFoundError
+from core.utils import GIST_SCAN_LIMIT
 from .security import origin_allowed
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             "version": version,
             "transport": "streamable-http",
             "active_sessions": session_manager.count(),
-            "loaded_graphs": len(store.graphs)
+            "loaded_graphs": len(store.graphs),
+            "limits": {"gist_target_chars": GIST_SCAN_LIMIT},
         }
 
     @rest_api.get("/api/graph/read")
@@ -89,6 +91,17 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
     async def rest_register_session(project_path: str | None = None):
         """Register a new session. Used by visual editor."""
         return session_manager.register(project_path)
+
+    @rest_api.get("/api/nodes/{level}/{node_id}/score")
+    async def rest_node_score(level: str, node_id: str, session_id: str | None = None,
+                              project_path: str | None = None):
+        """Inspect score factors without recalling or promoting the node."""
+        try:
+            return store.node_score(node_id, level, session_id, project_path)
+        except NodeNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error))
+        except KGError as error:
+            raise HTTPException(status_code=400, detail=str(error))
 
     @rest_api.get("/api/session_bootstrap")
     async def rest_session_bootstrap(project_path: str, claude_session_id: str | None = None,

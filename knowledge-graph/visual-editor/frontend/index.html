@@ -102,16 +102,6 @@
 
                         <span class="controls-divider"></span>
 
-                        <button id="view-mode-btn" class="btn btn-sm" title="Showing active nodes and their neighbours — click to see the full graph">
-                            Full Graph
-                        </button>
-                        <label class="toggle-label" title="Orphaned nodes are hidden by default; check to include them">
-                            <input type="checkbox" id="show-orphaned-toggle">
-                            Orphaned
-                        </label>
-
-                        <span class="controls-divider"></span>
-
                         <button id="zoom-in-btn" class="btn-icon btn-sm" title="Zoom in">
                             <span class="icon">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
@@ -128,6 +118,28 @@
                             </span>
                         </button>
                     </div>
+                </div>
+                <div class="graph-tools">
+                    <div class="graph-view-controls">
+                        <div class="view-modes" role="group" aria-label="Graph view">
+                            <button id="visible-view-btn" class="btn btn-sm" aria-pressed="true" title="Active nodes and their immediate neighbors" disabled>Visible nodes</button>
+                            <button id="view-mode-btn" class="btn btn-sm" aria-pressed="false" title="Every node, including archived and orphaned" disabled>All nodes</button>
+                        </div>
+                        <label class="toggle-label" title="Add every orphaned node to the visible view">
+                            <input type="checkbox" id="show-orphaned-toggle" disabled>
+                            Include orphaned
+                        </label>
+                    </div>
+                    <p id="graph-view-summary" class="graph-view-summary">Select a graph to explore its nodes</p>
+                    <form id="graph-search-form" class="graph-search" role="search" aria-label="Search selected graph">
+                        <span class="icon" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+                        </span>
+                        <input id="graph-search-input" type="search" aria-label="Search all nodes in this graph" aria-describedby="graph-search-help" placeholder="Search IDs, descriptions, notes, files…" maxlength="500" autocomplete="off" disabled>
+                        <button id="clear-search-btn" class="btn btn-sm hidden" type="button" title="Clear search (Escape)">Clear</button>
+                        <button id="search-btn" class="btn btn-primary btn-sm" type="submit" disabled>Search</button>
+                    </form>
+                    <p id="graph-search-help" class="search-help">Search includes archived and orphaned nodes · Ctrl / ⌘ K</p>
                 </div>
                 <div id="graph-container" class="graph-viewport">
                     <svg id="graph-svg"></svg>
@@ -189,6 +201,15 @@
 
             <!-- Right: Detail Panel -->
             <aside class="detail-panel" id="detail-panel">
+                <section id="search-results-panel" class="search-results-panel hidden" aria-label="Search results">
+                    <div class="panel-header">
+                        <h2>Results</h2>
+                        <button id="search-all-matches-btn" class="btn btn-sm hidden" type="button" aria-pressed="false">Show all matches</button>
+                    </div>
+                    <p id="search-result-summary" class="search-result-summary" role="status" aria-live="polite"></p>
+                    <p id="search-result-help" class="search-result-help">Numbered nodes are the top matches; other nodes connect them. Select a result to inspect it.</p>
+                    <div id="search-results" class="search-results"></div>
+                </section>
                 <div class="panel-header">
                     <h2>Details</h2>
                 </div>
