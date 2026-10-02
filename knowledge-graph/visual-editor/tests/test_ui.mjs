@@ -29,7 +29,8 @@ class Element {
     appendChild(child) { this.children.push(child); }
     replaceChildren() { this.children = []; }
     querySelectorAll() { return []; }
-    focus() { this.focused = true; }
+    querySelector() { return null; }
+    focus() { this.focused = true; context.document.activeElement = this; }
     setSelectionRange(start, end) { this.selection = [start, end]; }
 }
 
@@ -64,7 +65,7 @@ globalThis.app = {
     renderSearchResults, buildNodeScoreContent, fetchNodeScore,
     CONFIG, checkHealth, gistCounterText, bindGistCounter,
     openEditNodeModal, renderNodeDetails, submitNodeForm, saveInlineEdit,
-    initialize,
+    initialize, openModal, closeModal, handleKeyboardShortcut,
 };
 // D3 drawing and layout are not emulated. Keep the real view/state logic.
 renderGraph = data => {
@@ -385,6 +386,42 @@ await check('Retry bootstraps a recovered server, disables duplicate clicks, the
     assert.ok(element('graph-error').classes.has('hidden'));
     await element('retry-btn').listeners.click();
     assert.equal(context.graphLoads, 1);
+});
+
+await check('Node dialogs contain keyboard focus, dismiss with Escape, and restore the opener', () => {
+    ready();
+    const opener = element('new-node-btn');
+    const overlay = element('modal-overlay');
+    const container = element('modal-container');
+    const first = element('modal-close');
+    const input = element('node-id');
+    const last = element('modal-submit');
+    overlay.classList.add('hidden');
+    opener.focus();
+    container.querySelector = () => input;
+    container.querySelectorAll = () => [first, input, last];
+    app.openEditNodeModal();
+    assert.ok(!overlay.classes.has('hidden'));
+    assert.equal(context.document.activeElement, input);
+    let prevented = 0;
+    const key = (key, extra = {}) => app.handleKeyboardShortcut({
+        key, preventDefault: () => prevented++, ...extra,
+    });
+    key('k', { ctrlKey: true });
+    assert.equal(context.document.activeElement, input, 'Search shortcut must not move focus outside the dialog');
+    last.focus();
+    key('Tab');
+    assert.equal(context.document.activeElement, first);
+    key('Tab', { shiftKey: true });
+    assert.equal(context.document.activeElement, last);
+    key('Escape');
+    assert.ok(overlay.classes.has('hidden'));
+    assert.equal(context.document.activeElement, opener);
+    assert.equal(prevented, 3);
+    key('k', { ctrlKey: true });
+    assert.equal(context.document.activeElement, element('graph-search-input'));
+    container.querySelector = () => null;
+    container.querySelectorAll = () => [];
 });
 
 console.log(`${passed} UI behavior checks passed (visual layout not tested).`);

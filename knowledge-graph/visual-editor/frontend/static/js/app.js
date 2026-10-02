@@ -696,23 +696,56 @@ function updateSearchSelection() {
 // Modal System
 // ============================================================================
 
+let modalReturnFocus = null;
+
 function openModal(title, content, actions) {
     const overlay = document.getElementById('modal-overlay');
     const container = document.getElementById('modal-container');
 
+    if (overlay.classList.contains('hidden')) modalReturnFocus = document.activeElement;
     container.innerHTML = `
         <div class="modal-header">
-            <h3>${title}</h3>
-            <button class="modal-close" onclick="closeModal()">${icon('close')}</button>
+            <h3 id="modal-title">${title}</h3>
+            <button class="modal-close" type="button" aria-label="Close dialog" onclick="closeModal()">${icon('close')}</button>
         </div>
         <div class="modal-body">${content}</div>
         <div class="modal-footer">${actions}</div>
     `;
     overlay.classList.remove('hidden');
+    (container.querySelector('input:not([readonly]), textarea, select')
+        || container.querySelector('.modal-footer button'))?.focus();
 }
 
 function closeModal() {
     document.getElementById('modal-overlay').classList.add('hidden');
+    modalReturnFocus?.focus();
+    modalReturnFocus = null;
+}
+
+function handleKeyboardShortcut(event) {
+    const overlay = document.getElementById('modal-overlay');
+    if (!overlay.classList.contains('hidden')) {
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeModal();
+        } else if (event.key === 'Tab') {
+            const controls = [...document.getElementById('modal-container').querySelectorAll(
+                'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+            )];
+            const first = controls[0];
+            const last = controls.at(-1);
+            if (first && ((event.shiftKey && document.activeElement === first)
+                || (!event.shiftKey && document.activeElement === last))) {
+                event.preventDefault();
+                (event.shiftKey ? last : first).focus();
+            }
+        }
+        return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && state.graphData) {
+        event.preventDefault();
+        document.getElementById('graph-search-input').focus();
+    }
 }
 
 function gistCounterText(value) {
@@ -742,22 +775,22 @@ function openEditNodeModal(node = null) {
     const content = `
         <form id="node-form">
             <div class="form-group">
-                <label>Node ID</label>
+                <label for="node-id">Node ID</label>
                 <input type="text" id="node-id" value="${isEdit ? escapeHtml(node.id) : ''}"
                        ${isEdit ? 'readonly' : ''} required placeholder="kebab-case-id">
             </div>
             <div class="form-group">
-                <label>Description (Gist)</label>
+                <label for="node-gist">Description (Gist)</label>
                 <textarea id="node-gist" rows="3" required aria-describedby="node-gist-counter node-gist-help">${isEdit ? escapeHtml(node.gist) : ''}</textarea>
                 <span class="char-counter" id="node-gist-counter" aria-live="polite">${gistCounterText(isEdit ? node.gist : '')}</span>
                 <p class="gist-guidance" id="node-gist-help">Longer gists can still be saved. Move detail to Notes for faster scanning.</p>
             </div>
             <div class="form-group">
-                <label>Notes (one per line)</label>
+                <label for="node-notes">Notes (one per line)</label>
                 <textarea id="node-notes" rows="5">${isEdit && node.notes ? node.notes.map(escapeHtml).join('\n') : ''}</textarea>
             </div>
             <div class="form-group">
-                <label>Touches (files, one per line)</label>
+                <label for="node-touches">Touches (files, one per line)</label>
                 <textarea id="node-touches" rows="3">${isEdit && node.touches ? node.touches.map(escapeHtml).join('\n') : ''}</textarea>
             </div>
         </form>
@@ -825,19 +858,19 @@ function startEdgeCreation(fromNode) {
     const content = `
         <form id="edge-form">
             <div class="form-group">
-                <label>From Node</label>
-                <input type="text" value="${escapeHtml(fromNode.id)}" readonly>
+                <label for="edge-from">From Node</label>
+                <input type="text" id="edge-from" value="${escapeHtml(fromNode.id)}" readonly>
             </div>
             <div class="form-group">
-                <label>To Node ID</label>
+                <label for="edge-to">To Node ID</label>
                 <input type="text" id="edge-to" required placeholder="target-node-id">
             </div>
             <div class="form-group">
-                <label>Relationship</label>
+                <label for="edge-rel">Relationship</label>
                 <input type="text" id="edge-rel" required placeholder="kebab-case-rel">
             </div>
             <div class="form-group">
-                <label>Notes (optional)</label>
+                <label for="edge-notes">Notes (optional)</label>
                 <textarea id="edge-notes" rows="3"></textarea>
             </div>
         </form>
@@ -1535,7 +1568,7 @@ function renderNodeDetails(node) {
     // ---- Gist field ----
     const gistHtml = ef === 'gist'
         ? `<div class="inline-edit-wrap">
-               <textarea id="inline-gist" rows="3" aria-describedby="gist-counter inline-gist-help">${escapeHtml(node.gist)}</textarea>
+               <textarea id="inline-gist" rows="3" aria-label="Description (Gist)" aria-describedby="gist-counter inline-gist-help">${escapeHtml(node.gist)}</textarea>
                <div class="inline-edit-meta">
                    <span class="char-counter" id="gist-counter" aria-live="polite">${gistCounterText(node.gist)}</span>
                    <div class="inline-edit-actions">
@@ -1558,7 +1591,7 @@ function renderNodeDetails(node) {
     const notesRaw = node.notes ? node.notes.join('\n') : '';
     const notesHtml = ef === 'notes'
         ? `<div class="inline-edit-wrap">
-               <textarea id="inline-notes" rows="6" placeholder="One note per line">${escapeHtml(notesRaw)}</textarea>
+               <textarea id="inline-notes" rows="6" aria-label="Notes" placeholder="One note per line">${escapeHtml(notesRaw)}</textarea>
                <div class="inline-edit-meta">
                    <span></span>
                    <div class="inline-edit-actions">
@@ -1580,7 +1613,7 @@ function renderNodeDetails(node) {
     const touchesRaw = node.touches ? node.touches.join('\n') : '';
     const touchesHtml = ef === 'touches'
         ? `<div class="inline-edit-wrap">
-               <textarea id="inline-touches" rows="4" placeholder="One file path per line">${escapeHtml(touchesRaw)}</textarea>
+               <textarea id="inline-touches" rows="4" aria-label="Files and artifacts" placeholder="One file path per line">${escapeHtml(touchesRaw)}</textarea>
                <div class="inline-edit-meta">
                    <span></span>
                    <div class="inline-edit-actions">
@@ -1863,12 +1896,7 @@ async function initialize() {
         renderSearchResults();
         if (state.graphData) renderGraph(state.graphData);
     });
-    document.addEventListener('keydown', event => {
-        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && state.graphData) {
-            event.preventDefault();
-            document.getElementById('graph-search-input').focus();
-        }
-    });
+    document.addEventListener('keydown', handleKeyboardShortcut);
 
     document.getElementById('zoom-in-btn').addEventListener('click', () => {
         state.svgElements?.svg.transition().call(state.zoom.scaleBy, 1.3);
