@@ -1905,7 +1905,8 @@ async function initialize() {
         state.svgElements?.svg.transition().call(state.zoom.scaleBy, 0.7);
     });
     document.getElementById('zoom-reset-btn').addEventListener('click', () => {
-        state.svgElements?.svg.transition().call(state.zoom.transform, d3.zoomIdentity);
+        const nodes = state.svgElements?.container?.selectAll('circle[role="button"]').data() || [];
+        fitGraphToNodes(nodes);
     });
 
     // Resize handles
