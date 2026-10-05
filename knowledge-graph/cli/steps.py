@@ -496,6 +496,55 @@ class ClaudeGauge(Step):
 
 # ── Codex ────────────────────────────────────────────────────────────────────
 
+def desktop_config() -> Path:
+    if platform.system() == "Darwin":
+        return HOME / "Library/Application Support/Claude/claude_desktop_config.json"
+    return HOME / ".config/Claude/claude_desktop_config.json"
+
+
+DESKTOP_KEY = "knowledge-graph"
+DESKTOP_BRIDGE = HOME / ".local/bin/kg-desktop-bridge"   # the npx mcp-remote bridge before kg
+
+
+class ClaudeDesktop(Step):
+    key, group, title = "claude-desktop", "Claude Desktop", "memory tools in Claude Desktop"
+
+    def entry(self) -> dict:
+        # Desktop spawns commands without a shell or the user's PATH.
+        kg_bin = HOME / ".local/bin/kg"
+        return {"command": str(kg_bin) if kg_bin.exists() else (kg_command() or "kg"),
+                "args": ["mcp"]}
+
+    def check(self, ctx):
+        if not desktop_config().parent.is_dir():
+            return OFF, "not installed"
+        current = (load_json(desktop_config()).get("mcpServers") or {}).get(DESKTOP_KEY)
+        if current == self.entry():
+            return OK, "connected through kg mcp"
+        if current:
+            return FIX, f"connected through {current.get('command')}: switch to kg mcp (no Node needed)"
+        return FIX, "not connected"
+
+    def apply(self, ctx):
+        data = load_json(desktop_config())
+        data.setdefault("mcpServers", {})[DESKTOP_KEY] = self.entry()
+        ctx.write_json(desktop_config(), data)
+        if DESKTOP_BRIDGE.is_symlink():
+            ctx.backup(DESKTOP_BRIDGE)
+            DESKTOP_BRIDGE.unlink()
+        return "connected through kg mcp: restart Claude Desktop to load it"
+
+    def undo_plan(self, ctx):
+        current = (load_json(desktop_config()).get("mcpServers") or {}).get(DESKTOP_KEY)
+        return "disconnect Claude Desktop from the memory" if current == self.entry() else None
+
+    def undo(self, ctx):
+        data = load_json(desktop_config())
+        del data["mcpServers"][DESKTOP_KEY]
+        ctx.write_json(desktop_config(), data)
+        return "Claude Desktop disconnected"
+
+
 CODEX_HOME = Path(os.environ.get("CODEX_HOME") or HOME / ".codex")
 
 
@@ -693,5 +742,5 @@ class Storage(Step):
 
 
 STEPS = [Command(), LegacyCommands(), Service(), Server(),
-         ClaudePlugin(), ClaudeAutoUpdate(), ClaudePermissions(), ClaudeAutoMemory(), ClaudeGauge(),
+         ClaudePlugin(), ClaudeAutoUpdate(), ClaudePermissions(), ClaudeAutoMemory(), ClaudeGauge(), ClaudeDesktop(),
          CodexPlugin(), CodexHooks(), AgyPlugin(), AgyPermissions(), Upkeep(), Storage()]

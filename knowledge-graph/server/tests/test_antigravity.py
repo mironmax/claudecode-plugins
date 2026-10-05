@@ -128,9 +128,9 @@ class AntigravityTests(unittest.IsolatedAsyncioTestCase):
         eager = json.loads((plugin / "mcp_config.json").read_text())["mcpServers"]["kg"]["tools"]
         self.assertEqual(set(eager), tools)
         self.assertTrue(all(value == {"eager": True} for value in eager.values()))
-        # Existing plugin files still point at the original hooks and HTTP URL.
+        # Claude Code and Codex keep their own hooks and reach the server through kg mcp.
         self.assertIn("${CLAUDE_PLUGIN_ROOT}", (plugin / "hooks/hooks.json").read_text())
-        self.assertIn('"url"', (plugin / ".mcp.json").read_text())
+        self.assertIn("kg mcp", (plugin / ".mcp.json").read_text())
 
     async def test_preload_view_waits_for_ack_and_new_prompt_retries(self):
         self.seed("bootstrap-node", "BOOTSTRAP_GIST")

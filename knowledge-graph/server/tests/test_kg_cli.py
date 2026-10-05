@@ -173,7 +173,7 @@ class DoctorTests(unittest.TestCase):
         out = box.kg("doctor")
         self.assertEqual(out.returncode, 1)
         self.assertIn("✗ not running", out.stdout)
-        self.assertEqual(out.stdout.count("– not installed"), 3)  # one line per absent harness
+        self.assertEqual(out.stdout.count("– not installed"), 4)  # one line per absent harness
 
     def test_stale_plugins_untrusted_hooks_and_old_permissions(self):
         box = Sandbox(self)
@@ -242,6 +242,25 @@ class SetupTests(unittest.TestCase):
         again = box.kg("doctor").stdout
         self.assertIn("kg tools pre-approved for every project", again)
         self.assertIn("kg tools granted", again)
+
+    def test_claude_desktop_moves_from_the_npx_bridge_to_kg_mcp(self):
+        box = Sandbox(self)
+        config = box.write(".config/Claude/claude_desktop_config.json", json.dumps({"mcpServers": {
+            "knowledge-graph": {"command": str(box.home / ".local/bin/kg-desktop-bridge")},
+            "other": {"command": "x"}}}))
+        box.write(".local/bin/kg", "#!/bin/sh\n").chmod(0o755)
+        bridge = box.home / ".local/bin/kg-desktop-bridge"
+        bridge.symlink_to(box.home / "desktop_bridge.sh")
+        out = box.kg("setup", "--yes", "--only", "claude-desktop")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        servers = json.loads(config.read_text())["mcpServers"]
+        self.assertEqual(servers["knowledge-graph"],
+                         {"command": str(box.home / ".local/bin/kg"), "args": ["mcp"]})
+        self.assertEqual(servers["other"], {"command": "x"})
+        self.assertFalse(bridge.is_symlink())
+        self.assertIn("connected through kg mcp", box.kg("doctor").stdout)
+        box.kg("uninstall", "--yes")
+        self.assertNotIn("knowledge-graph", json.loads(config.read_text())["mcpServers"])
 
 
 class UninstallAndUpdateTests(unittest.TestCase):
@@ -317,13 +336,26 @@ class HookTests(unittest.TestCase):
             time.sleep(0.1)
         return None
 
-    def autostart(self):
-        return subprocess.run(["bash", str(PLUGIN / "hooks/kg-autostart.sh")], input="{}",
+    def autostart(self, payload="{}"):
+        return subprocess.run(["bash", str(PLUGIN / "hooks/kg-autostart.sh")], input=payload,
                               env=self.box.env, capture_output=True, text=True, timeout=30).stdout
 
     def test_claude_and_codex_hook_starts_kg(self):
-        self.assertIn("starting it in the background", self.autostart())
+        self.assertIn("did not start", self.autostart())
         self.assertEqual(self.wait_marker(), "start")
+
+    def test_without_kg_the_hook_says_how_to_install_it(self):
+        (self.box.home / ".local/bin/kg").unlink()
+        self.assertIn("uv tool install kg-memory", self.autostart())
+
+    def test_a_cold_start_still_preloads(self):
+        self.addCleanup(self.box.kg, "stop")
+        self.box.write(".local/bin/kg", f"#!/bin/sh\nexec {sys.executable} {KG} \"$@\"\n")
+        project = self.box.home / "project"
+        project.mkdir()
+        out = self.autostart(json.dumps({"cwd": str(project)}))
+        context = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("KG MEMORY PRELOADED", context)
 
     def test_claude_and_codex_hook_reports_the_kg_breadcrumb(self):
         self.box.write(".local/state/knowledge-graph/last_start_error",
@@ -337,9 +369,8 @@ class HookTests(unittest.TestCase):
         out = subprocess.run([sys.executable, str(PLUGIN / "hooks/kg-agy.py"), "SessionStart"],
                              input=json.dumps({"conversationId": "c1"}), env=self.box.env,
                              capture_output=True, text=True, timeout=30).stdout
-        self.assertIn("starting it in the background", out)
+        self.assertIn("is starting", out)
         self.assertEqual(self.wait_marker(), "start")
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

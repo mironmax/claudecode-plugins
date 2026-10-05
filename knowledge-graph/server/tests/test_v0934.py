@@ -14,20 +14,14 @@ Covers the venv self-heal work driven by the mcp 2.0.0 outage (2026-07-28):
      the same check manage_server.sh runs before latching the deps marker
   4. The deps marker is content-addressed — it holds the sha256 of
      requirements.txt, so a changed pin re-runs pip instead of latching forever
-  5. The session-start hook reports a recorded start failure instead of
-     claiming the environment is warming up
 
-Read-only against the live checkout except for a breadcrumb file, which is
-written to a temp copy of the hook's tree, never to server/.
+Read-only against the live checkout.
 """
 
 import hashlib
 import os
 import re
-import shutil
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -157,53 +151,6 @@ def main():
           "already served by another process" in manage)
     check("restart falls back to stopping by port",
           "if ! wait_port_free 5; then" in manage and "stop_port" in manage)
-
-    # ==================================================================
-    # 5. The hook tells the truth about a recorded failure
-    # ==================================================================
-    print("session-start hook:")
-    tmp = tempfile.mkdtemp(prefix="kg-test-hook-")
-    try:
-        shutil.copytree(PLUGIN_DIR / "hooks", Path(tmp) / "hooks")
-        (Path(tmp) / "server").mkdir()
-        shutil.copy(SERVER_DIR / "manage_server.sh", Path(tmp) / "server")
-        (Path(tmp) / "server" / ".last_start_error").write_text(
-            "when: 2026-08-05 12:00:00\n"
-            "cause: installed mcp 2.0.0 is incompatible with this server\n"
-            "log: /tmp/kg-test.log\n"
-        )
-        # Its own HOME and a PATH without ~/.local/bin: an installed `kg` would
-        # take the hook down the kg branch and start a real server.
-        env = dict(os.environ, KG_HTTP_PORT="8399", HOME=tmp, PATH="/usr/bin:/bin",
-                   KG_STORAGE_ROOT=str(Path(tmp) / "storage"))
-        out = subprocess.run(
-            ["bash", str(Path(tmp) / "hooks" / "kg-autostart.sh")],
-            input="", capture_output=True, text=True, timeout=30, env=env,
-        ).stdout
-        check("reports the recorded cause", "incompatible with this server" in out, out[:120])
-        check("takes the failure branch", "last start attempt FAILED" in out, out[:120])
-        # The warming-up SENTENCE must be gone. The failure text may still name
-        # "/mcp Reconnect" — it does, inside an instruction not to offer it —
-        # so match the claim itself, not the words it warns about.
-        check("does not claim the environment is warming up",
-              "starting it in the background now" not in out
-              and "sets up its Python environment" not in out, out[:120])
-        check("surfaces the log path", "/tmp/kg-test.log" in out, out[:120])
-        check("does not spawn a start attempt",
-              "warming up, retry" not in out, out[:120])
-
-        # No breadcrumb → the original warming-up path must survive untouched.
-        # MANAGE is removed first so the hook cannot spawn a real server.
-        (Path(tmp) / "server" / ".last_start_error").unlink()
-        (Path(tmp) / "server" / "manage_server.sh").unlink()
-        out2 = subprocess.run(
-            ["bash", str(Path(tmp) / "hooks" / "kg-autostart.sh")],
-            input="", capture_output=True, text=True, timeout=30, env=env,
-        ).stdout
-        check("without a breadcrumb the failure text is gone",
-              "last start attempt FAILED" not in out2, out2[:120])
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
 
     print(f"\n{_PASS} passed, {_FAIL} failed")
     return 1 if _FAIL else 0
