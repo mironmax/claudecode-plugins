@@ -25,7 +25,7 @@ OK, FIX, SUGGEST, MANUAL, OFF = "ok", "fix", "suggest", "manual", "off"
 HOME = Path.home()
 MARKET = "maxim-plugins"
 PLUGIN = f"knowledge-graph@{MARKET}"
-REPO = "mironmax/claudecode-plugins"
+REPO = "mironmax/kg-memory"
 TOOLS = ("kg_read", "kg_search", "kg_put_node", "kg_put_edge", "kg_rename_node",
          "kg_sync", "kg_useful", "kg_progress", "kg_delete_node", "kg_delete_edge")
 CLAUDE_PREFIX = "mcp__plugin_knowledge-graph_kg"

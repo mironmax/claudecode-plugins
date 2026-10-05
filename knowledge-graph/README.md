@@ -28,7 +28,7 @@ The design puts the intelligence at **capture time**: knowledge is compressed by
 
 ```bash
 # 1. Add the marketplace
-/plugin marketplace add mironmax/claudecode-plugins
+/plugin marketplace add mironmax/kg-memory
 
 # 2. Install the plugin
 /plugin install knowledge-graph@maxim-plugins
@@ -152,7 +152,7 @@ Desktop's **Code tab** runs the Claude Code hooks, including preload and file re
 Codex installs this plugin as it ships, from the same marketplace:
 
 ```bash
-codex plugin marketplace add mironmax/claudecode-plugins
+codex plugin marketplace add mironmax/kg-memory
 codex plugin add knowledge-graph@maxim-plugins
 ```
 
@@ -271,7 +271,7 @@ Graph data lives under `~/.knowledge-graph/` by default (`KG_STORAGE_ROOT` can c
 
 Project slugs use the final directory name, without a path hash. Project roots
 with the same final name map to the same disk location; use distinct names
-within a storage root. See [Data and Backup](https://github.com/mironmax/claudecode-plugins/wiki/Data-and-Backup#file-locations).
+within a storage root. See [Data and Backup](https://github.com/mironmax/kg-memory/wiki/Data-and-Backup#file-locations).
 
 ### Built-in crash protection
 
@@ -287,7 +287,7 @@ If the server was running during the copy, make it re-read the disk: `curl -s 'h
 
 ### Self-healing on load
 
-If a node ever lands with its `gist`, `notes`, and tool-call markup mashed into one oversized string (an occasional client glitch), the server repairs it automatically — sanitizing on write and healing any existing damage when a graph is loaded, then writing the fix back. It's idempotent and never overwrites data you supplied. A `Healed N corrupt node(s) on load` log line means it did its job. See [Data and Backup](https://github.com/mironmax/claudecode-plugins/wiki/Data-and-Backup#self-healing-on-load) for details.
+If a node ever lands with its `gist`, `notes`, and tool-call markup mashed into one oversized string (an occasional client glitch), the server repairs it automatically — sanitizing on write and healing any existing damage when a graph is loaded, then writing the fix back. It's idempotent and never overwrites data you supplied. A `Healed N corrupt node(s) on load` log line means it did its job. See [Data and Backup](https://github.com/mironmax/kg-memory/wiki/Data-and-Backup#self-healing-on-load) for details.
 
 ### Versioned history and external backups
 

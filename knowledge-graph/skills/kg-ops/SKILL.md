@@ -38,7 +38,7 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
 
 ## Install / first run
 
-1. User installs via `/plugin marketplace add mironmax/claudecode-plugins` →
+1. User installs via `/plugin marketplace add mironmax/kg-memory` →
    `/plugin install knowledge-graph@maxim-plugins` → restart Claude Code.
 2. The start script builds its own Python venv on first run (and rebuilds
    after updates) — first start can take ~1 min. No manual pip steps.
@@ -52,7 +52,7 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
    present) into `~/.local/bin/` — which must be on PATH.
 4. Verify: health curl above returns JSON; `kg_read` works in a session.
 
-**Codex CLI**: `codex plugin marketplace add mironmax/claudecode-plugins` →
+**Codex CLI**: `codex plugin marketplace add mironmax/kg-memory` →
 `codex plugin add knowledge-graph@maxim-plugins`. Then the **user** runs
 `/hooks` in Codex and trusts the knowledge-graph hooks: Codex keeps a plugin's
 hooks off until approved, and without them there is no preload or recall.
@@ -184,7 +184,7 @@ remaining budget.
 - **Diagnose**: `jq . ~/.claude/last-limits.json` — missing file or stale
   `updated_at` means no status line is persisting the reading.
 - **Act**: install `recommended-setup/statusline.sh` from the repo
-  (`github.com/mironmax/claudecode-plugins`) to `~/.claude/statusline.sh`,
+  (`github.com/mironmax/kg-memory`) to `~/.claude/statusline.sh`,
   `chmod +x`, and register it in `~/.claude/settings.json`:
   `"statusLine": {"type": "command", "command": "~/.claude/statusline.sh"}`.
   Needs `jq`. Then tell the agent the file exists — a KG node is the cheapest

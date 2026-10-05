@@ -32,8 +32,8 @@ and third-party marketplaces cannot be registered. Install from a checkout,
 or from the copy Claude Code or Codex already installed:
 
 ```bash
-git clone https://github.com/mironmax/claudecode-plugins
-agy plugin install "$PWD/claudecode-plugins/knowledge-graph"
+git clone https://github.com/mironmax/kg-memory
+agy plugin install "$PWD/kg-memory/knowledge-graph"
 agy -p /hooks
 ```
 

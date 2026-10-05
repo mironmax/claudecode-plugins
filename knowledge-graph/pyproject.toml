@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/mironmax/claudecode-plugins"
+Homepage = "https://github.com/mironmax/kg-memory"
 
 [project.scripts]
 kg = "kg_memory.cli.kg:main"

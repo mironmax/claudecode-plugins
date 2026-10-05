@@ -9,7 +9,7 @@ Persistent memory for coding agents: the agent remembers across sessions as a gr
 **Claude Code**
 
 ```bash
-/plugin marketplace add mironmax/claudecode-plugins
+/plugin marketplace add mironmax/kg-memory
 /plugin install knowledge-graph@maxim-plugins
 ```
 
@@ -18,7 +18,7 @@ Restart Claude Code. The plugin starts its local memory server by itself; the ve
 **Codex CLI**
 
 ```bash
-codex plugin marketplace add mironmax/claudecode-plugins
+codex plugin marketplace add mironmax/kg-memory
 codex plugin add knowledge-graph@maxim-plugins
 ```
 
@@ -29,15 +29,15 @@ See the [Codex support table and update steps](knowledge-graph/README.md#codex-c
 **Antigravity CLI (experimental)**
 
 ```bash
-git clone https://github.com/mironmax/claudecode-plugins
-agy plugin install "$PWD/claudecode-plugins/knowledge-graph"
+git clone https://github.com/mironmax/kg-memory
+agy plugin install "$PWD/kg-memory/knowledge-graph"
 ```
 
 Check that `agy -p /hooks` lists the three knowledge-graph hooks, then start a new conversation. Preload, recall and the memory tools work; some lifecycle cases are not yet verified in a signed-in session. See the [Antigravity guide](knowledge-graph/ANTIGRAVITY.md).
 
 Requires Python 3.10+. The graph is stored locally, with no database or API key; memories the agent reads reach its model provider like any other context.
 
-**[Full documentation →](knowledge-graph/README.md)** · **[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)** · ⭐ Star if useful — it helps others find this
+**[Full documentation →](knowledge-graph/README.md)** · **[Wiki →](https://github.com/mironmax/kg-memory/wiki)** · ⭐ Star if useful — it helps others find this
 
 ## Your first five minutes
 

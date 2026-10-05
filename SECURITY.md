@@ -46,7 +46,7 @@ the server in non-standard configurations is worth knowing about.
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Report privately via [GitHub Security Advisories](https://github.com/mironmax/claudecode-plugins/security/advisories/new).
+Report privately via [GitHub Security Advisories](https://github.com/mironmax/kg-memory/security/advisories/new).
 
 Include:
 - Description of the issue and its potential impact

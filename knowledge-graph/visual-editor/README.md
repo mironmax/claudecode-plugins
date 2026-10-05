@@ -4,7 +4,7 @@ A web-based D3.js graph editor for the knowledge graph. Runs as a separate FastA
 
 For end-user usage, see:
 - **[VISUAL_EDITOR_GUIDE.md](../VISUAL_EDITOR_GUIDE.md)** — feature tour: layout, node interaction, inline editing, troubleshooting
-- **[Wiki: Visual Editor](https://github.com/mironmax/claudecode-plugins/wiki/Visual-Editor)** — same content, lives with the rest of the project docs
+- **[Wiki: Visual Editor](https://github.com/mironmax/kg-memory/wiki/Visual-Editor)** — same content, lives with the rest of the project docs
 
 This README covers the codebase only.
 
