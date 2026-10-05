@@ -100,6 +100,15 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(out.returncode, 1)
         self.assertIn("another memory server already uses", out.stdout)
 
+    def test_concurrent_starts_share_one_server(self):
+        starts = [subprocess.Popen([sys.executable, str(KG), "start"], env=self.box.env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                  for _ in range(3)]
+        outputs = [p.communicate(timeout=60)[0] for p in starts]
+        self.assertEqual([p.returncode for p in starts], [0, 0, 0], outputs)
+        self.assertEqual(sum("Server started" in out for out in outputs), 1, outputs)
+        self.assertFalse((self.box.home / ".local/state/knowledge-graph/last_start_error").exists())
+
     def test_a_held_port_refuses_and_leaves_the_cause(self):
         with socket.socket() as holder:
             holder.bind(("127.0.0.1", self.box.port))
@@ -108,6 +117,49 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(out.returncode, 1)
         crumb = self.box.home / ".local/state/knowledge-graph/last_start_error"
         self.assertIn(f"port {self.box.port} is held", crumb.read_text())
+
+
+class McpShimTests(unittest.TestCase):
+    """`kg mcp`: stdio in, the shared HTTP server behind it, started and
+    restarted on demand."""
+
+    def setUp(self):
+        self.box = Sandbox(self)
+        self.shim = subprocess.Popen([sys.executable, str(KG), "mcp"], env=self.box.env,
+                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                     stderr=subprocess.DEVNULL, text=True)
+        self.addCleanup(self.box.kg, "stop")
+        self.addCleanup(self.close_shim)
+
+    def close_shim(self):
+        self.shim.stdin.close()
+        self.shim.wait(10)
+        self.shim.stdout.close()
+
+    def call(self, request_id, method, params=None):
+        message = {"jsonrpc": "2.0", "id": request_id, "method": method}
+        if params is not None:
+            message["params"] = params
+        self.shim.stdin.write(json.dumps(message) + "\n")
+        self.shim.stdin.flush()
+        return json.loads(self.shim.stdout.readline())
+
+    def test_starts_the_server_and_rides_out_a_stop(self):
+        init = self.call(1, "initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                           "clientInfo": {"name": "codex-mcp-client", "version": "1"}})
+        self.assertIn("serverInfo", init["result"])
+        self.assertEqual(self.box.kg("status").returncode, 0)
+        self.assertEqual(len(self.call(2, "tools/list")["result"]["tools"]), 10)
+
+        self.assertEqual(self.box.kg("stop").returncode, 0)
+        self.assertEqual(len(self.call(3, "tools/list")["result"]["tools"]), 10)
+        self.assertEqual(self.call(4, "no/such")["error"]["code"], -32601)
+
+    def test_the_harness_keeps_its_identity(self):
+        sys.path.insert(0, str(PLUGIN / "server"))
+        from mcp_http import harness
+        self.assertEqual(harness.from_user_agent("codex-mcp-client/1 (kg mcp)"), harness.CODEX)
+        self.assertEqual(harness.from_user_agent("claude-code/2 (kg mcp)"), harness.CLAUDE_CODE)
 
 
 def fake_binaries(box, *names):

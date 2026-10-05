@@ -7,6 +7,7 @@ server relative to this file.
 """
 
 import argparse
+import fcntl
 import json
 import os
 import shutil
@@ -169,6 +170,16 @@ def stop_strays() -> None:
 
 
 def start() -> int:
+    # A harness launching `kg mcp` and its SessionStart hook start the server
+    # at the same moment; the loser would fail on the port and leave a false
+    # breadcrumb. Serialised, it finds the winner's server running.
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(STATE_DIR / "start.lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _start()
+
+
+def _start() -> int:
     if service_enabled():
         stop_strays()
         return systemctl("start")
@@ -181,7 +192,6 @@ def start() -> int:
         write_breadcrumb(cause)
         print(f"Cannot start the server: {cause}.")
         return 1
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
     with open(LOG_FILE, "wb") as log:
         proc = subprocess.Popen([sys.executable, str(SERVER_SCRIPT)],
                                 stdin=subprocess.DEVNULL, stdout=log, stderr=log,
@@ -280,7 +290,8 @@ def main(argv: list[str] | None = None) -> int:
                        ("serve", "run the server in the foreground (service managers)"),
                        ("doctor", "check every piece the memory depends on"),
                        ("version", "print this kg's version"),
-                       ("commit", "commit the storage git repository now")):
+                       ("commit", "commit the storage git repository now"),
+                       ("mcp", "MCP over stdio for a harness; starts the server if needed")):
         sub.add_parser(name, help=text)
     sub.add_parser("logs", help="show the server log").add_argument(
         "-f", "--follow", action="store_true", help="keep following it")
@@ -316,6 +327,12 @@ def main(argv: list[str] | None = None) -> int:
         except ImportError:
             import gauge
         return gauge.run(args.wrap)
+    if args.command == "mcp":
+        try:
+            from . import mcp_shim
+        except ImportError:
+            import mcp_shim
+        return mcp_shim.run()
     if args.command == "version":
         print(version())
         return 0
