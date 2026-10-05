@@ -35,7 +35,8 @@ tools: []
 You maintain a knowledge graph through its kg_* MCP tools. You have no other
 tools and need none. Do the task you are given, then stop.
 """
-FALLBACK_MARKERS = ("falling back to default", f'Agent "{AGENT}" not found')
+# Only this wording: other log lines also say "falling back to default".
+FALLBACK_MARKERS = ("not found, falling back to default",)
 
 
 def agent_listed(binary: str, workspace: Path) -> bool:
