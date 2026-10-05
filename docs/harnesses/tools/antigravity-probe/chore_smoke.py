@@ -45,7 +45,7 @@ def main():
                 "permissions": {"allow": ["mcp(knowledge-graph_kg/*)", "read"]}}
     (scratch / ".gemini/antigravity-cli/settings.json").write_text(json.dumps(settings))
     staged = root / "plugin-src/knowledge-graph"
-    wrap = ["bwrap", "--ro-bind", "/", "/", "--bind", str(scratch), str(Path.home()),
+    wrap = ["bwrap", "--die-with-parent", "--ro-bind", "/", "/", "--bind", str(scratch), str(Path.home()),
             "--ro-bind", str(repo), str(repo), "--bind", str(root), str(root),
             "--dev", "/dev", "--proc", "/proc", "--chdir", project]
     env = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "LANG") if k in os.environ}
@@ -129,7 +129,10 @@ def main():
             raise RuntimeError(install.stdout + install.stderr)
         config_file = scratch / ".gemini/config/plugins/knowledge-graph/mcp_config.json"
         config = json.loads(config_file.read_text())
-        config["mcpServers"]["kg"]["serverUrl"] = base + "/"
+        kg_entry = config["mcpServers"]["kg"]
+        for key in ("command", "args", "env"):
+            kg_entry.pop(key, None)
+        kg_entry["serverUrl"] = base + "/"
         config_file.write_text(json.dumps(config))
         chore_env = dict(env, KG_CHORE="1")
         wrapper = repo / "knowledge-graph/server/mcp_http/agy_chore.py"

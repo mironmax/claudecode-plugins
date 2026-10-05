@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "kg": {
-      "type": "http",
-      "url": "http://127.0.0.1:8765/"
+      "command": "sh",
+      "args": ["-c", "command -v kg >/dev/null && exec kg mcp; exec \"$HOME/.local/bin/kg\" mcp"]
     }
   }
 }

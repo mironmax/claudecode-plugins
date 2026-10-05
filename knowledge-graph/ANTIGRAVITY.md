@@ -25,26 +25,27 @@ not yet been checked in a signed-in session (see [Status](#status)).
 Requires memory server 0.11.0 or later. A hook never
 replaces a running server: if an older one is running, the session start
 says it lacks the adapter. Restart it from the updated plugin
-(`kg-memory restart`, see [Server Management](README.md#server-management)).
+(`kg restart`, see [Server Management](README.md#server-management)).
 
 The CLI installs plugins from a local directory only: it refuses git URLs,
 and third-party marketplaces cannot be registered. Install from a checkout,
 or from the copy Claude Code or Codex already installed:
 
 ```bash
-git clone https://github.com/mironmax/claudecode-plugins
-agy plugin install "$PWD/claudecode-plugins/knowledge-graph"
+git clone https://github.com/mironmax/kg-memory
+agy plugin install "$PWD/kg-memory/knowledge-graph"
 agy -p /hooks
 ```
 
 `/hooks` must list `SessionStart`, `PreInvocation` and `PostToolUse`. Then
 start a new conversation. Use `plugin install`, not `plugin import`: import
-converts the Claude Code files and drops every hook and the MCP URL.
+converts the Claude Code files and drops every hook and the MCP entry.
 
-The install is a copy in `~/.gemini/config/plugins/knowledge-graph/`. To
-update, pull the checkout and install again, then start a new conversation.
-If no server is running, the first `SessionStart` starts one from that copy.
-The optional shell helpers: `bash ~/.gemini/config/plugins/knowledge-graph/install_command.sh`.
+The install is a copy in `~/.gemini/config/plugins/knowledge-graph/`. The
+plugin needs the `kg` command (`uv tool install kg-memory`): `kg setup`
+installs this copy and `kg update` refreshes it; start a new conversation
+afterwards. If no server is running, the first
+`SessionStart` starts one through `kg`.
 
 The [recommended Antigravity setup](../recommended-setup/antigravity.md)
 adds the working style as a global rule and a quota status line; it is

@@ -15,7 +15,7 @@ def stage_plugin(repo, target, port):
         "venv", "__pycache__", ".pytest_cache", "devdocs", "dev", ".mcp_server.pid", ".last_start_error"))
     config_file = target / "mcp_config.json"
     config = json.loads(config_file.read_text())
-    config["mcpServers"]["kg"]["serverUrl"] = f"http://127.0.0.1:{port}/"
+    config["mcpServers"]["kg"]["env"] = {"KG_HTTP_PORT": str(port)}
     config_file.write_text(json.dumps(config, indent=2) + "\n")
 
 

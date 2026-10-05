@@ -4,27 +4,12 @@
 
 ### Starting the Editor
 
-1. **Start MCP Server** (if not already running):
-   ```bash
-   kg-memory start
-   ```
-
-2. **Start Visual Editor**:
-   ```bash
-   kg-visual start
-   ```
-
-3. **Open in Browser**: `http://localhost:8766`
-
-### Management Commands
-
 ```bash
-kg-visual start     # Start (detached)
-kg-visual stop      # Stop
-kg-visual restart   # Stop + start
-kg-visual status    # Check if running + URL
-kg-visual logs      # Tail live logs
+kg editor        # starts the memory server and the editor if needed, opens http://localhost:8766
+kg editor stop
 ```
+
+Logs: `~/.local/state/knowledge-graph/visual_editor.log`.
 
 ---
 
@@ -195,7 +180,7 @@ The dot in the top-right corner shows the WebSocket state:
 - **● Offline** (red) — WebSocket dropped; auto-reconnects every 5 seconds. Changes still save correctly — you just won't see them until reconnect or Refresh.
 - **● Server down** (red) — MCP server unreachable; reads and writes will fail.
 
-If you see persistent Offline/Server down: run `kg-memory status` and `kg-memory start` if needed.
+If you see persistent Offline/Server down: run `kg status` and `kg start` if needed.
 
 ---
 
@@ -216,20 +201,20 @@ Node size scales with connection count — hub nodes appear larger.
 
 **"Cannot connect to MCP server"**
 ```bash
-kg-memory status
-kg-memory start   # if not running
+kg status
+kg start   # if not running
 ```
 
 **Persistent Offline indicator**
 ```bash
-kg-memory restart
+kg restart
 ```
 Then reload the browser tab.
 
 **Graph not loading / empty**
 - Check you selected a graph in the left panel
 - For project graphs: capture some project memory first, then refresh. Check that the stored project directory still exists and that the editor can reach the server's `/api/projects` endpoint
-- Check logs: `kg-visual logs`
+- Check logs: `~/.local/state/knowledge-graph/visual_editor.log`
 
 **Changes not appearing**
 - Check the connection status indicator

@@ -15,7 +15,7 @@ Both are user-level: they apply to every project on your machine and live under 
 
 ### What was measured
 
-v3 merges two texts that were benchmarked separately on Claude Code in July 2026 and shipped here until September as a `CLAUDE.md` working agreement and the `concise-quality-v2` output style ([last version with both](https://github.com/mironmax/claudecode-plugins/tree/206b99c/recommended-setup)):
+v3 merges two texts that were benchmarked separately on Claude Code in July 2026 and shipped here until September as a `CLAUDE.md` working agreement and the `concise-quality-v2` output style ([last version with both](https://github.com/mironmax/kg-memory/tree/206b99c/recommended-setup)):
 
 - **The response rules** (v2), in a blind A/B benchmark (45 runs, 3 arms, blind judges, set as the real output style): quality 9.13 vs 8.80 for the stock style, −27% output tokens, zero fluff or fabrication flags. Their one measured cost was less *unprompted* digging on open-ended asks such as "explain this code".
 - **The working agreement** restored that digging: with the concise style active, a planted bug in an open-ended "explain this code" task was found in 5/5 runs with its paragraphs vs 1/5 without, at no added output-token cost.

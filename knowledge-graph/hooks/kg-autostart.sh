@@ -12,10 +12,9 @@
 # never be silent. If anything about the fetch fails, stay quiet; the
 # kg-core skill's classic kg_read path is the fallback.
 #
-# If the server is down, kick off manage_server.sh start IN THE BACKGROUND
-# (first run builds the Python venv, ~1 min — session start must not block on
-# that) and tell Claude what's happening so a "connection refused" on the
-# first kg_read is understood as "warming up, retry", not "broken".
+# If the server is down, start it through `kg` first — seconds, since kg is
+# installed with its environment — so even a cold start gets its preload.
+# Without kg there is no server to start: say how to install it.
 #
 # This hook only ever STARTS the server — never stops or restarts one the
 # user is running.
@@ -34,10 +33,34 @@ HOST="${KG_HTTP_HOST:-127.0.0.1}"
 # session that re-nags and re-injects everything.
 STDIN_JSON=$(cat 2>/dev/null)
 
-if curl -sf --max-time 2 "http://${HOST}:${PORT}/health" > /dev/null 2>&1; then
-    # Payload rides an env var: the heredoc below already occupies stdin, and
-    # SessionStart payloads are small (ids + paths, no prompt text).
-    HOOK_JSON="$STDIN_JSON" python3 - "${CLAUDE_PROJECT_DIR:-$PWD}" "http://${HOST}:${PORT}" <<'PYEOF'
+healthy() { curl -sf --max-time 2 "http://${HOST}:${PORT}/health" > /dev/null 2>&1; }
+
+if ! healthy; then
+    KG_BIN="$(command -v kg 2>/dev/null)"
+    [ -z "$KG_BIN" ] && [ -x "$HOME/.local/bin/kg" ] && KG_BIN="$HOME/.local/bin/kg"
+    if [ -z "$KG_BIN" ]; then
+        echo "KG memory is not set up on this machine: the knowledge-graph plugin needs the \`kg\` command, which runs the memory server for every harness. Tell the user to install it once, in a terminal: \`uv tool install kg-memory && kg setup\` (uv: https://docs.astral.sh/uv/). Until then the kg_* tools are unavailable; proceed without memory."
+        exit 0
+    fi
+    # A start that failed said why, and fails the same way until fixed:
+    # report it instead of retrying every session.
+    BREADCRUMB="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph/last_start_error"
+    if [ -f "$BREADCRUMB" ]; then
+        CAUSE=$(grep -m1 '^cause: ' "$BREADCRUMB" 2>/dev/null | sed 's/^cause: //')
+        WHEN=$(grep -m1 '^when: ' "$BREADCRUMB" 2>/dev/null | sed 's/^when: //')
+        echo "KG memory server is DOWN and its last start attempt FAILED (${WHEN:-unknown time}): ${CAUSE:-cause not recorded}. It will fail the same way until fixed, so do not tell the user to wait or retry. Report the cause and offer the remedy: run \`kg doctor\`, then \`kg start\`. The kg_* tools are offline for this session; proceed without memory."
+        exit 0
+    fi
+    START_OUT=$("$KG_BIN" start 2>&1)
+    if ! healthy; then
+        echo "KG memory server did not start: ${START_OUT:-no output from kg start}. Tell the user to run \`kg doctor\`. The kg_* tools are offline for this session; proceed without memory."
+        exit 0
+    fi
+fi
+
+# Payload rides an env var: the heredoc below already occupies stdin, and
+# SessionStart payloads are small (ids + paths, no prompt text).
+HOOK_JSON="$STDIN_JSON" python3 - "${CLAUDE_PROJECT_DIR:-$PWD}" "http://${HOST}:${PORT}" <<'PYEOF'
 import json, os, sys, urllib.parse, urllib.request
 
 cwd, base = sys.argv[1], sys.argv[2]
@@ -87,34 +110,3 @@ try:
 except Exception:
     pass  # silent miss — kg_read remains the fallback path
 PYEOF
-    exit 0
-fi
-
-HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANAGE="$HOOK_DIR/../server/manage_server.sh"
-
-if [ ! -f "$MANAGE" ]; then
-    echo "KG memory server is not running and its start script was not found — start it manually (see plugin docs)."
-    exit 0
-fi
-
-# A previous start already failed and said why. This hook backgrounds the
-# start and exits immediately, so it can only ever report the PREVIOUS
-# attempt — which is exactly right here: a venv that cannot start fails the
-# same way every time, and the "warming up, ~1 min" message below would be
-# wrong every session, forever. Report the real cause instead and do not
-# start a process that will only die again.
-BREADCRUMB="$HOOK_DIR/../server/.last_start_error"
-if [ -f "$BREADCRUMB" ]; then
-    CAUSE=$(grep -m1 '^cause: ' "$BREADCRUMB" 2>/dev/null | sed 's/^cause: //')
-    WHEN=$(grep -m1 '^when: ' "$BREADCRUMB" 2>/dev/null | sed 's/^when: //')
-    LOGPATH=$(grep -m1 '^log: ' "$BREADCRUMB" 2>/dev/null | sed 's/^log: //')
-    echo "KG memory server is DOWN and its last start attempt FAILED (${WHEN:-unknown time}): ${CAUSE:-cause not recorded}. This is not a warming-up delay — it will fail the same way until fixed, so do not tell the user to wait or to reconnect the MCP server. Report the cause above, point at the log (${LOGPATH:-see plugin docs}), and offer the remedy: rebuild the environment with \`rm -rf <plugin>/server/venv\` then \`kg-memory start\`, which re-resolves dependencies against the current requirements.txt. The kg_* tools are offline for this session; proceed without memory rather than retrying."
-    exit 0
-fi
-
-nohup bash "$MANAGE" start > /dev/null 2>&1 &
-disown 2>/dev/null
-
-echo "KG memory server was down — starting it in the background now (a first run sets up its Python environment, ~1 min). Because it was down when this session connected, the kg_* MCP tools are likely offline for this session. When that is the case: (1) verify the server is up with \`curl -sf http://${HOST}:${PORT}/health\` (retry until it responds), then (2) tell the user to reconnect — in Claude Code: run /mcp, select plugin:knowledge-graph:kg, hit Reconnect; in Codex: start a new session. Only the user can do this step. After reconnect, call kg_read as usual."
-exit 0

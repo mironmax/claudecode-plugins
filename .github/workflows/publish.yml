@@ -1,0 +1,54 @@
+name: publish
+
+# A version tag publishes kg-memory to PyPI; a manual run publishes the
+# current commit to TestPyPI. Trusted publishing: no token is stored, PyPI
+# trusts this workflow file in this repository and the named environment.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: knowledge-graph
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+      - name: Tag matches the package version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' server/version.py)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME, package $version"; exit 1; }
+      - name: Build
+        run: |
+          python -m pip install --disable-pip-version-check build twine
+          python -m build --outdir dist
+          python -m twine check --strict dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: knowledge-graph/dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_type == 'tag' && 'pypi' || 'testpypi' }}
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: ${{ github.ref_type == 'tag' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}

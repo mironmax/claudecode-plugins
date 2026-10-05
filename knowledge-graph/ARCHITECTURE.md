@@ -462,7 +462,7 @@ and only *known* prompts enter the consistency check.
 
 ### Completed
 
-- **Visual Editor** — D3.js graph with server-owned projects, ranked search, score inspection, node/edge editing, and live user-graph updates. Project changes require Refresh; ID renames use `kg_rename_node`. Managed via `manage_visual.sh` / `kg-visual`.
+- **Visual Editor** — D3.js graph with server-owned projects, ranked search, score inspection, node/edge editing, and live user-graph updates. Project changes require Refresh; ID renames use `kg_rename_node`. Run with `kg editor`.
 - **Scout Skill** (`/kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
 - **Extract Skill** (`/kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
 - **Ranked Search** — `kg_search` and prompt recall share one core (RRF, k=60): whitespace tokens plus their `./_-` subtokens, light stemming (schedule ≈ scheduling), adjacent-subtoken bigram terms with their own co-occurrence IDF, field-weighted occurrences (id ×3, gist ×2, notes ×1) and sharpened IDF so one term naming the right node isn't outvoted by several dull ones. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent. Write-side, the same pipeline powers `put_node`'s near-duplicate and hub-mention nudges.

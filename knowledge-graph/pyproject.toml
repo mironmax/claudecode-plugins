@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kg-memory"
+dynamic = ["version"]
+description = "Knowledge-graph memory for coding agents: Claude Code, Codex CLI and Antigravity CLI share one local memory server."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+# The union of server/requirements.txt and visual-editor/requirements.txt;
+# tests/test_packaging.py keeps them in step.
+dependencies = [
+    "mcp>=2.2.0,<3.0.0",
+    "jsonschema>=4.20.0",
+    "uvicorn[standard]>=0.48.0",
+    "pydantic>=2.13.4",
+    "fastapi>=0.136.3",
+    "starlette>=1.3.1",
+    "httpx>=0.28.1",
+    "websockets",
+]
+
+[project.urls]
+Homepage = "https://github.com/mironmax/kg-memory"
+
+[project.scripts]
+kg = "kg_memory.cli.kg:main"
+
+[tool.hatch.version]
+path = "server/version.py"
+
+# The wheel mirrors this directory as kg_memory/: the server finds chores/ and
+# the plugin manifests by paths relative to itself, and Antigravity installs
+# the plugin from that same directory.
+[tool.hatch.build.targets.wheel]
+only-include = [
+    "cli", "server", "chores", "hooks", "skills", "rules", "visual-editor",
+    ".claude-plugin", ".mcp.json", "plugin.json", "hooks.json",
+    "mcp_config.json", "README.md", "ANTIGRAVITY.md", "LICENSE",
+]
+exclude = [
+    "server/tests", "server/venv", "visual-editor/tests", "visual-editor/venv",
+    "**/__pycache__", "**/.deps_ok", "**/*.pid", "**/.last_start_error",
+]
+
+# The sdist carries the same files plus pyproject.toml; a stray local venv
+# or test tree must never ship.
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "cli", "server", "chores", "hooks", "skills", "rules", "visual-editor",
+    ".claude-plugin", ".mcp.json", "plugin.json", "hooks.json",
+    "mcp_config.json", "README.md", "ANTIGRAVITY.md", "LICENSE", "pyproject.toml",
+]
+exclude = [
+    "server/tests", "server/venv", "visual-editor/tests", "visual-editor/venv",
+    "**/__pycache__", "**/.deps_ok", "**/*.pid", "**/.last_start_error",
+]
+
+[tool.hatch.build.targets.wheel.sources]
+"" = "kg_memory"

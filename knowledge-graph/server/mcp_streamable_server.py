@@ -99,9 +99,8 @@ def _preflight_mcp_surface() -> None:
     of silent breakage the 1.x -> 2.0 release caused the other way round.
     Check the surface first and say what is wrong.
 
-    Exits non-zero rather than raising: this is also the tripwire manage_server.sh
-    smoke-tests before latching the dependency marker, and its "KG PREFLIGHT:"
-    prefix is the string both that script and the session-start hook classify on.
+    Exits non-zero rather than raising: its "KG PREFLIGHT:" prefix is the
+    string `kg start` reads back from the log as the cause of a failed start.
     """
     params = inspect.signature(Server.__init__).parameters
     missing = [name for name in ("on_list_tools", "on_call_tool") if name not in params]
@@ -115,10 +114,36 @@ def _preflight_mcp_surface() -> None:
     logger.error(
         "KG PREFLIGHT: installed mcp %s is incompatible with this server — "
         "mcp.server.Server does not accept %s. Required: %s. "
-        "Rebuild with: rm -rf server/venv && kg-memory start",
+        "Reinstall with: kg update",
         installed, ", ".join(missing), _mcp_requirement(),
     )
     sys.exit(1)
+
+
+def _claim_storage(root: Path) -> int | None:
+    """Hold an exclusive lock on the storage directory for the process lifetime.
+
+    Every graph write is a whole-file save from the writer's memory, so a
+    second server on the same storage silently overwrites the first one's
+    work. Observed 2026-10-05: a test's hook launched one on another port
+    against the real storage. The lock is on the directory itself, so no file
+    is added to a git-tracked storage root. No fcntl (Windows): no lock.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    root.mkdir(parents=True, exist_ok=True)
+    fd = os.open(root, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        logger.error("KG PREFLIGHT: another memory server already uses %s — "
+                     "one storage, one server (stop it, or set KG_STORAGE_ROOT "
+                     "for a separate memory)", root)
+        sys.exit(1)
+    return fd
 
 
 def create_mcp_server() -> Server:
@@ -800,6 +825,8 @@ async def main():
         storage_root=get_storage_root(),
         user_path=user_graph_path(),
     )
+
+    storage_lock = _claim_storage(Path(config.storage_root))  # noqa: F841 (held while running)
 
     session_manager = HTTPSessionManager()
     connection_manager = ConnectionManager()
