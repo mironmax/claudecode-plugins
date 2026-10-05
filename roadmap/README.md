@@ -54,7 +54,7 @@ an agent working only from this repository.
 | 07 | [Lean refactor findings](tasks/07-lean-refactor.md) | Same behavior in less code: one helper per job, tables over branches, clear module seams | open; first run: items 1–4 + test temp-dir helper |
 | 08 | [Visual editor: readable graphs, server-owned project list](tasks/08-visual-editor-readable-graphs.md) | A mature graph opens as a picture of what is live; projects come from the server, for every harness | done: PR #38 (unreleased) |
 | 09 | [Sessions model without the project fallback](tasks/09-sessions-model-no-fallback.md) | Re-check hook identity and dedup under the new resolution rule | done: both hold after the F12 fix (unreleased) |
-| 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | implemented on `codex/followthrough-report` (335c647); pending review and merge |
+| 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | done: `python -m eval --transcripts` (unreleased) |
 
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
