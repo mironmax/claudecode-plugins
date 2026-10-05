@@ -1,147 +1,56 @@
-# Knowledge Graph memory for Claude Code and Codex
+# kg-memory: knowledge-graph memory for Claude Code, Codex and Antigravity
 
 Gives a coding agent a persistent memory that survives across sessions — not flat notes, but a graph of distilled insights connected by typed relationships. The agent captures patterns and decisions as you work; next session it recalls them automatically. Claude Code and Codex CLI share one memory server, so what is learned in one is recalled in the other. Antigravity CLI support is [experimental](#antigravity-cli-experimental).
 
 The design puts the intelligence at **capture time**: knowledge is compressed by the model in the moment of insight, stored as headline + relationships, and read back as structured text. Lexical search and file matching bring back memories below the preload; no embedding service or database is required. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design thesis.
 
-## Prerequisites
-
-- **Claude Code** (CLI or desktop app) or **Codex CLI**, or both
-- **Python 3.10+** — required to run the MCP server
-
-  ```bash
-  # Check if you have it:
-  python3 --version
-
-  # Install if missing:
-  # macOS:   brew install python3
-  # Ubuntu:  sudo apt install python3
-  # Arch:    sudo pacman -S python
-  # Windows: https://python.org/downloads (check "Add to PATH")
-  ```
-
-- **pip** — usually bundled with Python 3; if missing: `python3 -m ensurepip`
-
----
-
-## Quick Install
+## Install
 
 ```bash
-# 1. Add the marketplace
-/plugin marketplace add mironmax/kg-memory
-
-# 2. Install the plugin
-/plugin install knowledge-graph@maxim-plugins
-
-# 3. Restart Claude Code
+uv tool install kg-memory     # needs uv: https://docs.astral.sh/uv/ (it brings its own Python)
+kg setup                      # asks before each change, backs up what it edits
 ```
 
-For Codex CLI, see [Codex CLI](#codex-cli) below: two commands, then one approval in `/hooks`.
+`kg setup` checks each piece and fixes what you accept:
 
-**Done.** The plugin ships its hooks in `hooks/hooks.json` and they auto-load on session start — no setup script, no settings.json edits. Three hooks carry the ambient behavior: SessionStart preloads your memory into context and starts the server if it's down; UserPromptSubmit surfaces memory relevant to each prompt; PostToolUse brings up the memory about a file when the agent reads or edits it, and notices when knowledge is being re-derived and nudges a capture.
+- the `kg` command on your PATH and one local memory server for every harness (a systemd user service on Linux);
+- **Claude Code**: the knowledge-graph plugin with marketplace auto-update, the `kg_*` tools pre-approved, and the built-in auto-memory turned off (two memories write conflicting entries);
+- **Codex CLI**, **Antigravity CLI** (experimental) and **Claude Desktop**, when installed.
 
-> Already in a session? Run `/reload-plugins` instead of restarting.
+`kg setup --plan` shows the list without changing anything; `kg doctor` checks everything later; `kg update` upgrades kg, the server and every plugin together; `kg uninstall` reverses setup and leaves your memory in place.
 
-**One more thing:**
-- **Disable built-in auto-memory** — ⚙ Settings → Memory → toggle **Auto-memory off**. Without this, two memory systems run in parallel and write conflicting entries. (Codex's own `memories` feature is off by default; leave it off.)
-- **Enable plugin auto-updates** — `/plugin` → **Marketplaces** → `maxim-plugins` → **Enable auto-update**. Third-party marketplaces are off by default, so this is the only way to stay current without manual refreshes.
+Two steps stay with you: in Codex, run `/hooks` and trust the knowledge-graph hooks; fully quit and reopen Claude Desktop. Then start a new session.
+
+The plugin's hooks carry the ambient behaviour: SessionStart preloads your memory into context (starting the server if it is down); UserPromptSubmit surfaces memory relevant to each prompt; PostToolUse brings up the memory about a file when the agent reads or edits it, and nudges a capture when knowledge is being re-derived.
 
 **Optional:**
 - **[Recommended user-level setup](../recommended-setup/)** — an output style carrying a benchmarked working agreement, and a quota-aware status line. The status line matters here beyond taste: it persists your rolling 5h/7d usage to `~/.claude/last-limits.json`, the only channel through which Claude can read its own remaining budget — which is what lets a long session end on a clean checkpoint (handover letter + memory writes) instead of stopping mid-edit.
 - **[Codex CLI setup](../recommended-setup/codex.md)** — the same working style as developer instructions, and a native footer preset for limits and context.
 - **[Antigravity CLI setup](../recommended-setup/antigravity.md)** — the same working style as a global rule, and a quota status line.
-- **`kg-memory` / `kg-visual` shell commands** — for managing the server from your terminal. See [Server Management](#server-management) below.
-- **Auto-approval** — skip permission prompts by adding the permissions below to `~/.claude/settings.json`.
-
----
-
-## Enable Auto-Approval (Optional)
-
-By default, Claude Code asks permission for each MCP tool call. To skip these prompts, add to `~/.claude/settings.json`:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "mcp__plugin_knowledge-graph_kg__kg_read",
-      "mcp__plugin_knowledge-graph_kg__kg_put_node",
-      "mcp__plugin_knowledge-graph_kg__kg_put_edge",
-      "mcp__plugin_knowledge-graph_kg__kg_rename_node",
-      "mcp__plugin_knowledge-graph_kg__kg_sync",
-      "mcp__plugin_knowledge-graph_kg__kg_delete_node",
-      "mcp__plugin_knowledge-graph_kg__kg_delete_edge",
-      "mcp__plugin_knowledge-graph_kg__kg_search",
-      "mcp__plugin_knowledge-graph_kg__kg_progress",
-      "mcp__plugin_knowledge-graph_kg__kg_useful"
-    ]
-  }
-}
-```
-
-If you already have a `settings.json`, merge these into your existing `permissions.allow` array — don't paste the whole block or you'll get duplicate keys.
 
 ---
 
 ## Server Management
 
-The plugin runs a shared HTTP MCP server on port 8765, used by every session simultaneously — Claude Code, Codex and Claude Desktop alike. **It starts automatically** — a SessionStart hook launches it whenever it's down, and the start script builds its Python environment on first run (and again after plugin updates, which install into a fresh directory). The hook only ever starts the server; it never stops or restarts one you're running.
+One shared HTTP MCP server on port 8765 serves every session — Claude Code, Codex, Antigravity and Claude Desktop alike. Each harness connects through `kg mcp`, which starts the server when it is down and waits out restarts, so the tools stay connected.
 
 > Anything operational — updates, autostart, Desktop connection, backups, troubleshooting — is written up as agent-followable recipes in `/kg-ops`. Telling the agent "run /kg-ops and fix the memory server" is a complete instruction.
 
-> If a session connected while the server was still down (e.g. the very first run), the `kg_*` tools stay offline for that session — run `/mcp`, select `plugin:knowledge-graph:kg`, and hit **Reconnect** once the server is up.
-
-For manual control from your terminal, **install the helper commands** (one-time, optional):
-
 ```bash
-bash "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name install_command.sh | sort -V | tail -1)"
+kg status            # running? which version?
+kg start | stop | restart
+kg logs [-f]
+kg editor [stop]     # browser-based graph explorer at http://localhost:8766
+kg doctor            # check every piece the memory depends on
 ```
 
-That symlinks `kg-memory` and `kg-visual` into `~/.local/bin/`. Make sure `~/.local/bin` is in your `PATH`. With Codex only, the plugin lives under `~/.codex/plugins/cache/maxim-plugins/knowledge-graph/` instead; run the same script from there.
-
-```bash
-# MCP graph server
-kg-memory start     # Start server
-kg-memory status    # Check if server is running
-kg-memory stop      # Stop server
-kg-memory restart   # Restart server
-kg-memory logs      # View logs (tail -f)
-
-# Visual editor — browser-based graph explorer (optional)
-kg-visual start     # Start at http://localhost:8766
-kg-visual stop
-kg-visual status
-kg-visual logs
-```
-
-**Server details:**
-- Endpoint: `http://127.0.0.1:8765/`
-- Health check: `http://127.0.0.1:8765/health`
-- Logs: `~/.local/state/knowledge-graph/mcp_server.log`
-- PID file: `.mcp_server.pid` (next to `manage_server.sh` in the plugin's `server/` directory)
-
-**Auto-start on boot (Linux, optional):** the bundled systemd unit invokes the `kg-memory` shim, so it survives plugin updates without needing to be refreshed.
-
-Prerequisite: run `install_command.sh` once (see [Server Management](#server-management) above) so `kg-memory` exists in `~/.local/bin/`.
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name memory-mcp.service | sort -V | tail -1)" \
-   ~/.config/systemd/user/memory-mcp.service
-systemctl --user enable memory-mcp.service
-systemctl --user start memory-mcp.service
-```
+**Server details:** endpoint `http://127.0.0.1:8765/` (health: `/health`); logs, PID and the last start error in `~/.local/state/knowledge-graph/`.
 
 ---
 
-## Claude Desktop (Optional)
+## Claude Desktop
 
-Claude Desktop can use the same memory — it becomes another client of the shared server. Desktop's "Add custom connector" dialog won't take a local URL (those connectors are contacted from Anthropic's cloud, so they require a public https address); the local route is Desktop's config file, and the plugin automates it:
-
-```
-/kg-ops connect Claude Desktop
-```
-
-The setup registers a stdio bridge (`mcp-remote`, needs Node.js ≥ 18) in `claude_desktop_config.json`, with paths resolved for your machine. The bridge auto-starts the server if Desktop launches first. Fully quit and reopen Desktop afterwards; Cowork sessions receive the server through Desktop's own sandbox bridge. Remove anytime with `setup_desktop.py --remove`.
+Claude Desktop uses the same memory as another client of the shared server. Its "Add custom connector" dialog won't take a local URL (those connectors are contacted from Anthropic's cloud), so `kg setup` writes Desktop's config file instead, pointing it at `kg mcp`. Fully quit and reopen Desktop afterwards; Cowork sessions receive the server through Desktop's own sandbox bridge.
 
 Desktop's **Code tab** runs the Claude Code hooks, including preload and file recall. **Desktop chat** uses the MCP tools without those hooks: memory arrives on the first `kg_read`. Without a working directory that read opens user memory only; name the project's absolute path to attach its graph.
 
@@ -149,12 +58,7 @@ Desktop's **Code tab** runs the Claude Code hooks, including preload and file re
 
 ## Codex CLI
 
-Codex installs this plugin as it ships, from the same marketplace:
-
-```bash
-codex plugin marketplace add mironmax/kg-memory
-codex plugin add knowledge-graph@maxim-plugins
-```
+`kg setup` installs this plugin from the same marketplace (`knowledge-graph@maxim-plugins`).
 
 Codex keeps a plugin's hooks off until you approve them. Run `/hooks` in Codex, trust the knowledge-graph hooks, and start a new session. Until then the `kg_*` tools work but nothing arrives on its own. A first `kg_read` offers a diagnostic hint when no live Codex session in this project has reported hooks; another session can suppress that hint, so check `/hooks` directly when recall is missing. Codex records trust against each hook's content, so an update that changes the hooks asks for it again.
 
@@ -235,7 +139,7 @@ In Codex the same five skills are listed to the agent; ask for one by name.
 
 ## Configuration
 
-The server reads tunables from environment variables. Set them in your shell rc file (`~/.zshrc`, `~/.bashrc`) or in the systemd unit if you auto-start the server — then `kg-memory restart` to pick up changes.
+The server reads tunables from environment variables. Set them in your shell rc file (`~/.zshrc`, `~/.bashrc`) or in the systemd unit if you auto-start the server — then `kg restart` to pick up changes.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -301,7 +205,7 @@ echo "*.prev" >> .gitignore
 echo "*.tmp" >> .gitignore
 git add -A && git commit -m "initial"
 ```
-That's it: the server detects the repository and commits changes itself every 15 minutes (`Auto-save YYYY-MM-DD HH:MM` commits, only when something actually changed), plus a final commit on graceful shutdown. Tune or disable with `KG_AUTOCOMMIT_INTERVAL` (seconds; `0` disables). `kg-memory commit` forces an immediate commit by hand.
+That's it: the server detects the repository and commits changes itself every 15 minutes (`Auto-save YYYY-MM-DD HH:MM` commits, only when something actually changed), plus a final commit on graceful shutdown. Tune or disable with `KG_AUTOCOMMIT_INTERVAL` (seconds; `0` disables). `kg commit` forces an immediate commit by hand.
 
 **Borg** — better fit for frequently-changing data:
 ```bash
