@@ -1,4 +1,4 @@
-# Knowledge Graph memory for Claude Code and Codex
+# kg-memory: knowledge-graph memory for Claude Code, Codex and Antigravity
 
 Persistent memory for coding agents: the agent remembers across sessions as a graph of nodes and typed relationships, not flat notes. It captures insights as you work, preloads them next session, and brings back the right memory when a prompt or a file needs it. The graph also tracks when it needs tending, and can tend itself in the background. Claude Code and Codex CLI share one memory, so what one learns the other knows; Antigravity CLI support is experimental.
 
@@ -6,34 +6,14 @@ Persistent memory for coding agents: the agent remembers across sessions as a gr
 
 ## Install
 
-**Claude Code**
-
 ```bash
-/plugin marketplace add mironmax/kg-memory
-/plugin install knowledge-graph@maxim-plugins
+uv tool install kg-memory     # needs uv: https://docs.astral.sh/uv/
+kg setup                      # asks before each change, backs up what it edits
 ```
 
-Restart Claude Code. The plugin starts its local memory server by itself; the very first session sets up a Python environment (~1 minute). If Claude reports the memory tools offline, run `/mcp` → `plugin:knowledge-graph:kg` → **Reconnect** once it is up.
+`kg setup` finds Claude Code, Codex CLI, Antigravity CLI (experimental) and Claude Desktop, connects each of them (the knowledge-graph plugin, or Desktop's config), and runs one local memory server for all of them (a systemd user service on Linux). `kg doctor` checks everything afterwards; `kg update` keeps it current.
 
-**Codex CLI**
-
-```bash
-codex plugin marketplace add mironmax/kg-memory
-codex plugin add knowledge-graph@maxim-plugins
-```
-
-Then, in Codex, run `/hooks` and trust the knowledge-graph hooks. Codex keeps a plugin's hooks off until you approve them, and without them there is no preload or recall. Start a new session.
-
-See the [Codex support table and update steps](knowledge-graph/README.md#codex-cli), including shell-path resolution, history scouting and platform coverage.
-
-**Antigravity CLI (experimental)**
-
-```bash
-git clone https://github.com/mironmax/kg-memory
-agy plugin install "$PWD/kg-memory/knowledge-graph"
-```
-
-Check that `agy -p /hooks` lists the three knowledge-graph hooks, then start a new conversation. Preload, recall and the memory tools work; some lifecycle cases are not yet verified in a signed-in session. See the [Antigravity guide](knowledge-graph/ANTIGRAVITY.md).
+Two steps are yours: in Codex, run `/hooks` and trust the knowledge-graph hooks (Codex keeps plugin hooks off until you approve them); restart Claude Desktop. Then start a new session. Platform notes: [Codex](knowledge-graph/README.md#codex-cli) · [Antigravity](knowledge-graph/ANTIGRAVITY.md).
 
 Requires Python 3.10+. The graph is stored locally, with no database or API key; memories the agent reads reach its model provider like any other context.
 
