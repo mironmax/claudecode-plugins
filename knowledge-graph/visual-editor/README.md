@@ -34,7 +34,6 @@ visual-editor/
 │   └── static/
 │       ├── css/style.css
 │       └── js/app.js        # D3 force-directed graph, three-panel UI, inline editing
-├── manage_visual.sh         # start | stop | restart | status | logs
 ├── requirements.txt
 ├── tests/                  # API integration and UI state regression tests
 └── README.md                # this file
@@ -42,16 +41,7 @@ visual-editor/
 
 ## Run
 
-The bundled `manage_visual.sh` is the canonical entry point. End users get it as `kg-visual` after running `install_command.sh`. From the source tree:
-
-```bash
-./manage_visual.sh start    # daemonize, log to ~/.local/state/knowledge-graph/visual_editor.log
-./manage_visual.sh status
-./manage_visual.sh logs
-./manage_visual.sh stop
-```
-
-Requires the MCP server (`kg-memory start`) to be up.
+`kg editor` starts it detached (and the memory server first, if needed), logging to `~/.local/state/knowledge-graph/visual_editor.log`; `kg editor stop` stops it. From a checkout, `knowledge-graph/cli/kg-dev editor` runs the same code.
 
 ## Configuration
 
