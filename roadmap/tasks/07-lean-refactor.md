@@ -1,5 +1,11 @@
 # 07 — Lean refactor: findings
 
+**Baseline findings from f17349a, not a current defect list.** Subsequent
+changes fixed forced editor reload (F3), added server-owned project discovery,
+and extracted shared lexical search in `server/core/search.py`. The first
+refactor batch below remains open; re-check each named site against current
+code before applying its suggestion. See the [roadmap status](../README.md).
+
 ## Goal
 
 Make `knowledge-graph/` smaller and easier to change without changing what

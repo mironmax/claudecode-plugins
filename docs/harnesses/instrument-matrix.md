@@ -1,5 +1,13 @@
 # Instrument matrix
 
+**Historical baseline, 2026-09-26.** The cells below describe the versions
+examined in the original survey. They are not today's support table.
+Codex now supports `apply_patch`, verified shell execution directories,
+explicit `nl`/`rg` file reads, rollout scouting and server-owned project
+discovery; see the [current support table](../../knowledge-graph/README.md#codex-cli).
+Antigravity's later native hooks and queued delivery are described in
+[Antigravity status](antigravity-status.md); that adapter remains experimental.
+
 The plugin's jobs, taken from the verified table in the
 [coupling map](coupling-map.md), against each harness. Each cell names the
 cheapest instrument that does the job, meaning the one that needs the least
@@ -28,7 +36,7 @@ or on static reading of the tool.
 | Project discovery for the visual editor | Reads `~/.claude/projects/` | Session files under `~/.codex/sessions/YYYY/MM/DD/`, one per session, with `cwd` in the metadata *(run)* | Undetermined | Transcripts under `<app_data_dir>/brain/<conversationId>/`; the mapping to a project is undetermined |
 | Mining past sessions (`kg-scout`) | Reads `~/.claude/history.jsonl` and project transcripts | Rollout JSONL files *(run: format seen)* | `transcript_path` files | `transcript.jsonl` files |
 
-## Gaps, stated plainly
+## Gaps at the time of the survey
 
 Each of these is a design problem, not a porting task.
 

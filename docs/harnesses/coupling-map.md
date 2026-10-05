@@ -1,5 +1,11 @@
 # Coupling map
 
+**Historical baseline.** The line counts and run observations below describe
+the original v0.9.42 survey, with the later v3 prompt-file replacement noted.
+They are not a count of today's remaining work. Codex's profile and maintenance
+runner shipped in 0.10.0; current main also supports verified shell directories,
+rollout scouting and server-owned editor discovery. See [current status](README.md).
+
 Every place the repository depends on Claude Code, sorted into three layers.
 Paths are relative to the repository root, and line numbers refer to commit
 `f17349a` (v0.9.42).
@@ -110,7 +116,7 @@ Three things in layer 0 carry Claude Code's shape without depending on it:
 | `file_recall.py:107-108` | 2 | File tools `Read`, `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | Codex edits arrive as `tool_name: "apply_patch"` with the patch text in `tool_input.command` (run). They match no entry, so edits produce no file recall. |
 | `file_recall.py:263-276` | 14 | `Bash` → parse `tool_input.command` | Worked unchanged: Codex reports shell calls as `Bash` with `command` (run). `cat notes.txt` recalled the node anchored to `notes.txt`. |
 | `knowledge-graph/install_command.sh:19-20,33-39,41-99,107-111` | 72 | Legacy cleanup of `~/.claude/settings.json`; refreshes the Claude Desktop bridge; prints `/reload-plugins` instructions | Not run. |
-| `knowledge-graph/server/sync_version.py:12`, `knowledge-graph/visual-editor/backend/server.py:37` | 2 | Read or write the version in `.claude-plugin/plugin.json` | Harmless. |
+| `knowledge-graph/server/sync_version.py:12`, `knowledge-graph/visual-editor/backend/server.py:37` | 2 | Read the version from `.claude-plugin/plugin.json`; `sync_version.py` writes `version.py` | Harmless. |
 | `knowledge-graph/visual-editor/backend/project_discovery.py:53-108,200-291` | 148 | Discovers projects by decoding `~/.claude/projects/<encoded>/` | Codex keeps sessions in `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (run), so this discovers nothing. |
 | **Subtotal** | **433** | | |
 

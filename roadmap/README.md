@@ -54,7 +54,7 @@ an agent working only from this repository.
 | 07 | [Lean refactor findings](tasks/07-lean-refactor.md) | Same behavior in less code: one helper per job, tables over branches, clear module seams | open; first run: items 1–4 + test temp-dir helper |
 | 08 | [Visual editor: readable graphs, server-owned project list](tasks/08-visual-editor-readable-graphs.md) | A mature graph opens as a picture of what is live; projects come from the server, for every harness | done: PR #38 (unreleased) |
 | 09 | [Sessions model without the project fallback](tasks/09-sessions-model-no-fallback.md) | Re-check hook identity and dedup under the new resolution rule | done: both hold after the F12 fix (unreleased) |
-| 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | open; fixtures in the cloud, the real run local |
+| 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | implemented on `codex/followthrough-report` (335c647); pending review and merge |
 
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
@@ -69,12 +69,20 @@ capture guidance that tests granularity and writes notes as "when this
 bites"; shipping an updated recommended output style; verifying which hook
 events can carry context at the moment a tool is about to run.
 
+Current main also includes Codex shell-directory resolution and a rollout
+scouting recipe, server-owned project discovery, and visual search and score
+inspection. These are unreleased; see [CHANGELOG.md](../CHANGELOG.md).
+The Antigravity adapter is on a separate experimental branch and has not
+passed its lifecycle gates; see [its status](../docs/harnesses/antigravity-status.md).
+
 ## Later
 
 - **A with/without benchmark** on hard tasks, using only cross-project
   principles, to test whether a well-kept memory multiplies what the model
   can do. Held until its design is agreed.
-- **More harnesses**: Cursor and Antigravity each have a gap no adapter
-  closes (see `docs/harnesses/instrument-matrix.md`).
-- **Desktop apps**: Claude Desktop chat gets the tools but no hooks; the
-  Codex desktop app is untested.
+- **More harnesses**: Cursor's prompt-context and quota channels still need
+  verification. Antigravity now has a working experimental transport, with
+  checkpoint and read-delivery state defects to resolve before stable support.
+- **Desktop apps**: Claude Desktop's Code tab runs hooks; its chat gets tools
+  without hooks. Codex desktop preload and tools were checked on Linux.
+  Broader desktop/OS coverage remains open.

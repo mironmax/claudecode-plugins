@@ -134,7 +134,7 @@ def create_mcp_server() -> Server:
         return [
             Tool(
                 name="kg_read",
-                description="Read the knowledge graph. First call: pass cwd to initialize the session (no cwd: user memory only) — the result includes session_id; pass that session_id on every later call (cwd then optional). Without id/ids: full graph — active nodes (gist), archived anchors (id only), live edges — always fits inline. With id or ids: full node content (gist + notes + touches + the node's edges); archived nodes get promoted to active. Reading several related nodes via ids in ONE call is cheaper than sequential single reads.",
+                description="Read the knowledge graph. First call: pass cwd to initialize the session (no cwd: user memory only) — the result includes session_id; pass that session_id on every later call (cwd then optional). Without id/ids: full graph — active nodes (gist), archived anchors (id only), live edges — normally within the render budget, but oversized active gists can exceed it; delivery depends on the client. With id or ids: full node content (gist + notes + touches + the node's edges); archived nodes get promoted to active. Reading several related nodes via ids in ONE call is cheaper than sequential single reads.",
                 inputSchema={
                     "type": "object",
                     "properties": {

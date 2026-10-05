@@ -7,12 +7,13 @@ Nothing here changes the server; fixes land as ordinary releases, each
 with a regression test in `knowledge-graph/server/tests/`. Findings with
 file:line references are in [FINDINGS.md](FINDINGS.md).
 
-**Status (v0.9.44):** F1, F2, F4, F9 and F10 are fixed
+**Current status:** F1, F2, F4, F9 and F10 were fixed in v0.9.44
 (`tests/test_races_and_guards.py`). F3 is settled as a policy: a forced
 reload lets disk win, logs what it drops, and the two paths that triggered
 it without anyone asking (the visual editor, cross-site pages) are gone.
-F11 was found later and fixed in v0.10.1. F5 and F8 are fixed after
-v0.10.1; F6 and F7 are open.
+F11 was found later and fixed in v0.10.1; F5 and F8 in v0.10.2.
+F12 (a fork taking an unbound session) was found in roadmap 09 and is fixed
+on current main, unreleased. F6 and F7 remain open.
 
 ## Method
 
@@ -41,17 +42,18 @@ randomized search over the real compactor instead of a model.
 
 | # | Finding | How found | Status | Severity (judgement) |
 |---|---|---|---|---|
-| F1 | Chore dispatch decides on an unlocked state snapshot: double dispatch inside `min_interval`, lost count | Lean BFS | reproduced | medium-low |
-| F2 | A failed write-through still clears `dirty`, so the write is lost at shutdown while `put_node` reports success | Lean BFS | reproduced | medium |
+| F1 | Chore dispatch decides on an unlocked state snapshot: double dispatch inside `min_interval`, lost count | Lean BFS | fixed, 0.9.44 | medium-low |
+| F2 | A failed write-through still clears `dirty`, so the write is lost at shutdown while `put_node` reports success | Lean BFS | fixed, 0.9.44 | medium |
 | F3 | Forced reload discards unsaved in-memory state | Lean BFS | reproduced | medium-low |
-| F4 | Saver thread dies permanently on a session-dict race (no lock, no `try`) | reading + stress | reproduced | medium |
+| F4 | Saver thread dies permanently on a session-dict race (no lock, no `try`) | reading + stress | fixed, 0.9.44 | medium |
 | F5 | Rename re-points or drops cross-level edges (4 variants) | Lean enumeration | reproduced, fixed | medium |
 | F6 | The visual editor never receives project-level live updates | reading | reproduced | low |
 | F7 | Compaction and refill churn: a node archived on one tick is re-promoted on the next | randomized search over the real compactor | reproduced | low |
 | F8 | A fork shares its live parent's KG session; the parent's hooks resolve to another session | Lean BFS | reproduced, fixed | medium-low |
-| F9 | Cross-site GETs with side effects (`reload=true`, `session_bootstrap`) | reading + test | reproduced | low |
-| F10 | The maintenance pass tier skips the "never rename a node a live session holds" rule; `_live_seen` fails open | reading | confirmed by reading only | medium-low |
+| F9 | Cross-site GETs with side effects (`reload=true`, `session_bootstrap`) | reading + test | fixed, 0.9.44 | low |
+| F10 | The maintenance pass tier skips the "never rename a node a live session holds" rule; `_live_seen` fails open | reading | fixed, 0.9.44 | medium-low |
 | F11 | A write built on a stale or partial view drops another session's note, or notes the writer never read | Lean BFS + reproduction | reproduced, fixed | medium |
+| F12 | A fork takes over a KG session no hook has bound yet | Lean BFS + reproduction | fixed on main, unreleased | medium-low |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.

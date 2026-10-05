@@ -1,11 +1,12 @@
-"""kg_read full-graph output: rendering + the inline-guarantee degradation ladder.
+"""kg_read full-graph output: rendering and the budget degradation ladder.
 
-The output is guaranteed to fit READ_CHAR_BUDGET characters so the MCP client
-always keeps it inline in context (never spills to a persisted file the model
-sees only a preview of). Two layers make the guarantee:
+READ_CHAR_BUDGET is the full-graph render target, sized for the measured
+Claude Code/Codex clients. Active gists are preserved even if they alone
+exceed it, so this is not an unconditional inline guarantee. Two layers
+normally keep the output within the target:
 
-  1. The compactor keeps each level's rendered size ≤ MAX_CHARS_PER_LEVEL, and
-     two levels plus wrapper text fit the budget by construction.
+  1. The compactor targets MAX_CHARS_PER_LEVEL per level; newly created nodes
+     still inside their grace period can defer archival while over budget.
   2. For graphs the compactor hasn't maintained (legacy, externally edited),
      this module degrades the output at render time: drop the lowest-scored
      archived anchors first, then the lowest-value edge citations — never
@@ -223,8 +224,8 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloade
     already in the session's context, so they render as id-only anchors and the
     freed budget keeps more archived anchors and edges visible.
     Active gists are never dropped — if active lines alone exceed the budget
-    (possible only on a graph the compactor has never run on), the output may
-    exceed it until the next write triggers compaction.
+    (for example, an unmaintained graph or one protected by creation grace),
+    the output can exceed the target until archival becomes possible.
     """
     session_line = f"\n\nSession: {session_id}" if session_id else ""
     levels = _build_levels(graphs, scores, preloaded, debt)

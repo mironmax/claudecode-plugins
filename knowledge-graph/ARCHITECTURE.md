@@ -7,16 +7,15 @@ curation** problem. Every session an agent re-derives context it already earned:
 project architecture, past decisions, user preferences, hard-won debugging
 conclusions. The knowledge graph makes that context durable and cheap: captured
 compressed at the moment of insight, connected by explicit relationships, and
-loaded whole at the start of every session.
+served as a bounded overview plus relevant detail during each session.
 
 The design rests on one paradigm choice: **move the intelligence to entry, not
 retrieval.** An LLM is at its best distilling an insight in the moment it is
 understood — full context in the window, nuance still live. Knowledge stored
 that way (a telegraphic gist, edges naming how it relates, notes carrying the
-why) needs no retrieval machinery at all: the whole active graph fits in
-context, and the model scans it natively. No embeddings, no vector store, no
-query language — reading structured text is precisely what a language model is
-built to do.
+why) can be read directly: the bounded active graph fits in context, and the
+model scans it natively. Lexical search and a touches index reach deeper
+content without embeddings or a vector store.
 
 **Why this compounds with model capability.** The format is a bet on the reader.
 A compressed gist plus its edges is decoded by the model consuming it — so every
@@ -25,7 +24,7 @@ follows crumb trails with more initiative, and writes better-compressed nodes
 back. Retrieval-engineering approaches age as models improve (their machinery
 becomes the bottleneck); a compression-first graph gets *more* valuable, because
 both its writer and its reader keep getting smarter. The architecture's job is
-only to keep the loop fast, bounded, and lossless — the intelligence is
+to keep the loop fast, bounded, and explicit — the intelligence is
 delegated to the models on either end.
 
 Two graph levels carry the memory: **user** (cross-project wisdom — who the
@@ -89,14 +88,15 @@ module (see "The Harness Layer").
 
 **Load everything by default:**
 - Budgets are **exact rendered characters**, fixed by design (no env overrides): `MAX_CHARS_PER_LEVEL` (17,500) per level, `READ_CHAR_BUDGET` (40,000) for the combined kg_read output — single source of truth in `core/constants.py`, line rendering in `core/render.py`
-- The arithmetic guarantees kg_read always lands inline in context (never spills to a persisted file): two levels + wrapper < 40K < the MCP client's ~50K persistence threshold
+- The combined full-graph render targets 40K characters, below the measured Claude Code/Codex tool-output threshold. It can exceed that target when active gists alone are too large, including while creation grace prevents archival. Arbitrary batches of full-node notes and other MCP clients have separate delivery limits.
 - For graphs the compactor hasn't maintained yet, a render-time degradation ladder enforces the ceiling: lowest-scored archived anchors are hidden first (with a count + kg_search pointer), then lowest-value edges — active gists never
-- LLM scans entire graph in milliseconds; no query language or retrieval algorithms — memory is preloaded at session start (or one `kg_read()` away)
+- The agent reads the bounded active graph directly; lexical search and file matching reach memories below that surface.
 - The rendering is node-centric: clusters render together (hub first), each node's relationships indented beneath it, every edge cited once at its first-rendered endpoint — the graph reads as connected knowledge paragraphs, not sections to join by id
 
 **When memory grows beyond limit:**
 - Archival scores nodes by 0.25×recency + 0.40×connectedness + 0.35×usefulness, a weighted sum of percentiles (`core/scorer.py`). Usefulness is the count of explicit `kg_useful` endorsements, each decaying with a 90-day half-life: the one term an agent controls, and the only one that can say "this was needed" rather than "this was touched"
 - Connectedness weights edges by neighbour state: an edge to an active node counts full (1.0), to an archived node `ARCHIVED_EDGE_WEIGHT` (0.2), to an orphaned node 0 — then `in × 0.66 + out × 0.33`. The reduced-but-nonzero archived weight lets a cluster that archived together still be resurfaced by refill (a member isn't scored as fully disconnected just because its neighbours archived too)
+- Connectedness also has a floor of `0.5 × log1p(total incoming + outgoing neighbours)`, preserving hubs while their neighbours are archived. Orphan selection uses the same archival score, including endorsements, rather than active-edge count alone.
 - Archive nodes until graph is under `COMPACTION_TARGET_RATIO` (0.8) of the char budget
 - Run a resurrection pass: any pre-existing archived node that outscores a just-archived node by ≥0.05 is restored to active
 - `kg_read(session_id, id)` retrieves full content and promotes archived nodes
@@ -178,8 +178,8 @@ Two transports, each matched to its client:
   Code and Codex MCP clients actually speak, keeps the mental model simple,
   and makes every interaction visible in logs.
 - **WebSocket** for the visual editor, where we control the client and a live
-  view genuinely needs push: the store broadcasts every mutation to connected
-  browsers in real time.
+  view needs push: user-graph mutations arrive live. Project notifications
+  still need project-bound subscriptions (F6); the editor uses **Refresh** for them.
 
 **Concurrency.** Many sessions share one server process. Every store
 mutation runs under one lock, every save is atomic (temp file, fsync,
@@ -312,11 +312,15 @@ time, re-deciding on fresh state inside a lock.
 
 Design notes and the survey behind this split: `docs/harnesses/`.
 
-Codex 0.157.1 omits the shell execution directory from its Bash hook input.
-File recall skips relative shell operands when that directory is unknown;
-absolute operands still work. If the hook supplies an absolute `workdir`,
-it resolves relative operands there while retaining the original project
-scope. The same resolved targets feed capture counters. `rg` is not tracked.
+Codex hooks can omit the shell execution directory. The completed-call
+resolver described above restores it from exact rollout evidence; ambiguous
+or missing evidence still leaves relative operands unresolved. The same
+resolved targets feed file recall and capture counters, including explicit
+`nl` and `rg` file reads.
+
+Antigravity's native adapter remains on a separate experimental branch.
+It uses queued `PreInvocation` delivery and has unresolved checkpoint and
+read-delivery state defects; see [its status](../docs/harnesses/antigravity-status.md).
 
 ### Retrieval evaluation harness
 
@@ -388,9 +392,9 @@ and only *known* prompts enter the consistency check.
 
 **Centralized storage.** All graphs live under `~/.knowledge-graph/` — one place to inspect, back up, and version everything, with project isolation via slug-based subdirectories. A single directory holding all accumulated knowledge is also what makes the whole memory portable: copy it and every project's context moves with it.
 
-**Write-through persistence.** Every mutation (node/edge create, update, delete) is immediately persisted to disk, so a crash can never cost more than the mutation in flight. The cost is negligible at knowledge-capture write rates.
+**Write-through persistence.** Node/edge creates, updates, deletes and promotions trigger an immediate save. Read timestamps and maintenance changes also use the periodic save thread. A failed save leaves the graph dirty for retry and is logged; atomic writes protect the previous disk snapshot, not unsaved in-memory work.
 
-**Periodic git auto-commit.** When the storage root is a git repository, the server itself commits pending changes on a timer (`core/autocommit.py`, `AutoCommitter` daemon thread). Every `KG_AUTOCOMMIT_INTERVAL` seconds (default 900; `0` disables) it commits only when the tree actually changed, using the `Auto-save YYYY-MM-DD HH:MM` message; a final best-effort commit runs on graceful shutdown *after* the store flushes. Committing from inside the server means history accumulates no matter how the process is started or killed — including the normal case where the SessionStart hook launches it and it dies with the machine. No `.git` directory means silent no-op, and git failures are logged, never fatal.
+**Periodic git auto-commit.** When the storage root is a git repository, the server itself commits pending changes on a timer (`core/autocommit.py`, `AutoCommitter` daemon thread). Every `KG_AUTOCOMMIT_INTERVAL` seconds (default 900; `0` disables) it commits only when the tree changed, using the `Auto-save YYYY-MM-DD HH:MM` message; a final best-effort commit runs on graceful shutdown after the store flushes. Abrupt termination can leave changes since the last commit uncommitted. No `.git` directory means silent no-op, and git failures are logged, never fatal.
 
 **Self-healing on load and write.** A node should be stored as discrete fields (`gist`, `notes`, `touches`). A client can occasionally serialize the whole node — including tool-call markup — into the `gist` string, leaving `notes` empty; the oversized gist then inflates the active-token budget on every `kg_read`. Rather than trust every writer to be well-formed, the store sanitizes defensively: `core.healer.heal_node_fields` is applied both on write (`put_node`) and on load (each graph is healed the first time it is read from disk, then rewritten). The same function powers both paths, so rendering and storage cannot drift, and it is idempotent — already-clean graphs pass through untouched. This is a third robustness layer alongside atomic writes and the rolling backup (`user.prev` beside `user.json`, `graph.prev` beside each `graph.json`): those guard against bad *I/O*; healing guards against bad *data*.
 
@@ -411,7 +415,7 @@ and only *known* prompts enter the consistency check.
 
 ### Completed
 
-- **Visual Editor** — D3.js force-directed graph with real-time WebSocket updates, full CRUD, multi-panel UI, project selector. Managed via `manage_visual.sh` / `kg-visual` command.
+- **Visual Editor** — D3.js graph with server-owned projects, ranked search, score inspection, node/edge editing, and live user-graph updates. Project changes require Refresh; ID renames use `kg_rename_node`. Managed via `manage_visual.sh` / `kg-visual`.
 - **Scout Skill** (`/kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
 - **Extract Skill** (`/kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
 - **Ranked Search** — `kg_search` and prompt recall share one core (RRF, k=60): whitespace tokens plus their `./_-` subtokens, light stemming (schedule ≈ scheduling), adjacent-subtoken bigram terms with their own co-occurrence IDF, field-weighted occurrences (id ×3, gist ×2, notes ×1) and sharpened IDF so one term naming the right node isn't outvoted by several dull ones. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent. Write-side, the same pipeline powers `put_node`'s near-duplicate and hub-mention nudges.
@@ -423,7 +427,7 @@ and only *known* prompts enter the consistency check.
 - **Formal checking** — Lean models and real-code reproductions of the concurrent and stateful parts (`formal/` at the repository root), each fix with a regression test.
 
 ### Planned Features
-- More harnesses (Cursor and Antigravity have known gaps — see `docs/harnesses/`)
+- More harnesses (Cursor is unimplemented; Antigravity is experimental — see `docs/harnesses/`)
 - Collaborative editing (multi-user visual editor)
 - Import/export (share graph snippets)
 - Analytics (graph metrics, usage patterns)
@@ -443,10 +447,10 @@ and only *known* prompts enter the consistency check.
    crumbs with more initiative, and compress better on capture — the graph
    appreciates with every model generation.
 
-3. **Bounded and lossless.** Fixed character budgets keep the always-loaded core
-   small and guaranteed inline; tiered archival (active → archived → orphaned)
-   means growth never costs knowledge — everything stays reachable, and use
-   promotes what matters back up.
+3. **Bounded context, tiered storage.** Fixed character budgets keep the core
+   small. Archival preserves full content for later reads; orphaned content
+   remains searchable until its deletion grace period expires. Reads promote
+   what matters back up.
 
 4. **Explicit over implicit.** Sync happens when the agent asks; every
    interaction is a visible tool call. Predictable, debuggable, log-readable.

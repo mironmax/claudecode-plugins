@@ -24,9 +24,9 @@ codex plugin add knowledge-graph@maxim-plugins
 
 Then, in Codex, run `/hooks` and trust the knowledge-graph hooks. Codex keeps a plugin's hooks off until you approve them, and without them there is no preload or recall. Start a new session.
 
-See the [Codex support table and update steps](knowledge-graph/README.md#codex-cli), including the shell-path, history-scout and visual-editor limits.
+See the [Codex support table and update steps](knowledge-graph/README.md#codex-cli), including shell-path resolution, history scouting and platform coverage.
 
-Requires Python 3.10+. No databases, no API keys; everything stays on your machine.
+Requires Python 3.10+. Graph storage is local and needs no database or separate API key. Text read by an agent becomes part of that agent's model context.
 
 **[Full documentation →](knowledge-graph/README.md)** · **[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)** · ⭐ Star if useful — it helps others find this
 
@@ -36,13 +36,15 @@ You don't operate the graph; the agent does. After install:
 
 1. **Start any session.** The memory preload arrives with it, and after its first full read the agent says *"I have recalled KG Memories"*. Empty at first; that's normal.
 2. **Just work.** The agent captures insights as you go: decisions, preferences, debugging discoveries, how your codebase fits together.
-3. **Seed it faster (optional):** `/kg-extract` maps your codebase architecture into the graph; `/kg-scout` mines your past Claude Code sessions for knowledge you've already paid for.
+3. **Seed it faster (optional):** `/kg-extract` maps your codebase architecture into the graph; `/kg-scout` mines your past Claude Code sessions and Codex rollouts for knowledge you've already paid for.
 4. **Next session, ask:** *"What do you remember about this project?"* That's the moment it clicks.
 
 **Also recommended:**
 - Turn off the harness's own memory, or two memory systems write conflicting entries. Claude Code: ⚙ Settings → Memory → Auto-memory **off**. Codex: its `memories` feature is off by default; leave it off.
 - Enable plugin auto-updates in Claude Code: `/plugin` → **Marketplaces** → `maxim-plugins` → **Enable auto-update** (off by default for third-party marketplaces).
-- Adopt the **[recommended user-level setup](recommended-setup/)** for Claude Code: an output style carrying a working agreement, and a status line, which pair well with graph memory. Its parts were benchmarked at better answer quality with −27% output tokens; it sets a collaboration tone worth remembering, and the quota gauge lets the agent pace long sessions instead of stopping mid-edit. For Codex, the **[Codex setup](recommended-setup/codex.md)** loads the same style as developer instructions and sets up the footer for limits and context.
+- Adopt the **[recommended user-level setup](recommended-setup/)** for Claude Code: an output style carrying a working agreement, and a status line. The earlier v2 response rules measured −27% output tokens; the combined v3 style has not been re-benchmarked. For Codex, the **[Codex setup](recommended-setup/codex.md)** loads the same style as developer instructions and configures the native footer. The **[Antigravity setup](recommended-setup/antigravity.md)** provides a global rule and quota display; its KG adapter remains experimental on a separate branch.
+
+These docs track the current source, including unreleased changes. See the [changelog](CHANGELOG.md) for release boundaries.
 
 ---
 

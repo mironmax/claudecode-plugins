@@ -2,7 +2,7 @@
 
 Gives a coding agent a persistent memory that survives across sessions — not flat notes, but a graph of distilled insights connected by typed relationships. The agent captures patterns and decisions as you work; next session it recalls them automatically. Claude Code and Codex CLI share one memory server, so what is learned in one is recalled in the other.
 
-The design puts the intelligence at **capture time**: knowledge is compressed by the model in the moment of insight, stored as headline + relationships, and read back natively — no embeddings, no retrieval engine, just structured text a language model is built to consume. That makes the memory compound with model capability: sharper models write denser nodes and extract more from the same graph. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design thesis.
+The design puts the intelligence at **capture time**: knowledge is compressed by the model in the moment of insight, stored as headline + relationships, and read back as structured text. Lexical search and file matching bring back memories below the preload; no embedding service or database is required. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design thesis.
 
 ## Prerequisites
 
@@ -49,6 +49,7 @@ For Codex CLI, see [Codex CLI](#codex-cli) below: two commands, then one approva
 **Optional:**
 - **[Recommended user-level setup](../recommended-setup/)** — an output style carrying a benchmarked working agreement, and a quota-aware status line. The status line matters here beyond taste: it persists your rolling 5h/7d usage to `~/.claude/last-limits.json`, the only channel through which Claude can read its own remaining budget — which is what lets a long session end on a clean checkpoint (handover letter + memory writes) instead of stopping mid-edit.
 - **[Codex CLI setup](../recommended-setup/codex.md)** — the same working style as developer instructions, and a native footer preset for limits and context.
+- **[Antigravity CLI setup](../recommended-setup/antigravity.md)** — a global working-style rule and quota display. The KG adapter is experimental and is not included in this branch's plugin.
 - **`kg-memory` / `kg-visual` shell commands** — for managing the server from your terminal. See [Server Management](#server-management) below.
 - **Auto-approval** — skip permission prompts by adding the permissions below to `~/.claude/settings.json`.
 
@@ -142,7 +143,7 @@ Claude Desktop can use the same memory — it becomes another client of the shar
 
 The setup registers a stdio bridge (`mcp-remote`, needs Node.js ≥ 18) in `claude_desktop_config.json`, with paths resolved for your machine. The bridge auto-starts the server if Desktop launches first. Fully quit and reopen Desktop afterwards; Cowork sessions receive the server through Desktop's own sandbox bridge. Remove anytime with `setup_desktop.py --remove`.
 
-Note: Desktop sessions get no session-start preload (that's a Claude Code hook) — memory arrives on the first `kg_read` call instead.
+Desktop's **Code tab** runs the Claude Code hooks, including preload and file recall. **Desktop chat** uses the MCP tools without those hooks: memory arrives on the first `kg_read`. Without a working directory that read opens user memory only; name the project's absolute path to attach its graph.
 
 ---
 
@@ -166,10 +167,11 @@ Both harnesses talk to one local server, so a lesson captured in Codex is recall
 | File recall and read counters | `apply_patch` and explicit file operands of `cat`, `head`, `tail`, `less`, `sed -n`, `grep`, `jq`, `nl`, `rg`; relative shell paths need a verified execution directory |
 | Hosted web search | No hook event, so no web-research capture nudges |
 | `/kg-extract` | Codebase mapping works in either harness |
-| `/kg-scout` | Mines Claude Code history; no Codex rollout reader yet |
-| Visual editor | User graph works; project discovery still uses Claude Code history, so Codex-only projects are absent |
+| `/kg-scout` | Mines Claude Code history and Codex rollouts; resumed rollouts use per-file cursors |
+| Visual editor | Discovers stored project graphs through the server, including Codex-only projects |
 | Background maintenance | Opt-in; the selected runner determines which subscription it spends |
-| Codex desktop, macOS and Windows | Not verified by this CLI integration test |
+| Codex desktop | Checked on Linux; this is not a verification of every desktop platform |
+| macOS and Windows | Not verified by the Linux integration tests |
 
 **Shell directories.** Codex reports the session directory in its hook and can omit `exec_command.workdir`. For relative paths, the server first honors an explicit absolute `workdir`; otherwise it matches the hook's invocation id to a completed command record in a bounded tail of that session's rollout and uses the recorded execution directory. This was measured live with nested and parallel calls on CLI 0.158.0. Missing, incomplete or ambiguous records leave relative paths unresolved; absolute operands still work. `nl` and `rg` support explicit file operands with recognized options; implicit directory searches and `rg --files` are not tracked. Rollouts must be local `.jsonl` files under the user's home directory, as for session recovery.
 
@@ -181,7 +183,7 @@ Maintenance chores can run through Codex too, spending your ChatGPT plan's limit
 
 ## What the Memory Does on Its Own
 
-The system is designed to work without being asked. Four ambient behaviors, all zero-config:
+The system is designed to work without being asked. With the harness hooks enabled:
 
 - **Preloaded at session start** — the top-scored nodes of both graphs are in context before the first word, and one `kg_read` renders the rest.
 - **Recall when a file is touched** — when the agent reads or edits a file, the memory that names that file arrives with the tool result; a node already in the session's context is not repeated.
@@ -196,7 +198,7 @@ Once the server is running, the agent captures insights automatically. A few hab
 
 - **Wrap up sessions explicitly** — say "wrapping up" before ending. This triggers reflection and writes the session's learnings to the graph.
 - **Start fresh sessions over compacting** — finishing a task cleanly and starting a new session is more effective than context compaction. The graph preserves what matters.
-- **Run `/kg-scout`** now and then to mine past Claude Code sessions for patterns worth keeping.
+- **Run `/kg-scout`** now and then to mine past Claude Code sessions and Codex rollouts for patterns worth keeping.
 
 ---
 
@@ -206,7 +208,7 @@ Once the server is running, the agent captures insights automatically. A few hab
 |-------|------|---------|
 | `kg-core` | Hidden (auto-loaded) | The memory doctrine: session protocol, recall, capture, search below the surface |
 | `/kg-maintain` | User-invocable | Bounded maintenance pass that pays down the graph's DEBT line; includes the subagent dispatch prompt |
-| `/kg-scout` | User-invocable | Mine Claude Code conversation history for patterns and insights |
+| `/kg-scout` | User-invocable | Mine Claude Code and Codex conversation history for patterns and insights |
 | `/kg-extract` | User-invocable | Map codebase architecture into the knowledge graph |
 | `/kg-ops` | User-invocable | Operations runbook: install, updates, server, Desktop/Cowork, Codex, chores, backup, troubleshooting |
 
@@ -220,7 +222,7 @@ The server reads tunables from environment variables. Set them in your shell rc 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KG_GRACE_PERIOD_DAYS` | see `constants.py` | Days a node is protected from archival after last update |
+| `KG_GRACE_PERIOD_DAYS` | see `constants.py` | Days a newly created node is protected from archival; reads and updates do not restart this grace period |
 | `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
@@ -228,13 +230,18 @@ The server reads tunables from environment variables. Set them in your shell rc 
 
 > Don't edit the plugin's bundled `.mcp.json` — that file just declares the HTTP endpoint the harness connects to (`http://127.0.0.1:8765/`), and it gets overwritten on every plugin update.
 
-> **The size budget is fixed by design.** Budgets are exact rendered characters — 17,500 per graph level, 40,000 for a whole `kg_read` result, 10,000 for the session-start preload (8,000 in Codex, whose hook limit is smaller) — chosen so the output always fits inline in the agent's context instead of spilling to a persisted file. That guarantee is arithmetic over the fixed constants; a knob would break it. If output ever needs trimming (e.g. a graph maintained by an older server), the server hides the lowest-scored archived anchors and edges and says so in the output — never active knowledge.
+> **The size budget is fixed by design.** Budgets are exact rendered characters: 17,500 per level, 40,000 for the combined full-graph render, and 10,000 for preload (8,000 in Codex). They were sized for the measured Claude Code/Codex clients; arbitrary batches of full-node notes and other clients have separate delivery limits. Oversized full graphs hide the lowest-scored archived anchors and edges with counts and a search pointer.
+
+> The full-graph figure is a target: active gists are preserved even if they
+> alone exceed it, including while creation grace prevents archival. Such a
+> render can exceed a client's inline limit; a maintenance pass or expiry of
+> grace is needed to restore headroom.
 
 ---
 
 ## Data Locations
 
-All data lives under `~/.knowledge-graph/`. The files are plain JSON, so any file backup tool works.
+Graph data lives under `~/.knowledge-graph/` by default (`KG_STORAGE_ROOT` can change it), as JSON plus JSONL decision logs. Any file backup tool works.
 
 - **User level:** `~/.knowledge-graph/user.json` — cross-project knowledge
 - **Project level:** `~/.knowledge-graph/projects/<slug>/graph.json` — codebase-specific
@@ -243,6 +250,10 @@ All data lives under `~/.knowledge-graph/`. The files are plain JSON, so any fil
 - **Maintenance memory:** `~/.knowledge-graph/maintain.json` — the maintenance agent's own lessons, never shown in sessions
 - **Logs:** `recall.jsonl` (what recall decided per prompt and tool event), `useful.jsonl` (endorsements), `chores.jsonl` (every chore decision) — all in `~/.knowledge-graph/`, size-capped
 - **Chores:** `chores.json` (your switch and settings, if any) and `chore_state.json` (spacing and daily counts)
+
+Project slugs use the final directory name, without a path hash. Project roots
+with the same final name map to the same disk location; use distinct names
+within a storage root. See [Data and Backup](https://github.com/mironmax/claudecode-plugins/wiki/Data-and-Backup#file-locations).
 
 ### Built-in crash protection
 

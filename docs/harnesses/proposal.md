@@ -1,5 +1,9 @@
 # Proposal: where core ends and adapters begin
 
+**Historical proposal, 2026-09-26, with decisions recorded below.** The Codex
+port shipped in 0.10.0. Later main work and the experimental Antigravity
+adapter are tracked in the [current harness status](README.md).
+
 > **Status: proposal.** Everything in this document is a recommendation for
 > the maintainer to accept, change or reject. The facts it rests on are in
 > the [coupling map](coupling-map.md), the [harness cards](cards/) and the

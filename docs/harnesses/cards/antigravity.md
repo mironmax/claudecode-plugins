@@ -1,5 +1,11 @@
 # Google Antigravity
 
+**Historical survey of agy 1.2.11.** Subsequent 1.2.15 transport probes and a
+signed-in 1.2.16 test established native hook and core memory delivery.
+An experimental adapter exists, with unresolved context-state defects;
+see [current Antigravity status](../antigravity-status.md). The original
+claims and evidence levels below retain their survey date.
+
 Surveyed more lightly than Codex. Antigravity ships as a desktop app
 ("Antigravity 2.0"), an IDE and a CLI; the documentation covers all three
 and notes where they differ. Version examined: Antigravity CLI `agy 1.2.11`,

@@ -148,8 +148,9 @@ symlink, which auto-starts the server if needed and proxies stdio↔HTTP via
 
 - Then have the user **fully quit** Desktop (not just the window) and reopen.
   Cowork sessions receive the server through Desktop's own sandbox bridge.
-- Caveats: Desktop sessions get no SessionStart preload (Claude Code hook) —
-  the first `kg_read` call orients instead. On Windows the auto-start wrapper
+- Caveats: Desktop chat has no SessionStart hook; its first `kg_read` opens
+  user memory unless cwd names a project. Desktop's Code tab runs the Claude
+  Code hooks. On Windows the auto-start wrapper
   is skipped (no bash); a Claude Code session must have started the server.
 
 ## Configuration
@@ -342,10 +343,12 @@ than minting a dated node per letter.
   Verify: the next session opens with the KG MEMORY PRELOADED block.
   Trust is recorded per hook hash: a plugin update that changes the hooks
   (0.10.0 did) needs the approval again.
-- **Codex: shell file recall missing** → use absolute file operands with the
-  supported commands (`cat`, `head`, `tail`, `less`, `sed -n`, `grep`, `jq`).
-  CLI 0.157.1 omits the shell's `workdir` from hooks, so relative operands
-  are skipped. `rg` and recursive search are not tracked.
+- **Codex: shell file recall missing** → check hook trust and explicit file
+  operands (`cat`, `head`, `tail`, `less`, `sed -n`, `grep`, `jq`, `nl`, `rg`).
+  Relative paths need an explicit absolute `workdir` or an exact completed
+  command match in the local rollout. Missing/ambiguous directory evidence
+  is skipped; use an absolute operand to diagnose it. Implicit directory
+  searches and `rg --files` are not tracked.
 - **`-32000` / "failed to reconnect"** → the server-side process died; the
   code is generic. Get the real error: `kg-memory logs`, or run the start
   command by hand and read the traceback. Check `server/.last_start_error`

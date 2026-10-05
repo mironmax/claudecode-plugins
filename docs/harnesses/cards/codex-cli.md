@@ -1,5 +1,11 @@
 # Codex CLI
 
+**Dated survey of CLI 0.157.1.** Its observations are the port baseline, not
+the current support limits. The port shipped in 0.10.0; current main also
+has completed-call shell-directory resolution, rollout scouting and
+server-owned project discovery. See the [support table](../../../knowledge-graph/README.md#codex-cli)
+and [setup guide](../../../recommended-setup/codex.md) for current behaviour.
+
 Version examined: `codex-cli 0.157.1`, installed from npm (`@openai/codex`,
 published 2026-09-26). All sources read 2026-09-26.
 

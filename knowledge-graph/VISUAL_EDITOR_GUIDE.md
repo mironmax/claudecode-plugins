@@ -58,6 +58,11 @@ Click any entry in the **left panel**:
 
 The selected entry is highlighted with a blue left border. The header shows which graph is active.
 
+Projects come from the memory server's stored graphs and their project-path
+metadata, so projects used only by Codex appear too. A project whose directory
+is missing is shown as unavailable. The editor falls back to Claude history
+only when talking to an older server without the projects endpoint.
+
 ---
 
 ## Node Interaction
@@ -106,7 +111,7 @@ Hover over the **Description**, **Notes**, or **Files** section header — a pen
 
 Click **Save** to write the change immediately, or **Cancel** to discard.
 
-> **Why ID and status are read-only**: Renaming a node ID would orphan all its edges (edges reference IDs directly). Status (archived/orphaned) is managed by the compaction scorer, not manual input.
+> **ID and status are read-only in this form.** Use `kg_rename_node` to rename a node safely; it updates references. Archival and orphaning are managed by the memory server, with **Recall** available for archived nodes.
 
 ### Context Menu (Right-Click)
 
@@ -200,7 +205,7 @@ If you see persistent Offline/Server down: run `kg-memory status` and `kg-memory
 |---|---|
 | Green filled | Active |
 | Dark grey, dashed border, 50% opacity | Archived (infrequently used) |
-| Hollow, dotted border, 60% opacity | Orphaned (no edges) |
+| Hollow, dotted border, 60% opacity | Orphaned (excluded from normal recall; may retain stored edges) |
 | Gold ring | Selected |
 
 Node size scales with connection count — hub nodes appear larger.
@@ -223,7 +228,7 @@ Then reload the browser tab.
 
 **Graph not loading / empty**
 - Check you selected a graph in the left panel
-- For project graphs: the project must have at least one node (let an agent capture some first). The project list comes from Claude Code's session history, so a project used only from Codex does not appear yet
+- For project graphs: capture some project memory first, then refresh. Check that the stored project directory still exists and that the editor can reach the server's `/api/projects` endpoint
 - Check logs: `kg-visual logs`
 
 **Changes not appearing**
@@ -232,7 +237,7 @@ Then reload the browser tab.
 - If WebSocket is Live, user-graph changes from agent sessions arrive automatically; project-graph changes need **Refresh**
 
 **Modal won't close**
-- Click the ✕ button, or **Cancel**, or click the dark overlay behind the modal
+- Press **Escape**, click the ✕ button or **Cancel**, or click the dark overlay behind the modal
 
 ---
 
@@ -241,7 +246,6 @@ Then reload the browser tab.
 - **Edge creation**: Must type target node ID — no click-to-connect yet
 - **No undo**: All operations are immediate and permanent
 - **Single selection**: Cannot multi-select nodes
-- **No search**: Browse the graph visually
 - **Desktop only**: Minimum 1366px screen width required
 
 ---

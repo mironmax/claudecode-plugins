@@ -11,12 +11,14 @@ This project is pre-1.0. Security fixes are applied to the latest version only.
 ## Scope and Trust Boundary
 
 The knowledge-graph MCP server is designed to run locally on the user's own machine,
-bound to `127.0.0.1` only. It is not intended to be exposed to the network or the internet.
+bound to `127.0.0.1` by default (`KG_HTTP_HOST` can change this). It is not intended to be exposed to the network or the internet.
 
 **The trust boundary is "processes on this machine."** There is no authentication:
 any local process can read and modify the graphs through the MCP or REST endpoints.
-Session IDs are namespacing, not authorization — presenting an unknown session ID
-simply creates it.
+Session IDs track context and project scope, not authorization. A first
+`kg_read` registers a session; later tools require a known session where their
+schema calls for one. These guards prevent accidental scope/state mistakes,
+not access by another local process.
 
 Web content is *outside* the boundary, and the server defends against the two
 browser-side paths that could otherwise cross it:
@@ -32,9 +34,10 @@ browser-side paths that could otherwise cross it:
 
 Non-browser clients send neither `Origin` nor `Sec-Fetch-Site` and are allowed.
 
-Node IDs, edge endpoints, and relationship types are validated to a safe character
-set at the write boundary, so graph data cannot carry markup into surfaces that
-render it (the visual editor, `kg_read` output).
+Node IDs, edge endpoints, and relationship types are validated at the write
+boundary. Gists, notes and touches remain arbitrary text; the visual editor
+escapes text when rendering it. Memory delivered to an agent is still model
+input and should be treated according to its source.
 
 That said, we take reports seriously — unexpected behavior that could affect users running
 the server in non-standard configurations is worth knowing about.

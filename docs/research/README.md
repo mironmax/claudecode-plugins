@@ -19,10 +19,10 @@ Every card judges applicability against these conditions:
 - Nodes are written once at the moment of insight and rarely rewritten.
   Archival hides nodes rather than deleting them, and maintenance runs
   outside the agent loop.
-- One frontier model family is the primary consumer. The store is personal
+- Claude Code and Codex share the memory across model families. The store is personal
   and long-lived (months), with a few thousand nodes across many projects.
-- Retrieval channels are a session-start preload, per-prompt recall, and
-  explicit search and reads; tool-level recall is being added.
+- Retrieval channels are a session-start preload, per-prompt and file recall,
+  and explicit search and reads. File recall shipped in 0.9.41.
 
 ## Card format
 
@@ -73,5 +73,7 @@ evaluation design (task 02).
   described, not quoted.
 - Nothing here re-runs any paper's experiments.
 - Statements about this plugin cite files in this repository. Where a card
-  proposes a measurement, it names the log or file that would supply it; none
-  of those measurements has been run yet.
+  proposes a measurement, it names the log or file that would supply it.
+  Subsequent retrieval replay checks exist in `knowledge-graph/server/eval/`;
+  they test logged decisions, not the causal benefit of memory on task quality.
+  A controlled with/without benchmark remains a [roadmap item](../../roadmap/README.md#later).
