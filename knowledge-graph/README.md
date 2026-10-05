@@ -181,6 +181,21 @@ Maintenance chores can run through Codex too, spending your ChatGPT plan's limit
 
 ---
 
+## Antigravity CLI (Experimental)
+
+The first iteration is available from this branch's checkout. Native
+`plugin.json`, `hooks.json` and `mcp_config.json` add eager KG tools, session
+preload, prompt recall and file recall. Large MCP replies arrive through the
+next `PreInvocation` hook, with read/sync state committed after delivery.
+Claude Code and Codex keep their existing package files.
+
+See [Antigravity setup and local development](ANTIGRAVITY.md). The native
+transport has been checked on `agy 1.2.15` with a mock model. Signed-in model
+behavior and compaction/fork/clear still need local testing. Antigravity
+maintenance, quota and history scouting are deferred.
+
+---
+
 ## What the Memory Does on Its Own
 
 The system is designed to work without being asked. With the harness hooks enabled:

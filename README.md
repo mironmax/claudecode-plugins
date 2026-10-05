@@ -26,6 +26,13 @@ Then, in Codex, run `/hooks` and trust the knowledge-graph hooks. Codex keeps a 
 
 See the [Codex support table and update steps](knowledge-graph/README.md#codex-cli), including shell-path resolution, history scouting and platform coverage.
 
+**Antigravity CLI (experimental branch)**
+
+The first CLI adapter adds native packaging, eager KG tools, session/prompt/file
+recall and hook delivery for large replies. See the [Antigravity development
+guide](knowledge-graph/ANTIGRAVITY.md) for installation from a checkout,
+isolated local tests and the remaining real-model lifecycle checks.
+
 Requires Python 3.10+. Graph storage is local and needs no database or separate API key. Text read by an agent becomes part of that agent's model context.
 
 **[Full documentation →](knowledge-graph/README.md)** · **[Wiki →](https://github.com/mironmax/claudecode-plugins/wiki)** · ⭐ Star if useful — it helps others find this

@@ -393,9 +393,10 @@ def create_mcp_server() -> Server:
     # ========================================================================
 
     async def call_tool(name: str, arguments: dict,
-                        client: str = harness.CLAUDE_CODE) -> list[TextContent]:
+                        client: str = harness.CLAUDE_CODE, view=None) -> list[TextContent]:
         """Handle tool calls. client: the calling harness (mcp_http.harness)."""
         global store, session_manager
+        view = view if view is not None else session_manager
 
         try:
             if name == "kg_read":
@@ -464,9 +465,8 @@ def create_mcp_server() -> Server:
                                 promoted.append(nid)
                         except NodeNotFoundError:
                             blocks.append(f"▸ {nid}: NOT FOUND (try kg_search — it reaches all tiers)")
-                    session_manager.mark_seen(session_id, read_ok, via="read",
-                                              at=viewed_at, full=True)
-                    session_manager.mark_promoted(session_id, promoted)
+                    view.mark_seen(session_id, read_ok, via="read", at=viewed_at, full=True)
+                    view.mark_promoted(session_id, promoted)
                     return [TextContent(
                         type="text",
                         text="\n\n".join(blocks) + f"\n\nSession: {session_id}" + notice
@@ -499,17 +499,17 @@ def create_mcp_server() -> Server:
                     for n in graphs[lvl]["nodes"]
                     if not n.get("_archived") and "_orphaned_ts" not in n
                 ]
-                session_manager.mark_seen(session_id, shown, via="full_read")
+                view.mark_seen(session_id, shown, via="full_read")
                 # Preloaded gists render here as bare ids: their view is still
                 # the preload's, so only the gists shown now count as viewed.
-                session_manager.note_viewed(
+                view.note_viewed(
                     session_id, [n for n in shown if n not in preloaded], at=viewed_at)
                 # The announce ritual belongs to the FULL read, not the preload:
                 # a session that only scanned the compact core has not recalled
                 # its memories yet. First full read carries the instruction;
                 # later re-reads (crumb refreshes, kg_sync follow-ups) don't.
                 first_full = not session_manager.has_full_read(session_id)
-                session_manager.mark_full_read(session_id)
+                view.mark_full_read(session_id)
                 try:
                     debt = store.maintenance_debt(session_id)
                 except Exception:
@@ -551,7 +551,7 @@ def create_mcp_server() -> Server:
                         + [m["id"] for m in result["more"]]
                         + [c["id"] for c in result["connectors"]]
                     )
-                    session_manager.mark_seen(sid, shown, via="search", at=viewed_at)
+                    view.mark_seen(sid, shown, via="search", at=viewed_at)
 
                 return [TextContent(type="text", text=text)]
 
@@ -571,7 +571,7 @@ def create_mcp_server() -> Server:
                 except NodeConflictError as e:
                     # The answer shows the node in full, so it is a full read:
                     # the merged retry goes through.
-                    session_manager.note_viewed(sid, [e.node_id], at=viewed_at, full=True)
+                    view.note_viewed(sid, [e.node_id], at=viewed_at, full=True)
                     return [TextContent(type="text", text=format_conflict(e))]
                 from core.utils import gist_length_warning, node_id_warning
                 dup = result.get("near_duplicate")
@@ -681,10 +681,11 @@ def create_mcp_server() -> Server:
                 session_id = arguments["session_id"]
                 session_manager.increment_ops(session_id)
                 sync_ts = session_manager.get_sync_ts(session_id)
+                synced_at = time.time()
                 updates = store.get_sync_diff(session_id, sync_ts)
 
                 # Advance sync timestamp
-                session_manager.mark_synced(session_id)
+                view.mark_synced(session_id, at=synced_at)
 
                 user_updates = len(updates["user"]["nodes"]) + len(updates["user"]["edges"])
                 proj_updates = len(updates["project"]["nodes"]) + len(updates["project"]["edges"])
@@ -762,6 +763,11 @@ def create_mcp_server() -> Server:
                     is_error=True,
                 )
         headers = getattr(getattr(ctx, "request", None), "headers", None) or {}
+        conversation_id = harness.antigravity_conversation(params.meta)
+        if conversation_id:
+            from mcp_http.antigravity import call_with_delivery
+            return await call_with_delivery(session_manager, call_tool,
+                                             params.name, arguments, conversation_id)
         client = harness.from_user_agent(headers.get("user-agent"))
         return CallToolResult(content=await call_tool(params.name, arguments, client))
 

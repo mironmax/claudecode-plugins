@@ -9,6 +9,11 @@ adapter are tracked in the [current harness status](README.md).
 > the [coupling map](coupling-map.md), the [harness cards](cards/) and the
 > [instrument matrix](instrument-matrix.md), each with its source and
 > verification level. Where this proposal recommends something, it says so.
+>
+> **Antigravity, 2026-10-01:** the Antigravity parts below rest on the
+> 2026-09-26 reading of its documentation. Running the CLI since showed a
+> session-start event and context channels at a prompt and after a tool;
+> [antigravity-mapping.md](antigravity-mapping.md) supersedes them.
 
 ## 1. The deciding question
 
