@@ -91,6 +91,15 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.box.kg("stop").returncode, 0)
         self.assertEqual(self.box.kg("status").returncode, 1)
 
+    def test_a_second_server_on_the_same_storage_refuses(self):
+        self.assertEqual(self.box.kg("start").returncode, 0)
+        second = dict(self.box.env, KG_HTTP_PORT=str(free_port()),
+                      XDG_STATE_HOME=str(self.box.home / "second-state"))
+        out = subprocess.run([sys.executable, str(KG), "start"], env=second,
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("another memory server already uses", out.stdout)
+
     def test_a_held_port_refuses_and_leaves_the_cause(self):
         with socket.socket() as holder:
             holder.bind(("127.0.0.1", self.box.port))

@@ -134,6 +134,14 @@ def service_enabled() -> bool:
     or a stop here would fight its supervisor."""
     if not shutil.which("systemctl"):
         return False
+    try:   # another KG_HTTP_PORT means another server, which the unit does not own
+        unit = (Path.home() / ".config/systemd/user" / UNIT).read_text()
+    except OSError:
+        return False
+    unit_port = next((int(line.split("=")[-1].strip('"')) for line in unit.splitlines()
+                      if line.startswith('Environment="KG_HTTP_PORT=')), 8765)
+    if unit_port != PORT:
+        return False
     out = subprocess.run(["systemctl", "--user", "is-enabled", UNIT], capture_output=True, text=True)
     return out.stdout.strip() == "enabled"
 

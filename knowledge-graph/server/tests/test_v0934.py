@@ -172,7 +172,10 @@ def main():
             "cause: installed mcp 2.0.0 is incompatible with this server\n"
             "log: /tmp/kg-test.log\n"
         )
-        env = dict(os.environ, KG_HTTP_PORT="8399")  # nothing listens here
+        # Its own HOME and a PATH without ~/.local/bin: an installed `kg` would
+        # take the hook down the kg branch and start a real server.
+        env = dict(os.environ, KG_HTTP_PORT="8399", HOME=tmp, PATH="/usr/bin:/bin",
+                   KG_STORAGE_ROOT=str(Path(tmp) / "storage"))
         out = subprocess.run(
             ["bash", str(Path(tmp) / "hooks" / "kg-autostart.sh")],
             input="", capture_output=True, text=True, timeout=30, env=env,

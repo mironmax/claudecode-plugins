@@ -42,7 +42,7 @@ def main():
                 "permissions": {"allow": ["mcp(knowledge-graph_kg/*)", "read"]}}
     (scratch / ".gemini/antigravity-cli/settings.json").write_text(json.dumps(settings))
     staged = root / "plugin-src/knowledge-graph"
-    wrap = ["bwrap", "--ro-bind", "/", "/", "--bind", str(scratch), str(Path.home()),
+    wrap = ["bwrap", "--die-with-parent", "--ro-bind", "/", "/", "--bind", str(scratch), str(Path.home()),
             "--ro-bind", str(repo), str(repo), "--bind", str(root), str(root),
             "--dev", "/dev", "--proc", "/proc", "--chdir", project]
     env = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "LANG") if k in os.environ}

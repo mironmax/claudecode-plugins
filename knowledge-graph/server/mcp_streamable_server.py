@@ -121,6 +121,32 @@ def _preflight_mcp_surface() -> None:
     sys.exit(1)
 
 
+def _claim_storage(root: Path) -> int | None:
+    """Hold an exclusive lock on the storage directory for the process lifetime.
+
+    Every graph write is a whole-file save from the writer's memory, so a
+    second server on the same storage silently overwrites the first one's
+    work. Observed 2026-10-05: a test's hook launched one on another port
+    against the real storage. The lock is on the directory itself, so no file
+    is added to a git-tracked storage root. No fcntl (Windows): no lock.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        return None
+    root.mkdir(parents=True, exist_ok=True)
+    fd = os.open(root, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        logger.error("KG PREFLIGHT: another memory server already uses %s — "
+                     "one storage, one server (stop it, or set KG_STORAGE_ROOT "
+                     "for a separate memory)", root)
+        sys.exit(1)
+    return fd
+
+
 def create_mcp_server() -> Server:
     """Create and configure MCP server with all tools."""
     _preflight_mcp_surface()
@@ -800,6 +826,8 @@ async def main():
         storage_root=get_storage_root(),
         user_path=user_graph_path(),
     )
+
+    storage_lock = _claim_storage(Path(config.storage_root))  # noqa: F841 (held while running)
 
     session_manager = HTTPSessionManager()
     connection_manager = ConnectionManager()
