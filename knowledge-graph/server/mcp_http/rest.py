@@ -363,7 +363,12 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         hit = session_manager.find_by_claude_sid(payload.get("conversationId"))
         if not hit or hit[1].get("harness") != ANTIGRAVITY:
             return {"ok": False}
-        return {"ok": session_manager.acknowledge_context(hit[0], payload.get("delivery_id"))}
+        from .delivery import apply_graph_effects
+        graph = session_manager.acknowledge_context(hit[0], payload.get("delivery_id"))
+        if graph is None:
+            return {"ok": False}
+        apply_graph_effects(store, graph)
+        return {"ok": True}
 
     @rest_api.post("/api/nodes")
     async def rest_create_node(data: NodeCreateRequest):

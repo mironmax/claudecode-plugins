@@ -17,17 +17,23 @@ VIEW_METHODS = frozenset({
     "mark_seen", "note_viewed", "mark_promoted", "mark_full_read",
     "mark_synced", "set_preloaded",
 })
+# Graph-side effects of a read, applied through the store outside the
+# session lock once delivery is accepted.
+GRAPH_METHODS = frozenset({"record_read"})
 
 
 class DeferredView:
-    """Session-manager facade buffering only context-dependent mutations."""
+    """Session-manager facade buffering context-dependent mutations, including
+    the graph effects of a node read (read stamp, promotion)."""
+
+    deferred = True
 
     def __init__(self, manager):
         self.manager = manager
         self.effects = []
 
     def __getattr__(self, name):
-        if name not in VIEW_METHODS:
+        if name not in VIEW_METHODS | GRAPH_METHODS:
             return getattr(self.manager, name)
 
         def record(*args, **kwargs):
@@ -36,15 +42,27 @@ class DeferredView:
             self.effects.append({"method": name, "args": args, "kwargs": kwargs})
         return record
 
-    def commit(self):
-        apply_effects(self.manager, self.effects)
+    def commit(self, store):
+        apply_graph_effects(store, apply_effects(self.manager, self.effects))
 
 
 def apply_effects(manager, effects):
+    """Apply session effects; return graph effects for the caller to apply
+    with apply_graph_effects once the session lock is released."""
+    graph = []
     for effect in effects:
-        if effect["method"] not in VIEW_METHODS:
+        if effect["method"] in GRAPH_METHODS:
+            graph.append(effect)
+        elif effect["method"] in VIEW_METHODS:
+            getattr(manager, effect["method"])(*effect["args"], **effect["kwargs"])
+        else:
             raise ValueError("Unknown deferred view change")
-        getattr(manager, effect["method"])(*effect["args"], **effect["kwargs"])
+    return graph
+
+
+def apply_graph_effects(store, effects):
+    for effect in effects:
+        getattr(store, effect["method"])(*effect["args"], **effect["kwargs"])
 
 
 def enqueue(data, text, kind, effects):
@@ -99,9 +117,11 @@ def prepare(data, sid):
 
 
 def acknowledge(manager, data, delivery_id):
+    """Graph effects of the acknowledged items, or None for a stale ack."""
     packet = data.get("agy_delivery")
     if not packet or packet["id"] != delivery_id:
-        return False
+        return None
+    graph = []
     queue = data["agy_pending"]
     for selection in packet["selected"]:
         item = queue[0]
@@ -110,7 +130,7 @@ def acknowledge(manager, data, delivery_id):
         item["offset"] = selection["end"]
         if item["offset"] < len(item["text"]):
             break
-        apply_effects(manager, item["effects"])
+        graph.extend(apply_effects(manager, item["effects"]))
         queue.pop(0)
     data.pop("agy_delivery", None)
-    return True
+    return graph

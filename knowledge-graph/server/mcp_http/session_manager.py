@@ -554,13 +554,16 @@ class HTTPSessionManager:
         return packet
 
     @_locked
-    def acknowledge_context(self, session_id: str, delivery_id: str) -> bool:
+    def acknowledge_context(self, session_id: str, delivery_id: str) -> list | None:
+        """Commit a delivered packet's session effects. Returns its graph
+        effects for the caller to apply through the store, or None when the
+        acknowledgement does not match the outstanding packet."""
         from .delivery import acknowledge
         data = self._sessions.get(session_id)
-        if data is None or not acknowledge(self, data, delivery_id):
-            return False
-        self.save_sessions()
-        return True
+        graph = acknowledge(self, data, delivery_id) if data is not None else None
+        if graph is not None:
+            self.save_sessions()
+        return graph
 
     @_locked
     def note_antigravity_hook(self, session_id: str, prompt_key: str | None = None) -> bool:

@@ -34,7 +34,7 @@ def _result(text, error=False):
     return CallToolResult(content=[TextContent(type="text", text=text)], is_error=error)
 
 
-async def call_with_delivery(manager, call_tool, name, arguments, conversation_id):
+async def call_with_delivery(store, manager, call_tool, name, arguments, conversation_id):
     """Bind by MCP metadata, then route every tool's output through one path."""
     hit = manager.find_by_claude_sid(conversation_id)
     sid_arg = arguments.get("session_id")
@@ -60,7 +60,7 @@ async def call_with_delivery(manager, call_tool, name, arguments, conversation_i
     if first and not data.get("agy_hooks_seen"):
         text += "\n\n" + harness.profile(harness.ANTIGRAVITY).no_hooks_hint
     if len(text.encode("utf-8")) <= INLINE_BYTES:
-        view.commit()
+        view.commit(store)
         return _result(text)
     if not data.get("agy_hooks_seen"):
         return _result(

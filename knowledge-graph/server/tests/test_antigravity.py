@@ -225,6 +225,47 @@ class AntigravityTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.sm.has_pending_context(sid))
         self.assertIsNone(self.sm.viewed_at(sid, "large-memory", full=True))
 
+    def archive(self, nid):
+        _, key = self.store._resolve_graph_key("project", self.writer, None)
+        node = self.store.graphs[key]["nodes"][nid]
+        node["_archived"] = True
+        node.pop("_last_read_ts", None)
+        return node
+
+    async def test_refused_read_leaves_the_graph_unchanged(self):
+        self.seed("archived-memory", notes=["x" * 10000])
+        node = self.archive("archived-memory")
+        result = await self.call("kg_read", {"cwd": str(self.root), "id": "archived-memory"},
+                                 cid="no-hooks")
+        self.assertTrue(result["isError"])
+        self.assertTrue(node.get("_archived"))
+        self.assertNotIn("_last_read_ts", node)
+        self.assertNotIn("archived-memory", self.sm.lookup(self.sid("no-hooks")).get("promoted_ids", []))
+
+    async def test_queued_read_promotes_only_after_its_last_chunk(self):
+        sid = await self.bootstrap()
+        self.seed("archived-memory", notes=["y" * 60000])
+        node = self.archive("archived-memory")
+        await self.call("kg_read", {"session_id": sid, "id": "archived-memory"})
+        packet = await self.hook()
+        self.assertIn("delivery continues", self.text(packet))
+        self.assertTrue(await self.ack(packet))
+        self.assertTrue(node.get("_archived"))
+        self.assertNotIn("_last_read_ts", node)
+        await self.drain()
+        self.assertNotIn("_archived", node)
+        self.assertIn("_last_read_ts", node)
+        self.assertIn("archived-memory", self.sm.lookup(sid)["promoted_ids"])
+
+    async def test_inline_read_promotes_at_once(self):
+        sid = await self.bootstrap()
+        self.seed("archived-memory", "SMALL_ARCHIVED")
+        node = self.archive("archived-memory")
+        result = await self.call("kg_read", {"session_id": sid, "id": "archived-memory"})
+        self.assertIn("SMALL_ARCHIVED", result["content"][0]["text"])
+        self.assertNotIn("_archived", node)
+        self.assertIn("_last_read_ts", node)
+
     async def test_small_reply_without_hooks_is_inline_and_bound_by_metadata(self):
         result = await self.call("kg_read", {"cwd": str(self.root)}, cid="no-hooks")
         sid = self.sid("no-hooks")
@@ -262,7 +303,7 @@ class AntigravityTests(unittest.IsolatedAsyncioTestCase):
         restored = HTTPSessionManager()
         self.assertEqual(restored.prepare_context(sid), packet)
         self.assertIsNone(restored.viewed_at(sid, "large-memory", full=True))
-        self.assertTrue(restored.acknowledge_context(sid, packet["id"]))
+        self.assertIsNotNone(restored.acknowledge_context(sid, packet["id"]))
         self.assertIsNotNone(restored.viewed_at(sid, "large-memory", full=True))
 
     async def test_post_tool_recall_is_delivered_on_next_invocation_and_dedups(self):

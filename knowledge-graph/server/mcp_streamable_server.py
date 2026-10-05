@@ -456,11 +456,17 @@ def create_mcp_server() -> Server:
                     read_ok = []
                     promoted = []
                     viewed_at = time.time()   # before the reads: see NodeConflictError
+                    # A deferred view applies the read's graph effects only
+                    # once the reply is delivered, never on a refused one.
+                    deferred = getattr(view, "deferred", False)
                     for nid in ids:
                         try:
-                            result = store.read_node(nid, level=level, session_id=session_id)
+                            result = store.read_node(nid, level=level, session_id=session_id,
+                                                     record=not deferred)
                             blocks.append(format_node_full(nid, result))
                             read_ok.append(nid)
+                            if deferred:
+                                view.record_read(nid, result["level"], session_id=session_id)
                             if result.get("was_archived"):
                                 promoted.append(nid)
                         except NodeNotFoundError:
@@ -766,7 +772,7 @@ def create_mcp_server() -> Server:
         conversation_id = harness.antigravity_conversation(params.meta)
         if conversation_id:
             from mcp_http.antigravity import call_with_delivery
-            return await call_with_delivery(session_manager, call_tool,
+            return await call_with_delivery(store, session_manager, call_tool,
                                              params.name, arguments, conversation_id)
         client = harness.from_user_agent(headers.get("user-agent"))
         return CallToolResult(content=await call_tool(params.name, arguments, client))

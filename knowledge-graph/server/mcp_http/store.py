@@ -1236,10 +1236,10 @@ class MultiProjectGraphStore:
         return None
 
     def read_node(self, node_id: str, level: str | None = None, session_id: str | None = None,
-                  project_path: str | None = None) -> dict:
+                  project_path: str | None = None, record: bool = True) -> dict:
         """
         Read a single node's full content (gist + notes + touches).
-        If the node is archived, promotes it to active as a side effect.
+        Stamps the read and promotes an archived node, unless record is False.
 
         Args:
             node_id: Node ID to read
@@ -1250,6 +1250,8 @@ class MultiProjectGraphStore:
                 WebSocket session is not registered against any project path, so a
                 session-only lookup would fail to find (and thus could not recall) a
                 project node. Mirrors read_graphs' project_path handling.
+            record: False renders without effects (no read stamp, no promotion);
+                a deferred delivery applies them later through record_read.
 
         Returns dict with "node" and "level" keys.
         """
@@ -1270,52 +1272,9 @@ class MultiProjectGraphStore:
                 raise NodeNotFoundError(resolved_level, node_id)
 
             node = nodes[node_id]
-
-            # Stamp read time on every full node read (feeds recency scoring)
-            node["_last_read_ts"] = time.time()
-            self.dirty[graph_key] = True
-
-            # If archived or orphaned, promote to active
             was_archived = is_archived(node) or "_orphaned_ts" in node
-            if was_archived:
-                # Use pop(): an orphaned node may lack _archived (defensive), and a
-                # missing flag should be a no-op, not a KeyError that 500s recall.
-                node.pop("_archived", None)
-                node.pop("_orphaned_ts", None)
-
-                # Update version
-                ver_key = version_key_node(node_id)
-                self._bump_version(graph_key, ver_key, session_id)
-
-                self.dirty[graph_key] = True
-
-                # Promotion chain: pull adjacent orphaned nodes back to archived
-                # so their IDs+edges become visible again as crumbs.
-                rescued = []
-                for edge in edges.values():
-                    neighbor_id = None
-                    if edge["from"] == node_id:
-                        neighbor_id = edge["to"]
-                    elif edge["to"] == node_id:
-                        neighbor_id = edge["from"]
-                    if neighbor_id and neighbor_id in nodes:
-                        neighbor = nodes[neighbor_id]
-                        if "_orphaned_ts" in neighbor:
-                            del neighbor["_orphaned_ts"]
-                            rescued.append(neighbor_id)
-                            logger.debug(f"Rescued orphaned node '{neighbor_id}' via chain from '{node_id}'")
-
-                self._write_through(graph_key)
-
-                self._broadcast(
-                    {"type": "node_recalled", "level": resolved_level, "node": node,
-                     "rescued_from_orphan": rescued, "source_session": session_id},
-                    resolved_level,
-                    session_id
-                )
-
-                logger.info(f"Recalled archived node '{node_id}' in {resolved_level} graph"
-                            + (f"; rescued {len(rescued)} orphaned neighbor(s)" if rescued else ""))
+            if record:
+                self._record_read(graph_key, resolved_level, node_id, session_id)
 
             # The node's own edges — crumbs for follow-up reads. Snapshot dicts:
             # the caller renders after the lock is released.
@@ -1330,6 +1289,66 @@ class MultiProjectGraphStore:
                 "was_archived": was_archived,
                 "edges": node_edges,
             }
+
+    def record_read(self, node_id: str, level: str, session_id: str | None = None) -> None:
+        """Apply a delivered read's graph effects. A node renamed or deleted
+        since the render is skipped: there is nothing left to stamp."""
+        with self.lock:
+            resolved_level, graph_key = self._resolve_graph_key(level, session_id, None)
+            if node_id in self.graphs[graph_key]["nodes"]:
+                self._record_read(graph_key, resolved_level, node_id, session_id)
+
+    def _record_read(self, graph_key: str, resolved_level: str, node_id: str,
+                     session_id: str | None) -> None:
+        """Read stamp and promotion of one full node read. Caller holds lock."""
+        nodes = self.graphs[graph_key]["nodes"]
+        edges = self.graphs[graph_key]["edges"]
+        node = nodes[node_id]
+        # Stamp read time on every full node read (feeds recency scoring)
+        node["_last_read_ts"] = time.time()
+        self.dirty[graph_key] = True
+
+        # If archived or orphaned, promote to active
+        was_archived = is_archived(node) or "_orphaned_ts" in node
+        if was_archived:
+            # Use pop(): an orphaned node may lack _archived (defensive), and a
+            # missing flag should be a no-op, not a KeyError that 500s recall.
+            node.pop("_archived", None)
+            node.pop("_orphaned_ts", None)
+
+            # Update version
+            ver_key = version_key_node(node_id)
+            self._bump_version(graph_key, ver_key, session_id)
+
+            self.dirty[graph_key] = True
+
+            # Promotion chain: pull adjacent orphaned nodes back to archived
+            # so their IDs+edges become visible again as crumbs.
+            rescued = []
+            for edge in edges.values():
+                neighbor_id = None
+                if edge["from"] == node_id:
+                    neighbor_id = edge["to"]
+                elif edge["to"] == node_id:
+                    neighbor_id = edge["from"]
+                if neighbor_id and neighbor_id in nodes:
+                    neighbor = nodes[neighbor_id]
+                    if "_orphaned_ts" in neighbor:
+                        del neighbor["_orphaned_ts"]
+                        rescued.append(neighbor_id)
+                        logger.debug(f"Rescued orphaned node '{neighbor_id}' via chain from '{node_id}'")
+
+            self._write_through(graph_key)
+
+            self._broadcast(
+                {"type": "node_recalled", "level": resolved_level, "node": node,
+                 "rescued_from_orphan": rescued, "source_session": session_id},
+                resolved_level,
+                session_id
+            )
+
+            logger.info(f"Recalled archived node '{node_id}' in {resolved_level} graph"
+                        + (f"; rescued {len(rescued)} orphaned neighbor(s)" if rescued else ""))
 
     def get_sync_diff(self, session_id: str, start_ts: float) -> dict:
         """
