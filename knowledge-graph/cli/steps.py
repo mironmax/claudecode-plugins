@@ -193,14 +193,17 @@ class LegacyCommands(Step):
         return OK, "kg-memory → kg" if old.exists() else "no legacy kg-memory command"
 
     def apply(self, ctx):
+        done = []
         old = HOME / ".local/bin/kg-memory"
         if old.is_symlink() and old.resolve().name == "manage_server.sh":
             ctx.write_text(old, "#!/bin/sh\n# Kept for old docs and units: kg is the command now.\n"
                                 'case "$1" in stop-port) set -- stop ;; esac\n'
                                 'exec kg "$@"\n', 0o755)
+            done.append("kg-memory now runs kg")
         if self.visual():
             self.visual().unlink()
-        return "kg-memory now runs kg; kg-visual removed (use `kg editor`)"
+            done.append("kg-visual removed (use `kg editor`)")
+        return "; ".join(done)
 
     def undo_plan(self, ctx):
         old = HOME / ".local/bin/kg-memory"
