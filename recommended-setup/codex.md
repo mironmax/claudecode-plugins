@@ -48,7 +48,8 @@ Run from this directory of a checkout. It backs up the config, then writes the s
 
 ```bash
 C="${CODEX_HOME:-$HOME/.codex}/config.toml"
-if grep -q '^developer_instructions' "$C" 2>/dev/null; then
+mkdir -p "$(dirname "$C")"
+if grep -q '^[[:space:]]*developer_instructions[[:space:]]*=' "$C" 2>/dev/null; then
   echo "developer_instructions is already set: merge by hand"
 else
   touch "$C" && command cp -f "$C" "$C.bak" &&
@@ -62,10 +63,10 @@ fi
 **Verify:** start a fresh session, send any prompt, then check that its rollout carries the text:
 
 ```bash
-grep -c 'this is a cooperative exploration' "$(ls -t ~/.codex/sessions/*/*/*/rollout-*.jsonl | head -1)"
+rg -l 'this is a cooperative exploration' "${CODEX_HOME:-$HOME/.codex}/sessions" -g 'rollout-*.jsonl'
 ```
 
-A count of 1 or more means it loaded.
+A matching file from the fresh session confirms that the text was recorded in its rollout. Older matching sessions do not verify the new configuration.
 
 **Undo:** restore `config.toml.bak`, or delete the `developer_instructions = '''…'''` block, then start a fresh session.
 

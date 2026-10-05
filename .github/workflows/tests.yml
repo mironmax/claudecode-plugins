@@ -69,3 +69,8 @@ jobs:
         run: |
           "$RUNNER_TEMP/venv/bin/python" ../visual-editor/tests/test_api.py
           node ../visual-editor/tests/test_ui.mjs
+
+      - name: Check Antigravity status line
+        run: |
+          bash -n ../../recommended-setup/statusline-agy.sh
+          "$RUNNER_TEMP/venv/bin/python" ../../recommended-setup/tests/test_statusline_agy.py

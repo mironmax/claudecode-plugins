@@ -6,6 +6,8 @@ Both are user-level: they apply to every project on your machine and live under 
 
 **Using Codex CLI?** The **[Codex setup guide](codex.md)** loads the same style text as `developer_instructions` and sets up Codex's native footer for limits and context.
 
+**Using Antigravity CLI?** The **[Antigravity setup guide](antigravity.md)** loads the same style as a global `GEMINI.md` rule and configures two data rows with a divider. This setup works independently of the experimental KG adapter.
+
 ## What's here
 
 - **[`output-styles/concise-quality-v3.md`](output-styles/concise-quality-v3.md)** — one text for how the agent works and how it writes. It opens with a working agreement (calm, unhurried, truth over agreement), follows with response rules (lead with the answer; brevity in the report, not in the work; verify before asserting), and adds code standards, context management, memory habits and a note on collaboration. The Memory section applies only when the Knowledge Graph plugin is installed.
@@ -55,7 +57,7 @@ The tilde form is what Claude Code documents — the command runs through a shel
 **Verify:** start a fresh session and ask something trivial. The answer should lead with the outcome, no preamble, no closing pleasantries — and the status line should render two lines like this:
 
 ```
-maxim@Solaris 📁 claudecode-plugins 🕐 21:21 🔗 knowledge-graph,claude-in-chrome [concise-quality-v3]
+user@host 📁 my-project 🕐 21:21 🔗 knowledge-graph [concise-quality-v3]
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 ⚡ Opus 5 │ 📊 5h:41%→02:10 7d:62%→Sun 02 │ 💾 cache:94% │ 📐 ctx:34%
 ```
