@@ -52,10 +52,10 @@ an agent working only from this repository.
 | 05 | [Harness instrument review](tasks/05-harness-instrument-review.md) | Know what supporting a second harness costs, and where core ends | done: `docs/harnesses/`; Codex part shipped, 0.10.0 |
 | 06 | [Continuous integration](tasks/06-continuous-integration.md) | Every change shows whether it breaks the suite before it is folded | shipped, 0.9.45 |
 | 07 | [Lean refactor findings](tasks/07-lean-refactor.md) | Same behavior in less code: one helper per job, tables over branches, clear module seams | open; first run: items 1–4 + test temp-dir helper |
-| 08 | [Visual editor: readable graphs, server-owned project list](tasks/08-visual-editor-readable-graphs.md) | A mature graph opens as a picture of what is live; projects come from the server, for every harness | done: PR #38 (unreleased) |
-| 09 | [Sessions model without the project fallback](tasks/09-sessions-model-no-fallback.md) | Re-check hook identity and dedup under the new resolution rule | done: both hold after the F12 fix (unreleased) |
-| 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | done: `python -m eval --transcripts` (unreleased) |
-| 11 | [Antigravity CLI](../knowledge-graph/ANTIGRAVITY.md) | Bring the Codex lessons to a third harness | experimental adapter on main (unreleased): checkpoint and refused-read state fixed; signed-in resume/fork/clear/compaction checks remain |
+| 08 | [Visual editor: readable graphs, server-owned project list](tasks/08-visual-editor-readable-graphs.md) | A mature graph opens as a picture of what is live; projects come from the server, for every harness | done: PR #38, 0.11.0 |
+| 09 | [Sessions model without the project fallback](tasks/09-sessions-model-no-fallback.md) | Re-check hook identity and dedup under the new resolution rule | done: both hold after the F12 fix, 0.11.0 |
+| 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | done: `python -m eval --transcripts`, 0.11.0 |
+| 11 | [Antigravity CLI](../knowledge-graph/ANTIGRAVITY.md) | Bring the Codex lessons to a third harness | experimental in 0.11.0: checkpoint and refused-read state fixed; signed-in resume/fork/clear/compaction checks remain |
 
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
@@ -63,17 +63,16 @@ five were fixed in 0.9.44. A later finding, F11 (a write built on a stale
 or partial view of a node drops someone's work), was fixed in 0.10.1, and
 F5 (a rename re-pointing edges) and F8 (a fork sharing its parent's
 session) in 0.10.2. F12 (a fork taking over a session no hook has bound
-yet), found by roadmap 09, is fixed for the next release. Open: F6, F7.
+yet), found by roadmap 09, is fixed in 0.11.0. Open: F6, F7.
 
 Also in this phase, done interactively because they are judgement calls:
 capture guidance that tests granularity and writes notes as "when this
 bites"; shipping an updated recommended output style; verifying which hook
 events can carry context at the moment a tool is about to run.
 
-Current main also includes Codex shell-directory resolution and a rollout
-scouting recipe, server-owned project discovery, visual search and score
-inspection, and the experimental Antigravity adapter. These are unreleased;
-see [CHANGELOG.md](../CHANGELOG.md).
+0.11.0 adds Codex shell-directory resolution and a rollout scouting recipe,
+server-owned project discovery, visual search and score inspection, and the
+experimental Antigravity adapter; see [CHANGELOG.md](../CHANGELOG.md).
 
 ## Later
 

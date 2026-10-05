@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.11.0] - 2026-10-05
 
 ### Added
 - **Antigravity CLI support (experimental).** The plugin carries a native Antigravity package beside its Claude Code and Codex files: eager KG tools whose descriptions the model sees, session preload, prompt recall, and file recall for file views, edits and explicit shell reads. Antigravity truncates MCP results above about 10 KB, so a larger reply from any KG tool returns a short receipt and arrives through the next `PreInvocation` hook in UTF-8 chunks of up to 40 KB. Nothing it implies is recorded until the last chunk is acknowledged: seen and full-read state, sync position, the read timestamp and promotion out of the archive. A refused reply changes nothing, and queued replies survive new prompts and server restarts. A compaction checkpoint in the transcript re-queues the preload and replays pending replies from the start. Install with `agy plugin install` from a checkout; see [ANTIGRAVITY.md](knowledge-graph/ANTIGRAVITY.md). Signed-in resume, fork, clear and compaction checks are still open; there is no Antigravity maintenance runner, quota gate or history scouting.

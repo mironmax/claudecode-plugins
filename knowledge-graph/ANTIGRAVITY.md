@@ -20,7 +20,7 @@ not yet been checked in a signed-in session (see [Status](#status)).
 
 ## Install
 
-Requires the memory server from this version or later. A hook never
+Requires memory server 0.11.0 or later. A hook never
 replaces a running server: if an older one is running, the session start
 says it lacks the adapter. Restart it from the updated plugin
 (`kg-memory restart`, see [Server Management](README.md#server-management)).
