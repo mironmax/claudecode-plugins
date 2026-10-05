@@ -2,9 +2,10 @@
 name: kg-ops
 user-invocable: true
 description: |
-  Operations runbook for the knowledge-graph plugin: install and first run,
-  plugin updates, server lifecycle (start/stop/restart/logs), autostart via
-  systemd, connecting Claude Desktop/Cowork, Codex CLI, maintenance chores and
+  Operations runbook for kg-memory, the `kg` command and its plugins: install
+  and first run (kg setup, kg doctor), updates (kg update), server lifecycle
+  (kg start/stop/restart/logs), autostart via systemd, connecting Claude
+  Desktop/Cowork, Codex CLI, Antigravity, maintenance chores and
   their runner, configuration, the quota-gauge
   status line (reading your own 5h/7d limits), backup and restore, and
   troubleshooting (tools offline, -32000 errors, stale data, Desktop issues).
@@ -18,156 +19,92 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
 
 ## Orientation — what runs where
 
-- One **shared HTTP MCP server** serves every session: `http://127.0.0.1:8765/`
-  (override port with `KG_HTTP_PORT`). Health: `curl -sf http://127.0.0.1:8765/health`.
-- Logs: `~/.local/state/knowledge-graph/mcp_server.log`. PID file:
-  `server/.mcp_server.pid` next to `manage_server.sh`.
+- **`kg`** is the one command (PyPI package `kg-memory`, installed with
+  `uv tool install kg-memory`). It runs the **shared HTTP MCP server** every
+  harness uses: `http://127.0.0.1:8765/` (port: `KG_HTTP_PORT`). Health:
+  `kg status`, or `curl -sf http://127.0.0.1:8765/health`.
+- Harnesses connect through **`kg mcp`** (stdio): it starts the server when it
+  is down and rides out restarts, so the tools stay connected.
+- The plugins (Claude Code, Codex, Antigravity) are thin: hooks, skills, the
+  `kg mcp` entry. They need `kg`; without it their SessionStart hook says how
+  to install it.
+- Logs and state: `~/.local/state/knowledge-graph/` (`mcp_server.log`,
+  `server.pid`, `last_start_error` when a start failed, `backups/` from setup).
 - Data: `~/.knowledge-graph/` (plain JSON — `user.json`,
   `projects/<slug>/graph.json`, `sessions.json`, plus `maintain.json`: the
   maintenance agent's own craft memory, never preloaded or searched). Survives
   uninstall.
-- Plugin cache dirs are **versioned** (`~/.claude/plugins/cache/maxim-plugins/knowledge-graph/<version>/`,
-  and for Codex `${CODEX_HOME:-$HOME/.codex}/plugins/cache/maxim-plugins/knowledge-graph/<version>/`)
-  and change on every update. With both harnesses installed there are two
-  copies; whichever session starts first launches the one server, and
-  `kg-memory` runs the copy its shim points at. Anything that must survive updates goes through
-  the stable shims in `~/.local/bin/`: `kg-memory`, `kg-visual`,
-  `kg-desktop-bridge`. Never hardcode a versioned cache path into configs.
-- A SessionStart hook auto-starts the server when it's down. It never stops or
-  restarts a running one.
 
 ## Install / first run
 
-1. User installs via `/plugin marketplace add mironmax/kg-memory` →
-   `/plugin install knowledge-graph@maxim-plugins` → restart Claude Code.
-2. The start script builds its own Python venv on first run (and rebuilds
-   after updates) — first start can take ~1 min. No manual pip steps.
-3. Optional shell commands:
-
-   ```bash
-   bash "$(find ~/.claude/plugins/cache/maxim-plugins/knowledge-graph -name install_command.sh | sort -V | tail -1)"
-   ```
-
-   Symlinks `kg-memory` + `kg-visual` (and refreshes `kg-desktop-bridge` if
-   present) into `~/.local/bin/` — which must be on PATH.
-4. Verify: health curl above returns JSON; `kg_read` works in a session.
-
-**Codex CLI**: `codex plugin marketplace add mironmax/kg-memory` →
-`codex plugin add knowledge-graph@maxim-plugins`. Then the **user** runs
-`/hooks` in Codex and trusts the knowledge-graph hooks: Codex keeps a plugin's
-hooks off until approved, and without them there is no preload or recall.
-A first `kg_read` offers a hint if no live Codex session in this project has
-reported hooks; it is project-wide evidence, not a per-session health check.
-One server serves both harnesses. For optional helpers on a Codex install:
-
 ```bash
-kg_plugin_cache="${CODEX_HOME:-$HOME/.codex}/plugins/cache/maxim-plugins/knowledge-graph"
-kg_plugin_dir="$(find "$kg_plugin_cache" -name install_command.sh -printf '%h\n' | sort -V | tail -1)"
-test -n "$kg_plugin_dir" && bash "$kg_plugin_dir/install_command.sh"
+uv tool install kg-memory     # uv: https://docs.astral.sh/uv/
+kg setup                      # asks before each change; --plan shows them first
 ```
 
-The snippet uses GNU `find` (Linux). For Claude Code set `kg_plugin_cache` to
-`$HOME/.claude/plugins/cache/maxim-plugins/knowledge-graph` instead. With both
-installed, choose the cache whose version you intend the shared server to run.
+`kg setup` checks every piece and fixes what the user accepts: the `kg`
+command on PATH, the systemd user service (Linux), the server, and for each
+installed harness its plugin, permissions and settings (Claude Code, Codex,
+Antigravity, Claude Desktop). Every changed file is backed up first. Agents
+pass `--yes` only for items the user agreed to in chat, e.g.
+`kg setup --yes --only claude-desktop`. Then `kg doctor` must be all green.
 
-**Antigravity CLI (experimental)**: install the native package with
-`agy plugin install /absolute/path/to/knowledge-graph`, never `plugin import`
-(it drops the hooks and the MCP URL). The installed copy is
-`~/.gemini/config/plugins/knowledge-graph/`, not a versioned cache: to update,
-reinstall from the updated checkout. Check `agy -p /hooks` for SessionStart,
-PreInvocation and PostToolUse, then start a new conversation. A server older
-than the adapter says so at session start: restart it from the updated plugin.
-Large replies need this conversation's hooks. Its prompts dispatch chores like
-the other harnesses; the Antigravity runner is below. Isolated testing and
-permissions:
+Two steps stay with the user: in **Codex**, run `/hooks` and trust the
+knowledge-graph hooks (Codex keeps plugin hooks off until approved; a first
+`kg_read` hints when no hook has reported). In **Claude Desktop**, fully quit
+and reopen after setup. Antigravity is experimental:
 [the Antigravity guide](../../ANTIGRAVITY.md).
 
-## After a plugin update
+## Updates
 
-1. For Codex, refresh the marketplace and installed package first:
+```bash
+kg update        # upgrades kg, restarts the server on it, updates every installed plugin
+kg doctor        # verify
+```
 
-   ```bash
-   codex plugin marketplace upgrade maxim-plugins
-   codex plugin add knowledge-graph@maxim-plugins
-   codex plugin list
-   ```
-
-   Verify the installed version in the list. This updates the client cache.
-2. Rerun `install_command.sh` from the intended harness's cache (recipe above)
-   if you use the optional helpers — repoints all `~/.local/bin`
-   shims at the new version dir.
-3. The running server still executes the OLD code until restarted. Arrange
-   the restart with anyone using it, then `kg-memory restart` (or run the
-   selected package's `server/manage_server.sh restart` without helpers).
-   Verify `/health` reports the intended version.
-4. Open sessions ride out a quick restart. If the restart rebuilt the venv
-   (new requirements; the port stays closed ~1 min), Claude Code's client
-   gives up and the **user** must run `/mcp` → `plugin:knowledge-graph:kg` →
-   Reconnect (agents cannot do this); in Codex, start a new session.
-5. In Codex, check `/hooks` and trust changed definitions, then start a new
-   session to load the new skills and hooks. Starting a session alone does
-   not upgrade an already healthy shared server.
+Open sessions keep their tools: `kg mcp` waits out the restart. In Codex,
+trust changed hook definitions in `/hooks`; new skills and hooks load in a
+new session.
 
 ## Server lifecycle
 
 ```bash
-kg-memory start|stop|restart|status|logs|commit
-kg-visual start|stop|status|logs        # graph editor at http://localhost:8766
+kg start | stop | restart | status | logs [-f] | commit
+kg editor [stop]          # graph editor at http://localhost:8766
 ```
 
-- A quick restart (seconds) is ridden out by live sessions: the client
-  reconnects per request. A long one (venv rebuild, ~1 min down) leaves the
-  tools offline until the user runs `/mcp` → Reconnect in Claude Code, or
-  starts a new Codex session. Ask before restarting mid-work.
-- `stop` validates the PID actually belongs to the MCP server before killing
-  (stale-PID protection) — trust it over manual `kill`.
+- With the systemd unit enabled, `kg start/stop/restart` go through
+  `systemctl --user` (`kg-memory.service`); without it, `kg` manages the
+  process itself. Concurrent starts are serialised: the second finds the
+  first's server.
+- A start that fails records why in `last_start_error`; hooks then report that
+  cause instead of retrying. The next successful `kg start` clears it.
+- Ask before restarting mid-work: live sessions survive it, but a
+  half-finished write in another session is still that session's business.
 
-## Autostart on boot (Linux, systemd user unit)
+## Autostart on boot
 
-Prerequisite: `install_command.sh` run once (unit invokes the `kg-memory` shim).
-Select `kg_plugin_dir` with the cache recipe above for the intended harness.
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp "$kg_plugin_dir/server/memory-mcp.service" \
-   ~/.config/systemd/user/memory-mcp.service
-systemctl --user enable --now memory-mcp.service
-```
-
-Verify: `systemctl --user status memory-mcp` + health curl.
-Undo: `systemctl --user disable --now memory-mcp.service`.
+`kg setup` installs and enables the systemd user unit `kg-memory.service`
+(Linux). Verify: `systemctl --user status kg-memory` and `kg status`. Undo:
+`kg uninstall` (reverses everything setup did; memory stays).
 
 ## Connect Claude Desktop (and Cowork)
 
-Desktop's "Add custom connector" dialog cannot work for a local server — those
-connectors are contacted from Anthropic's cloud and require a public https
-URL. The local route is Desktop's config file, automated here:
+Desktop's "Add custom connector" dialog cannot reach a local server (those
+connectors are contacted from Anthropic's cloud). `kg setup` writes Desktop's
+config instead: `{"command": "~/.local/bin/kg", "args": ["mcp"]}` as an
+absolute path, since Desktop spawns without a shell. An older entry that ran
+the npx `mcp-remote` bridge is replaced; Node is no longer needed.
 
-```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/setup_desktop.py"          # add (idempotent, backs up config)
-python3 "${CLAUDE_PLUGIN_ROOT}/setup_desktop.py" --remove # undo
-```
-
-The entry points Desktop at the stable `~/.local/bin/kg-desktop-bridge`
-symlink, which auto-starts the server if needed and proxies stdio↔HTTP via
-`mcp-remote` (needs Node.js ≥ 18; script fails loudly if `npx` is missing).
-
-- Verify the bridge before involving Desktop (expect "Proxy established"):
-
-  ```bash
-  timeout 12 npx -y mcp-remote http://127.0.0.1:8765/ --allow-http 2>&1 | head -5
-  ```
-
-- Then have the user **fully quit** Desktop (not just the window) and reopen.
-  Cowork sessions receive the server through Desktop's own sandbox bridge.
+- The user then **fully quits** Desktop and reopens it. Cowork sessions
+  receive the server through Desktop's own sandbox bridge.
 - Caveats: Desktop chat has no SessionStart hook; its first `kg_read` opens
   user memory unless cwd names a project. Desktop's Code tab runs the Claude
-  Code hooks. On Windows the auto-start wrapper
-  is skipped (no bash); a Claude Code session must have started the server.
+  Code hooks.
 
 ## Configuration
 
-Env vars (shell rc, or the systemd unit), then `kg-memory restart`:
+Env vars (shell rc, or the systemd unit), then `kg restart`:
 `KG_HTTP_PORT` (8765) · `KG_STORAGE_ROOT` (`~/.knowledge-graph`) ·
 `KG_SAVE_INTERVAL` (30s) · `KG_AUTOCOMMIT_INTERVAL` (900s, 0 disables) ·
 `KG_GRACE_PERIOD_DAYS` / `KG_ORPHAN_GRACE_DAYS` (see `server/core/constants.py`).
@@ -366,14 +303,16 @@ than minting a dated node per letter.
   (below) if the server was up during the copy.
 - Versioned history: `git init` inside `~/.knowledge-graph` (gitignore
   `*.prev`, `*.tmp`) — the server then auto-commits every 15 min and on
-  shutdown; `kg-memory commit` forces one.
+  shutdown; `kg commit` forces one.
 - Off-machine: any file backup tool works on the JSON; borg dedups well.
 
 ## Troubleshooting
 
-- **kg tools offline / connection refused** → health curl. Down: `kg-memory
-  start` (first run builds venv, ~1 min), then user runs `/mcp` → Reconnect
-  (Claude Code) or starts a new session (Codex).
+- **kg tools offline / connection refused** → `kg doctor`. `kg mcp` starts the
+  server and retries on its own, so offline tools mean a start that fails:
+  `kg start` prints the cause. A harness still on an old plugin (HTTP URL in
+  its MCP config) needs `/mcp` → Reconnect in Claude Code, or a new Codex
+  session, after a restart; `kg update` moves it to `kg mcp`.
 - **Codex: tools work but no preload or recall** → check hook trust first.
   The **user** runs
   `/hooks` in Codex, trusts the knowledge-graph hooks, starts a new session.
@@ -386,47 +325,31 @@ than minting a dated node per letter.
   command match in the local rollout. Missing/ambiguous directory evidence
   is skipped; use an absolute operand to diagnose it. Implicit directory
   searches and `rg --files` are not tracked.
-- **`-32000` / "failed to reconnect"** → the server-side process died; the
-  code is generic. Get the real error: `kg-memory logs`, or run the start
-  command by hand and read the traceback. Check `server/.last_start_error`
-  first — a failed start records the classified cause, the time and the log
-  path there, and the session-start hook reads it. Most common cause: OS
-  Python upgrade broke the venv → `rm -rf` the plugin's `server/venv`,
-  `kg-memory start` rebuilds it.
-- **Server will not start after a dependency change** (`AttributeError` on a
-  library object, `ImportError` at startup) → the venv resolved a version this
-  server is not written against. Diagnose with the same smoke check the start
-  script runs:
-  `cd <plugin>/server && ./venv/bin/python -c 'import mcp_streamable_server as m; m.create_mcp_server()'`
-  A version mismatch answers with a `KG PREFLIGHT:` line naming what is
-  installed against what `requirements.txt` asks for. Remedy is `rm -rf
-  server/venv` + `kg-memory start`; since 0.9.34 the dependency marker is
-  keyed to the hash of `requirements.txt`, so a corrected pin re-resolves on
-  the next start without needing a plugin update.
-- **`restart` says "Server started" but `/health` reports the old version** →
-  the PID file went stale while the real process kept listening, so the stop
-  missed it and the new process died on a busy port. Confirm with
-  `ss -tlnp | grep 8765` (or `lsof -ti:8765`) and compare against
-  `server/.mcp_server.pid`; `kg-memory stop-port` clears the true owner.
-  Fixed in 0.9.34 — restart now falls back to stopping by port, and a start
-  only reports success if the process it launched is still alive.
+- **`-32000` / "failed to reconnect"** → the server process died; the code
+  is generic. Read `~/.local/state/knowledge-graph/last_start_error` (cause,
+  time, log path), then `kg logs`. A `KG PREFLIGHT:` line names an
+  incompatible dependency: `kg update` (or `uv tool install --reinstall
+  kg-memory`) re-resolves the environment. An OS Python upgrade that broke
+  the tool environment has the same remedy.
+- **`kg status` reports another version than `kg version`** → the running
+  server predates the installed kg: `kg restart`. `kg stop` also stops
+  servers found by port that no PID file names.
 - **Graph looks stale after direct disk edits** (scripts writing to
   `~/.knowledge-graph` while the server runs) → the server caches graphs in
   memory: `curl -s 'http://127.0.0.1:8765/api/graph/read?reload=true&project_path=<root>'`
   forces a disk reload.
-- **Desktop shows no knowledge-graph server** → run the bridge verify command
-  above. Bridge OK → the config entry: `~/.config/Claude/claude_desktop_config.json`
-  (Linux) / `~/Library/Application Support/Claude/` (macOS) — rerun
-  `setup_desktop.py`, then full quit + reopen.
+- **Desktop shows no knowledge-graph server** → `kg doctor` checks its entry
+  in `~/.config/Claude/claude_desktop_config.json` (Linux) /
+  `~/Library/Application Support/Claude/` (macOS); `kg setup --only
+  claude-desktop` repairs it. Then full quit + reopen.
 - **Log lines that are fine**: `Healed N corrupt node(s) on load` (self-repair
   did its job) · `over budget but all N active nodes within grace —
   compaction deferred` (informational stall notice).
 
 ## Uninstall
 
-If Desktop was configured, `setup_desktop.py --remove` frees its config.
-Remove the plugin from the intended harness: Claude Code uses
-`/plugin uninstall knowledge-graph@maxim-plugins`; Codex uses
-`codex plugin remove knowledge-graph@maxim-plugins`. Remove the `~/.local/bin`
-shims and systemd unit only if no remaining client needs them. Shared data in
-`~/.knowledge-graph/` is preserved.
+`kg uninstall` (`--plan` first) reverses what setup did: the service,
+permissions, settings and the Desktop entry, backing up each file it changes. Remove the
+plugins in each harness (`/plugin uninstall knowledge-graph@maxim-plugins`;
+`codex plugin remove knowledge-graph@maxim-plugins`), then `uv tool uninstall
+kg-memory`. Shared data in `~/.knowledge-graph/` is preserved.
