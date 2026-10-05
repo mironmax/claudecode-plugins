@@ -178,20 +178,29 @@ class Command(Step):
 
 
 class LegacyCommands(Step):
-    key, group, title = "legacy-commands", "kg", "kg-memory keeps working, through kg"
+    key, group, title = "legacy-commands", "kg", "old commands lead to kg"
+
+    def visual(self) -> Path | None:
+        link = HOME / ".local/bin/kg-visual"
+        return link if link.is_symlink() and link.resolve().name == "manage_visual.sh" else None
 
     def check(self, ctx):
         old = HOME / ".local/bin/kg-memory"
         if old.is_symlink() and old.resolve().name == "manage_server.sh":
             return FIX, f"kg-memory still runs {old.resolve()}"
+        if self.visual():
+            return FIX, "kg-visual is replaced by `kg editor`"
         return OK, "kg-memory → kg" if old.exists() else "no legacy kg-memory command"
 
     def apply(self, ctx):
         old = HOME / ".local/bin/kg-memory"
-        ctx.write_text(old, "#!/bin/sh\n# Kept for old docs and units: kg is the command now.\n"
-                            'case "$1" in stop-port) set -- stop ;; esac\n'
-                            'exec kg "$@"\n', 0o755)
-        return "kg-memory now runs kg"
+        if old.is_symlink() and old.resolve().name == "manage_server.sh":
+            ctx.write_text(old, "#!/bin/sh\n# Kept for old docs and units: kg is the command now.\n"
+                                'case "$1" in stop-port) set -- stop ;; esac\n'
+                                'exec kg "$@"\n', 0o755)
+        if self.visual():
+            self.visual().unlink()
+        return "kg-memory now runs kg; kg-visual removed (use `kg editor`)"
 
     def undo_plan(self, ctx):
         old = HOME / ".local/bin/kg-memory"

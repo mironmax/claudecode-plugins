@@ -256,7 +256,7 @@ class SetupTests(unittest.TestCase):
         self.assertIn("kg tools pre-approved for every project", again)
         self.assertIn("kg tools granted", again)
 
-    def test_claude_desktop_moves_from_the_npx_bridge_to_kg_mcp(self):
+    def test_desktop_and_old_commands_move_to_kg(self):
         box = Sandbox(self)
         config = box.write(".config/Claude/claude_desktop_config.json", json.dumps({"mcpServers": {
             "knowledge-graph": {"command": str(box.home / ".local/bin/kg-desktop-bridge")},
@@ -264,13 +264,16 @@ class SetupTests(unittest.TestCase):
         box.write(".local/bin/kg", "#!/bin/sh\n").chmod(0o755)
         bridge = box.home / ".local/bin/kg-desktop-bridge"
         bridge.symlink_to(box.home / "desktop_bridge.sh")
-        out = box.kg("setup", "--yes", "--only", "claude-desktop")
+        visual = box.home / ".local/bin/kg-visual"
+        visual.symlink_to(box.home / "visual-editor/manage_visual.sh")
+        out = box.kg("setup", "--yes", "--only", "claude-desktop,legacy-commands")
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
         servers = json.loads(config.read_text())["mcpServers"]
         self.assertEqual(servers["knowledge-graph"],
                          {"command": str(box.home / ".local/bin/kg"), "args": ["mcp"]})
         self.assertEqual(servers["other"], {"command": "x"})
         self.assertFalse(bridge.is_symlink())
+        self.assertFalse(visual.is_symlink())
         self.assertIn("connected through kg mcp", box.kg("doctor").stdout)
         box.kg("uninstall", "--yes")
         self.assertNotIn("knowledge-graph", json.loads(config.read_text())["mcpServers"])
