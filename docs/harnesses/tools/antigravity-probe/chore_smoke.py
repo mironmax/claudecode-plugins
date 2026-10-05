@@ -129,7 +129,10 @@ def main():
             raise RuntimeError(install.stdout + install.stderr)
         config_file = scratch / ".gemini/config/plugins/knowledge-graph/mcp_config.json"
         config = json.loads(config_file.read_text())
-        config["mcpServers"]["kg"]["serverUrl"] = base + "/"
+        kg_entry = config["mcpServers"]["kg"]
+        for key in ("command", "args", "env"):
+            kg_entry.pop(key, None)
+        kg_entry["serverUrl"] = base + "/"
         config_file.write_text(json.dumps(config))
         chore_env = dict(env, KG_CHORE="1")
         wrapper = repo / "knowledge-graph/server/mcp_http/agy_chore.py"

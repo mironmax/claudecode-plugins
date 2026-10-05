@@ -29,6 +29,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agy", default=shutil.which("agy"))
     parser.add_argument("--python", default=str(repo / "knowledge-graph/server/venv/bin/python"))
+    parser.add_argument("--url", action="store_true", help="connect by URL instead of through `kg mcp`")
     args = parser.parse_args()
     if not args.agy or not shutil.which("bwrap"):
         parser.error("Provide --agy <binary> and install bubblewrap")
@@ -153,7 +154,17 @@ def main():
             raise RuntimeError(f"Plugin install failed; see {root}/install.txt")
         config_file = scratch / ".gemini/config/plugins/knowledge-graph/mcp_config.json"
         config = json.loads(config_file.read_text())
-        config["mcpServers"]["kg"]["serverUrl"] = base + "/"
+        kg_entry = config["mcpServers"]["kg"]
+        if args.url:
+            for key in ("command", "args", "env"):
+                kg_entry.pop(key, None)
+            kg_entry["serverUrl"] = base + "/"
+        else:
+            # This checkout's kg, and explicit env: a shim that fell back to
+            # the default port would reach the user's real server.
+            kg_entry.update(command=args.python, args=[str(repo / "knowledge-graph/cli/kg.py"), "mcp"],
+                            env={k: env[k] for k in ("KG_HTTP_PORT", "KG_STORAGE_ROOT")}
+                            | {"XDG_STATE_HOME": str(root / "state")})
         config_file.write_text(json.dumps(config))
         version = subprocess.run(wrap + [args.agy, "--version"], env=env, capture_output=True, text=True, timeout=15)
         hooks = subprocess.run(wrap + [args.agy, "-p", "/hooks", "--output-format", "json"],
