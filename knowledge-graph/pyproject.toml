@@ -45,5 +45,18 @@ exclude = [
     "**/__pycache__", "**/.deps_ok", "**/*.pid", "**/.last_start_error",
 ]
 
+# The sdist carries the same files plus pyproject.toml; a stray local venv
+# or test tree must never ship.
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "cli", "server", "chores", "hooks", "skills", "rules", "visual-editor",
+    ".claude-plugin", ".mcp.json", "plugin.json", "hooks.json",
+    "mcp_config.json", "README.md", "ANTIGRAVITY.md", "LICENSE", "pyproject.toml",
+]
+exclude = [
+    "server/tests", "server/venv", "visual-editor/tests", "visual-editor/venv",
+    "**/__pycache__", "**/.deps_ok", "**/*.pid", "**/.last_start_error",
+]
+
 [tool.hatch.build.targets.wheel.sources]
 "" = "kg_memory"
