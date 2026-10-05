@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Oldest supported (manage_server.sh) and the newest stable release.
+        # Oldest supported (pyproject requires-python) and the newest stable release.
         python-version: ["3.10", "3.x"]
     defaults:
       run:

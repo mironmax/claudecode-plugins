@@ -162,6 +162,19 @@ class McpShimTests(unittest.TestCase):
         self.assertEqual(harness.from_user_agent("claude-code/2 (kg mcp)"), harness.CLAUDE_CODE)
 
 
+class EditorTests(unittest.TestCase):
+    def test_editor_starts_with_its_server_and_stops(self):
+        box = Sandbox(self)
+        box.env["EDITOR_PORT"] = str(free_port())
+        self.addCleanup(box.kg, "stop")
+        self.addCleanup(box.kg, "editor", "stop")
+        out = box.kg("editor")
+        self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+        self.assertIn(f"localhost:{box.env['EDITOR_PORT']}", out.stdout)
+        self.assertEqual(box.kg("status").returncode, 0)
+        self.assertIn("Editor stopped", box.kg("editor", "stop").stdout)
+
+
 def fake_binaries(box, *names):
     for name in names:
         box.write(f".local/bin/{name}", "#!/bin/sh\n").chmod(0o755)

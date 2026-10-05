@@ -99,9 +99,8 @@ def _preflight_mcp_surface() -> None:
     of silent breakage the 1.x -> 2.0 release caused the other way round.
     Check the surface first and say what is wrong.
 
-    Exits non-zero rather than raising: this is also the tripwire manage_server.sh
-    smoke-tests before latching the dependency marker, and its "KG PREFLIGHT:"
-    prefix is the string both that script and the session-start hook classify on.
+    Exits non-zero rather than raising: its "KG PREFLIGHT:" prefix is the
+    string `kg start` reads back from the log as the cause of a failed start.
     """
     params = inspect.signature(Server.__init__).parameters
     missing = [name for name in ("on_list_tools", "on_call_tool") if name not in params]
@@ -115,7 +114,7 @@ def _preflight_mcp_surface() -> None:
     logger.error(
         "KG PREFLIGHT: installed mcp %s is incompatible with this server — "
         "mcp.server.Server does not accept %s. Required: %s. "
-        "Rebuild with: rm -rf server/venv && kg-memory start",
+        "Reinstall with: kg update",
         installed, ", ".join(missing), _mcp_requirement(),
     )
     sys.exit(1)

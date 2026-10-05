@@ -1,5 +1,13 @@
 #!/bin/sh
-# kg from a development checkout: this checkout's code with its server venv.
+# kg from a development checkout: this checkout's code with its own venv,
+# built on first use from the requirements the package declares.
 # Users install kg with uv instead (see README).
 CLI="$(dirname "$(readlink -f "$0")")"
-exec "$CLI/../server/venv/bin/python" "$CLI/kg.py" "$@"
+ROOT="$CLI/.."
+VENV="$ROOT/server/venv"
+if [ ! -x "$VENV/bin/python" ]; then
+    echo "kg-dev: building $VENV" >&2   # stdout may be an MCP channel
+    python3 -m venv "$VENV" && "$VENV/bin/pip" install -q --disable-pip-version-check \
+        -r "$ROOT/server/requirements.txt" -r "$ROOT/visual-editor/requirements.txt" >&2 || exit 1
+fi
+exec "$VENV/bin/python" "$CLI/kg.py" "$@"

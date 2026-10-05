@@ -304,6 +304,8 @@ def main(argv: list[str] | None = None) -> int:
     remove = sub.add_parser("uninstall", help="reverse what setup did (your memory stays)")
     remove.add_argument("--yes", action="store_true", help="apply without asking")
     remove.add_argument("--plan", action="store_true", help="show what it would do, change nothing")
+    sub.add_parser("editor", help="open the visual graph editor").add_argument(
+        "action", nargs="?", choices=("start", "stop"), default="start")
     gauge = sub.add_parser("gauge", help="Claude Code status line: record the quota gauge")
     gauge.add_argument("--wrap", help="your own status-line command, run unchanged after recording")
     args = parser.parse_args(argv)
@@ -327,6 +329,12 @@ def main(argv: list[str] | None = None) -> int:
         except ImportError:
             import gauge
         return gauge.run(args.wrap)
+    if args.command == "editor":
+        try:
+            from . import editor
+        except ImportError:
+            import editor
+        return editor.run(args.action)
     if args.command == "mcp":
         try:
             from . import mcp_shim

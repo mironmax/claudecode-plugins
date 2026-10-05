@@ -1,8 +1,7 @@
 """Periodic git auto-commit of the KG storage root.
 
 The storage root (~/.knowledge-graph) is optionally a git repository. Before
-this module existed, commits only happened from manage_server.sh on managed
-stop/restart — but in normal operation the server is launched by the
+this module existed, commits only happened on a managed stop/restart — but in normal operation the server is launched by the
 SessionStart hook and dies with machine shutdown, so a managed stop (and thus
 a commit) never ran. This module makes the *server itself* commit periodically,
 so history accumulates no matter how the server is started or killed.
@@ -14,13 +13,12 @@ Behavior:
     tick, so a later `git init` is picked up without a restart).
   - Commits only when the working tree actually has changes (modified or
     untracked) — never an empty commit.
-  - Commit message keeps the manage_server.sh convention:
+  - Commit message matches `kg commit` and `kg stop`:
     "Auto-save YYYY-MM-DD HH:MM".
   - git failures are logged (WARNING) and never propagate — the memory
     server must not die because of a backup problem.
 
-manage_server.sh's commit_storage() is intentionally left in place: it still
-serves the CLI `kg-memory commit` and the managed stop paths.
+`kg commit` and `kg stop` commit too (cli/kg.py commit_storage).
 """
 
 import logging
@@ -35,7 +33,7 @@ logger = logging.getLogger(__name__)
 # Default commit cadence in seconds (15 minutes).
 DEFAULT_AUTOCOMMIT_INTERVAL = 900
 
-# Same message convention as manage_server.sh commit_storage().
+# Same message as cli/kg.py commit_storage().
 COMMIT_MESSAGE_FORMAT = "Auto-save %Y-%m-%d %H:%M"
 
 # Hard cap on any single git invocation so a hung git (e.g. lock contention)
