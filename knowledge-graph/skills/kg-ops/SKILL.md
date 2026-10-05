@@ -70,17 +70,16 @@ The snippet uses GNU `find` (Linux). For Claude Code set `kg_plugin_cache` to
 `$HOME/.claude/plugins/cache/maxim-plugins/knowledge-graph` instead. With both
 installed, choose the cache whose version you intend the shared server to run.
 
-**Antigravity CLI (experimental)**: use the native package with
-`agy plugin install /absolute/path/to/knowledge-graph`; do not use plugin
-import. Its installed copy is `~/.gemini/config/plugins/knowledge-graph/`,
-not a versioned marketplace cache. Check `agy -p /hooks` for SessionStart,
-PreInvocation and PostToolUse, then start a new conversation. Eager schemas
-are bundled; large tool replies require this conversation's hooks. Native
-hook replies are strict `injectSteps` JSON, including server-start notices.
-For isolated port/storage setup, reinstall iterations, permissions and
-remaining lifecycle tests, follow [the Antigravity guide](../../ANTIGRAVITY.md).
-Reinstalling the plugin does not replace an already running shared server.
-Antigravity hooks never dispatch background maintenance in this iteration.
+**Antigravity CLI (experimental)**: install the native package with
+`agy plugin install /absolute/path/to/knowledge-graph`, never `plugin import`
+(it drops the hooks and the MCP URL). The installed copy is
+`~/.gemini/config/plugins/knowledge-graph/`, not a versioned cache: to update,
+reinstall from the updated checkout. Check `agy -p /hooks` for SessionStart,
+PreInvocation and PostToolUse, then start a new conversation. A server older
+than the adapter says so at session start: restart it from the updated plugin.
+Large replies need this conversation's hooks. Antigravity hooks never dispatch
+background maintenance. Isolated testing and permissions:
+[the Antigravity guide](../../ANTIGRAVITY.md).
 
 ## After a plugin update
 

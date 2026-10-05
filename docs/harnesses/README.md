@@ -5,31 +5,22 @@ the line between core and adapter should fall. Written for roadmap item
 [05](../../roadmap/tasks/05-harness-instrument-review.md). This is a
 historical investigation: it describes the baseline before the port.
 
-**Current status (2026-10-04):** the Codex CLI part of the proposal is implemented:
-the harness profile (`knowledge-graph/server/mcp_http/harness.py`) and a
-runner per harness in chore dispatch, with the budget read from Codex's own
-rollout. It was checked against a real Codex login, not only the mock. Cursor
-remains unimplemented. Antigravity has an experimental native adapter on
-`codex/antigravity-cli`, tested with mock transport on agy 1.2.15 and a signed-in
-session on 1.2.16. It is not shipped on main and is not yet at stable parity:
-see [Antigravity status](antigravity-status.md). Current main also adds Codex
-relative shell recall, rollout scouting and server-owned editor discovery.
-The dated tables below retain their original observation versions.
+**Current status (2026-10-05):** both ports are on main. Codex CLI: the
+harness profile (`knowledge-graph/server/mcp_http/harness.py`) and a runner per
+harness in chore dispatch, with the budget read from Codex's own rollout,
+checked against a real Codex login. Antigravity CLI: an experimental native
+adapter with queued hook delivery for large replies, tested natively with a
+mock model and in signed-in sessions; see the
+[Antigravity guide](../../knowledge-graph/ANTIGRAVITY.md) for what is verified
+and what is not. Cursor remains unimplemented. The dated documents below keep
+the versions they observed.
 
 **Update (2026-10-01):** Antigravity CLI was examined again, this time by
 running it (`agy` 1.2.14 against a mock model, no account). The
 [Antigravity card](cards/antigravity.md) is rewritten from those runs, the
 Antigravity column of the [instrument matrix](instrument-matrix.md) is
 redone, and the [Antigravity mapping](antigravity-mapping.md) takes each
-lesson of the Codex integration to Antigravity. It is a proposal; nothing
-under `knowledge-graph/` changed in that research commit.
-
-**Update (2026-10-02):** the first CLI iteration is implemented on
-`codex/antigravity-cli`: native packaging, eager schemas and hook delivery of
-large replies. See [implementation and validation](antigravity-cli.md) and
-the [development guide](../../knowledge-graph/ANTIGRAVITY.md). Native transport
-was checked on `agy 1.2.15` with a mock model; real-model lifecycle and quota
-checks remain. The mapping retains the original research snapshot.
+lesson of the Codex integration to Antigravity.
 
 Start with the [proposal](proposal.md). Its first section answers the
 deciding question, whether Codex CLI can add context to the model's input on

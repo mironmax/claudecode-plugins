@@ -233,7 +233,7 @@ the hook layer parses nothing and can never break a session:
 
 | Hook | Endpoint | Server decides |
 |------|----------|----------------|
-| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars in Claude Code, ≤8K in Codex (each harness's hook ceiling, measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week; a recovered session still bound to another Claude sid is cloned, not moved, since that session may still be running); compact re-renders the core (the summary squeezed it), every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
+| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars in Claude Code, ≤8K in Codex (each harness's hook ceiling, measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week; a recovered session still bound to another Claude sid is cloned, not moved, since that session may still be running); compact resets the session's context state (seen-set, preload set, full-read flag; view times stay for stale-write protection) and re-renders the core, since the summary kept only part of it; every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
 | UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), run through the shared search core (subtokens, stems, bigrams, field-weighted, sharpened IDF — ubiquitous words carry no signal), seen-deduped, corroboration threshold plus an evidence gate (a hit speaks only corroborated, near-unique, or named by the node's id/gist — lexical strays stay silent), hits injected in evidence-quality order: unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
 | PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | file recall (`mcp_http/file_recall.py`): the file a tool touched is looked up in a touches reverse index (user + project graph, rebuilt only when that graph's write generation moves; `path:12-40 (anchor)`, `./`, `~` and absolute touches normalise to the file they name), unseen nodes injected as gist lines — archived included, never promoted — at most 3 within 1,200 chars, ranked by node score then recency, marked seen via `file`, throttled per session (3 per 10 min); Bash counts only for `cat`/`head`/`tail`/`less`/`sed -n`/`grep`/`jq` operands that exist as files; `apply_patch` for every file its patch adds, updates, deletes or moves to. Otherwise, for Read/WebFetch/WebSearch (and, under Codex, which has no Read tool, shell reads): per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap). A covered file never nudges |
 
@@ -318,9 +318,17 @@ or missing evidence still leaves relative operands unresolved. The same
 resolved targets feed file recall and capture counters, including explicit
 `nl` and `rg` file reads.
 
-Antigravity's native adapter remains on a separate experimental branch.
-It uses queued `PreInvocation` delivery and has unresolved checkpoint and
-read-delivery state defects; see [its status](../docs/harnesses/antigravity-status.md).
+Antigravity CLI (experimental) has its own native package beside the
+Claude Code/Codex files: root `plugin.json`, `hooks.json` and
+`mcp_config.json`, and `hooks/kg-agy.py`, which only relays hook JSON to
+`/api/antigravity/hook/<event>`. Its MCP results are truncated above about
+10 KB, so `mcp_http/antigravity.py` returns small replies inline and queues
+larger ones per conversation for the next `PreInvocation` hook
+(`mcp_http/delivery.py`). Every effect of a queued reply, session or graph,
+waits in a `DeferredView` until the hook acknowledges the final chunk.
+Compaction fires no hook; a new `CHECKPOINT` row in the transcript triggers
+the same context reset as Claude Code's `source: compact`. Details:
+[ANTIGRAVITY.md](ANTIGRAVITY.md).
 
 ### Retrieval evaluation harness
 

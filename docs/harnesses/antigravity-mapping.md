@@ -6,11 +6,11 @@
 > observed on `agy 1.2.14` against this repository's server v0.10.2 on
 > 2026-10-01. Where this document recommends something, it says so.
 
-> **Follow-up (2026-10-02):** the first CLI iteration is now implemented on
-> `codex/antigravity-cli`. See [implementation](antigravity-cli.md) for the
-> chosen scope and 1.2.15 measurements, including the per-tool eager setting.
-> This document retains the original proposal; pagination fallback and the
-> maintenance runner are not part of v1, and pending reads survive a new prompt.
+> **Follow-up:** the adapter is implemented and documented in the
+> [Antigravity guide](../../knowledge-graph/ANTIGRAVITY.md), including the
+> per-tool eager setting measured on 1.2.15. This document keeps the original
+> proposal; pagination fallback and the maintenance runner are not part of
+> the first iteration, and pending reads survive a new prompt.
 
 The Codex integration (0.10.0 to the unreleased fixes) taught a list of
 nuances, most of them found only after the first version shipped. This

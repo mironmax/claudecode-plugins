@@ -1,6 +1,6 @@
 # Knowledge Graph memory for Claude Code and Codex
 
-Gives a coding agent a persistent memory that survives across sessions — not flat notes, but a graph of distilled insights connected by typed relationships. The agent captures patterns and decisions as you work; next session it recalls them automatically. Claude Code and Codex CLI share one memory server, so what is learned in one is recalled in the other.
+Gives a coding agent a persistent memory that survives across sessions — not flat notes, but a graph of distilled insights connected by typed relationships. The agent captures patterns and decisions as you work; next session it recalls them automatically. Claude Code and Codex CLI share one memory server, so what is learned in one is recalled in the other. Antigravity CLI support is [experimental](#antigravity-cli-experimental).
 
 The design puts the intelligence at **capture time**: knowledge is compressed by the model in the moment of insight, stored as headline + relationships, and read back as structured text. Lexical search and file matching bring back memories below the preload; no embedding service or database is required. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design thesis.
 
@@ -49,7 +49,7 @@ For Codex CLI, see [Codex CLI](#codex-cli) below: two commands, then one approva
 **Optional:**
 - **[Recommended user-level setup](../recommended-setup/)** — an output style carrying a benchmarked working agreement, and a quota-aware status line. The status line matters here beyond taste: it persists your rolling 5h/7d usage to `~/.claude/last-limits.json`, the only channel through which Claude can read its own remaining budget — which is what lets a long session end on a clean checkpoint (handover letter + memory writes) instead of stopping mid-edit.
 - **[Codex CLI setup](../recommended-setup/codex.md)** — the same working style as developer instructions, and a native footer preset for limits and context.
-- **[Antigravity CLI setup](../recommended-setup/antigravity.md)** — a global working-style rule and quota display. The KG adapter is experimental and is not included in this branch's plugin.
+- **[Antigravity CLI setup](../recommended-setup/antigravity.md)** — the same working style as a global rule, and a quota status line.
 - **`kg-memory` / `kg-visual` shell commands** — for managing the server from your terminal. See [Server Management](#server-management) below.
 - **Auto-approval** — skip permission prompts by adding the permissions below to `~/.claude/settings.json`.
 
@@ -183,16 +183,17 @@ Maintenance chores can run through Codex too, spending your ChatGPT plan's limit
 
 ## Antigravity CLI (Experimental)
 
-The first iteration is available from this branch's checkout. Native
-`plugin.json`, `hooks.json` and `mcp_config.json` add eager KG tools, session
-preload, prompt recall and file recall. Large MCP replies arrive through the
-next `PreInvocation` hook, with read/sync state committed after delivery.
-Claude Code and Codex keep their existing package files.
+The plugin also carries a native Antigravity CLI package: eager KG tools,
+session preload, prompt recall and file recall, on the same memory server.
+The CLI truncates large MCP results, so larger replies arrive through the
+next `PreInvocation` hook in chunks, and nothing they imply is recorded until
+the last chunk is delivered. A checkpoint (compaction) re-queues the preload.
+Install with `agy plugin install <checkout>/knowledge-graph`; there is no
+marketplace or git-URL install.
 
-See [Antigravity setup and local development](ANTIGRAVITY.md). The native
-transport has been checked on `agy 1.2.15` with a mock model. Signed-in model
-behavior and compaction/fork/clear still need local testing. Antigravity
-maintenance, quota and history scouting are deferred.
+Signed-in resume, fork, clear and compaction checks are still open, and
+Antigravity has no maintenance runner, quota gate or history scouting. See
+the [Antigravity guide](ANTIGRAVITY.md).
 
 ---
 

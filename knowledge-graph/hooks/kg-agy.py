@@ -47,9 +47,9 @@ def unavailable(event, base):
                       "First setup can take about a minute. After it answers "
                       f"{base}/health, start a new Antigravity conversation to connect "
                       "the kg_* MCP tools.")
-    return output("The running KG server does not provide the Antigravity adapter. "
-                  "Use the server from the Antigravity branch, then start a new conversation. "
-                  "See the plugin's Antigravity setup guide.")
+    return output("The running KG server predates the Antigravity adapter. Restart it "
+                  "from the updated plugin (kg-memory restart), then start a new "
+                  "conversation. See the plugin's ANTIGRAVITY.md.")
 
 
 def main():

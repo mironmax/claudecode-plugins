@@ -6,7 +6,7 @@ Both are user-level: they apply to every project on your machine and live under 
 
 **Using Codex CLI?** The **[Codex setup guide](codex.md)** loads the same style text as `developer_instructions` and sets up Codex's native footer for limits and context.
 
-**Using Antigravity CLI?** The **[Antigravity setup guide](antigravity.md)** loads the same style as a global `GEMINI.md` rule and configures two data rows with a divider. This setup works independently of the experimental KG adapter.
+**Using Antigravity CLI?** The **[Antigravity setup guide](antigravity.md)** loads the same style as a global `GEMINI.md` rule and configures two data rows with a divider. It works with or without the KG plugin.
 
 ## What's here
 

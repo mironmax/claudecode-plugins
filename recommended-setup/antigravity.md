@@ -2,7 +2,7 @@
 
 Use a quota display and the same v3 working style as the Claude Code and Codex setups. Both settings work across projects, independently of the KG adapter.
 
-The installation paths and rule loading below were checked on **agy 1.2.16 on Linux**. The KG adapter is experimental on `codex/antigravity-cli`; it is not shipped by the plugin on main. Signed-in tests confirmed core memory delivery, but compaction and read-delivery state still block stable parity. See the [harness status](../docs/harnesses/README.md).
+The installation paths and rule loading below were checked on **agy 1.2.16 on Linux**. The KG plugin's Antigravity adapter is separate and experimental; see the [Antigravity guide](../knowledge-graph/ANTIGRAVITY.md).
 
 ## Status line
 
@@ -82,6 +82,6 @@ If the file already exists, keep your other rules and add the style body once. A
 
 On 1.2.16, transcript checks confirmed that this file arrived as a `user_global` rule. This verifies loading; Antigravity behaviour and quality have not been benchmarked against the stock setup. The Claude Code benchmark numbers belong to earlier components of the style, as explained in the [setup overview](README.md#what-was-measured).
 
-v3 asks the agent to write notes and a handover before compaction. That habit helps continuity, but the experimental KG adapter still needs checkpoint reconciliation: a summary can omit memories while the server retains their seen state. Its plugin rule supplies the mechanical memory protocol; the v3 Memory section applies when that plugin is installed.
+v3 asks the agent to write notes and a handover before compaction. With the KG plugin installed, its own rule supplies the mechanical memory protocol and a checkpoint re-queues the memory preload; the v3 Memory section applies only then.
 
 **Undo:** restore `GEMINI.md.bak` after a manual merge, or remove the style text you added. If this installation created a new file containing only the style, remove that file.

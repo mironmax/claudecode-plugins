@@ -1,104 +1,57 @@
-# Antigravity CLI — experimental first iteration
+# Antigravity CLI (experimental)
 
-This branch adds the native CLI adapter on top of PR #39's research. It has
-been exercised with `agy 1.2.15`, a local mock Gemini model and scratch graphs,
-and signed-in `agy 1.2.16` sessions on the shared graph server. It remains a
-development iteration, not a tagged release or stable parity implementation.
-Current main has advanced since this branch's base and needs a combined
-verification pass before integration.
+The plugin carries a native Antigravity CLI package next to its Claude Code
+and Codex files. All three harnesses talk to the same local memory server, so
+what one learns the others recall. Support is **experimental**: core memory
+works and its known state defects are fixed, but some lifecycle cases have
+not yet been checked in a signed-in session (see [Status](#status)).
 
-| Capability | First iteration |
+| Capability | Antigravity CLI |
 |---|---|
-| MCP reads, search and writes | All ten KG tools; native eager schemas expose their descriptions |
-| Session preload | `SessionStart`; `PreInvocation` can initialize a missing binding |
-| Prompt recall | Once per actual `USER_INPUT`, on `invocationNum: 0` |
-| File recall | `view_file`, three file edit tools, explicit file reads via `run_command.Cwd` |
-| Web capture | `read_url_content` and `search_web` mapped; real-model use still to check |
-| Large replies | Same-conversation hook delivery with UTF-8 chunking and deferred read/sync state |
-| Maintenance and Antigravity history scouting | Deferred; Antigravity hooks never trigger a background runner |
-| Compaction | Signed-in test found stale seen/preloaded state after a checkpoint; unresolved |
-| Desktop, IDE, subagent lifecycle, fork, clear and resume | No complete signed-in lifecycle gate |
+| MCP reads, search and writes | All ten KG tools, with eager schemas so the model sees their descriptions |
+| Session preload | `SessionStart`; `PreInvocation` initializes a missing binding |
+| Prompt recall | Once per human `USER_INPUT`, on `invocationNum: 0` |
+| File recall | `view_file`, the three file-edit tools, explicit file reads in `run_command` (uses its `Cwd`) |
+| Web capture nudges | `read_url_content` and `search_web` are mapped |
+| Large replies | Queued and delivered by the next `PreInvocation` hook in UTF-8 chunks |
+| Compaction | A new `CHECKPOINT` in the transcript resets what the session counts as in context and re-queues the preload |
+| Background maintenance, history scouting, quota gate | Not available: Antigravity hooks never dispatch a runner |
+| IDE and desktop app | Not supported; their hook events are ignored |
 
-## Readiness review (2026-10-04)
+## Install
 
-The signed-in test confirms eager schemas, global/plugin rule loading, core
-KG calls, prompt/file recall and queued receipts. Two state defects block
-stable support:
+Requires the memory server from this version or later. A hook never
+replaces a running server: if an older one is running, the session start
+says it lacks the adapter. Restart it from the updated plugin
+(`kg-memory restart`, see [Server Management](README.md#server-management)).
 
-1. A real checkpoint omitted 27 of 28 preloaded IDs, but the next full read
-   kept the same seen/preloaded state and suppressed their gists. The adapter
-   must reconcile checkpoint context, including partial queued delivery.
-2. A refused large read without hooks still promoted an archived node and
-   stamped its read time. `DeferredView` currently buffers session effects;
-   it does not defer the store mutations performed by `read_node`.
-
-The 15 boundary tests pass but do not catch these defects. Mock Unicode
-transport checks do not establish signed-in lifecycle behaviour. Maintenance,
-history scouting and billing/exhaustion behaviour remain unverified or absent
-as described below.
-
-## Local development without occupying the shared server
-
-The development branch is `codex/antigravity-cli`. Its worktree can stay open
-while other branches advance. Use a separate port and storage root for these
-iterations. Commands below start in this worktree's repository root.
-
-Prepare the server environment (already prepared in the initial worktree):
+The CLI installs plugins from a local directory only: it refuses git URLs,
+and third-party marketplaces cannot be registered. Install from a checkout,
+or from the copy Claude Code or Codex already installed:
 
 ```bash
-python3 -m venv knowledge-graph/server/venv
-knowledge-graph/server/venv/bin/python -m pip install -r knowledge-graph/server/requirements.txt
-```
-
-The initial worktree also contains the verified `agy 1.2.15` binary at
-`devdocs/bin/agy`. To use it for the commands below in either terminal:
-
-```bash
-export PATH="$PWD/devdocs/bin:$PATH"
-```
-
-In one terminal, run the branch's server in the foreground:
-
-```bash
-export KG_HTTP_PORT=8767
-export KG_STORAGE_ROOT="$PWD/devdocs/antigravity-memory"
-export KG_AUTOCOMMIT_INTERVAL=0
-knowledge-graph/server/venv/bin/python knowledge-graph/server/mcp_streamable_server.py
-```
-
-In another terminal in the same repository, stage and install a native copy
-whose MCP URL points at port 8767:
-
-```bash
-export KG_HTTP_PORT=8767
-export KG_STORAGE_ROOT="$PWD/devdocs/antigravity-memory"
-kg_agy_plugin_dir=$(python3 docs/harnesses/tools/antigravity-probe/stage_plugin.py --port 8767)
-agy plugin install "$kg_agy_plugin_dir"
+git clone https://github.com/mironmax/claudecode-plugins
+agy plugin install "$PWD/claudecode-plugins/knowledge-graph"
 agy -p /hooks
-agy
 ```
 
-`agy plugin install` copies into `~/.gemini/config/plugins/knowledge-graph/`.
-Check that `/hooks` lists `SessionStart`, `PreInvocation` and `PostToolUse`.
-The port environment controls the hooks; the staged MCP URL controls the
-tools, so both must agree. Every iteration should reinstall a fresh staged
-copy, restart the foreground server if its Python code changed, and open a
-new CLI conversation. The staging command leaves previous copies available
-under the ignored `devdocs/antigravity-plugins/` directory.
+`/hooks` must list `SessionStart`, `PreInvocation` and `PostToolUse`. Then
+start a new conversation. Use `plugin install`, not `plugin import`: import
+converts the Claude Code files and drops every hook and the MCP URL.
 
-For a normal port-8765 installation, install `knowledge-graph/` directly with
-`agy plugin install /absolute/path/to/knowledge-graph`. Start the server from
-this branch before opening the CLI. A healthy older shared server is left
-running by hooks and does not acquire this adapter merely by installing it.
-The optional shell helpers can be installed with
-`bash ~/.gemini/config/plugins/knowledge-graph/install_command.sh`.
+The install is a copy in `~/.gemini/config/plugins/knowledge-graph/`. To
+update, pull the checkout and install again, then start a new conversation.
+If no server is running, the first `SessionStart` starts one from that copy.
+The optional shell helpers: `bash ~/.gemini/config/plugins/knowledge-graph/install_command.sh`.
 
-## Tool permissions
+The [recommended Antigravity setup](../recommended-setup/antigravity.md)
+adds the working style as a global rule and a quota status line; it is
+independent of this plugin.
 
-Interactive CLI sessions ask for MCP permission. Headless tests need explicit
-grants. For unattended local tests, merge the following entries into
-`permissions.allow` in `~/.gemini/antigravity-cli/settings.json`, keeping any
-other settings and grants:
+### Tool permissions
+
+Interactive sessions ask before each MCP tool. For unattended runs, merge
+these into `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`:
 
 ```json
 [
@@ -113,82 +66,119 @@ other settings and grants:
 ]
 ```
 
-This example leaves node and edge deletion on Ask. The plugin neither grants
-permissions nor changes global settings itself. It does not need a
-`PreToolUse` hook; an empty result there would deny tools in this CLI version.
+Node and edge deletion stay on Ask. The plugin grants no permissions and
+changes no global settings. It registers no `PreToolUse` hook: in this CLI an
+empty reply there denies the tool.
 
-## Verification
+## How memory reaches the model
 
-Run the HTTP MCP/REST boundary tests:
+The CLI cuts MCP results short: eager tools deliver about 10 KB whole, but
+40 KB and 60 KB results were truncated, and no supported output-size setting
+exists. `PreInvocation` hooks delivered 40 KB intact. So:
+
+- A KG reply up to **3,500 UTF-8 bytes** returns inline.
+- A larger reply from **any** KG tool returns a short receipt, and the text
+  is queued for this conversation. Each `PreInvocation` delivers up to
+  **40,000 bytes** including framing. A partial delivery ends with an
+  instruction to call `kg_sync`, which triggers the next hook. The queue holds
+  1 MiB or 64 replies and refuses overflow without dropping earlier replies.
+- Without hook evidence for this conversation, a large reply is refused with
+  a setup hint. There is no pagination fallback.
+
+Nothing a reply implies is recorded before the model has it. Session effects
+(seen, full-read, preload, sync) and graph effects (the read timestamp, and
+promotion of an archived node) commit with an inline reply, or when the hook
+acknowledges the final chunk of a queued one. A refused or abandoned reply
+changes nothing. Queued snapshots keep their original view time, so a
+concurrent edit made after the render still blocks a stale overwrite. Queues
+persist across server restarts.
+
+Compaction fires no hook. Every hook therefore scans the transcript lines
+appended since its last scan; a new `CHECKPOINT` row means the context was
+replaced by a summary. The session then forgets what it counted as shown,
+queues a fresh preload ahead of pending replies, and replays those replies
+from their start. An acknowledgement for a packet sent before the checkpoint
+is refused. Claude Code and Codex get the same reset from their
+`SessionStart` hook with `source: compact`.
+
+Conversation ids from MCP `_meta` and from hook payloads select the same KG
+session; another conversation's session id is refused. The first workspace
+path is the project; without one the session is user-only.
+
+## Status
+
+Verified:
+
+- Native transport on `agy 1.2.15` and `1.2.16` with a mock model (the smoke
+  below, 11 checks): hooks, rule and eager schemas load; full graph, large
+  Unicode node and file recall reach the next model input whole.
+- Signed-in `agy 1.2.16` sessions on a real graph: read, search, sync,
+  write and endorsement calls, prompt and file recall, queued delivery.
+- HTTP boundary tests for identity, deferred effects, refused reads,
+  checkpoints during delivery, stale writes, restarts and queue bounds.
+- Checkpoint detection against the signed-in transcript whose summary lost
+  27 of 28 preloaded memories.
+
+Not yet verified in a signed-in session: compaction after this fix,
+`--conversation` resume, `/fork`, `/clear`, a restart during a pending read,
+and quota exhaustion. Antigravity has no maintenance runner, quota gate or
+history-scout recipe.
+
+## Development and verification
+
+Use a separate port and storage root so tests never touch the shared server.
+In one terminal, from a repository checkout with the server venv prepared:
+
+```bash
+export KG_HTTP_PORT=8767 KG_STORAGE_ROOT="$PWD/devdocs/antigravity-memory" KG_AUTOCOMMIT_INTERVAL=0
+knowledge-graph/server/venv/bin/python knowledge-graph/server/mcp_streamable_server.py
+```
+
+In another, stage a copy whose MCP URL points at that port and install it:
+
+```bash
+export KG_HTTP_PORT=8767 KG_STORAGE_ROOT="$PWD/devdocs/antigravity-memory"
+agy plugin install "$(python3 docs/harnesses/tools/antigravity-probe/stage_plugin.py --port 8767)"
+agy
+```
+
+The port variable steers the hooks and the staged URL steers the tools; they
+must agree. Reinstall a fresh staged copy each iteration, restart the server
+after Python changes, and open a new conversation.
+
+Boundary tests:
 
 ```bash
 knowledge-graph/server/venv/bin/python knowledge-graph/server/tests/test_antigravity.py
 ```
 
-Run the native CLI smoke on Linux with bubblewrap installed:
+Native smoke (Linux, bubblewrap). It overlays a scratch home, so the venv
+must live inside the checkout, as above:
 
 ```bash
 knowledge-graph/server/venv/bin/python docs/harnesses/tools/antigravity-probe/kg_smoke.py --agy /path/to/agy
 ```
 
-This uses a scratch home overlay, dummy API credentials, a local mock model,
-the branch's real server and a native plugin install. It checks hook loading,
-rule/schema loading, full-graph delivery, a large Unicode node, continuation
-and file recall in the next model input. It prints the retained `/tmp/`
-artifact directory. The model is scripted, so this checks transport and
-bookkeeping rather than a real model's memory use. CI still runs every
-`knowledge-graph/server/tests/test_*.py` on Python 3.10 and the latest Python.
+It uses dummy credentials, a scripted model and a native install, and checks
+transport and bookkeeping, not how a real model uses memory.
 
-Signed-in local checklist before calling the adapter stable:
+Signed-in checklist before calling support stable:
 
-1. Start a fresh conversation in a project with a mature graph. Verify the
-   preload, one full read, and the memory announcement; ask a question whose
-   answer is in a node and check that the model uses it.
-2. Read a large node or batch. Verify that every part arrives and that the
-   model follows the continuation instruction before writing an update.
-3. Create a node touching a file after the full read, then have the CLI read
-   and edit that file. Verify recall; test `run_command` in a nested directory.
-4. Open two conversations in one project. Verify each keeps its own session
-   id and queued replies. Restart the development server during a pending read.
-5. Resume with `--conversation`, then separately exercise `/fork`, `/clear`
-   and compaction. Record their hook payloads and whether preload/read state
-   actually survives; these lifecycle cases remain release gates.
-6. Exercise web tools and a denied tool. Confirm that pending context survives
-   the next prompt, and that the CLI log reports no rejected hook result.
+1. Fresh conversation on a mature graph: preload, one full read, the memory
+   announcement, and a question answered from a node.
+2. A large node or batch: every part arrives, and the model follows the
+   continuation instruction before writing.
+3. File recall after creating a node that touches a file, including
+   `run_command` in a nested directory.
+4. Two conversations in one project keep separate sessions and queues;
+   restart the server during a pending read.
+5. Resume with `--conversation`, `/fork`, `/clear`, and a compaction:
+   record the hook payloads and check that the preload returns after the
+   checkpoint.
+6. Web tools and a denied tool: pending context survives the next prompt,
+   and the CLI log shows no rejected hook reply.
 
-## Read-path contract
-
-`tools: {kg_read: {eager: true}, ...}` is the per-tool MCP configuration. Eager
-mode exposes descriptions and delivered a 10 KB result whole in the probe,
-but 40 KB and 60 KB results still truncated. No supported CLI output-token
-setting was found in `/config` or the official settings docs. Internal
-`max_output_bytes` protobuf fields are not evidence of a user-facing override.
-
-The adapter uses a conservative 3,500-byte inline ceiling. Larger output
-from **any** KG tool becomes a small receipt plus persistent queued context.
-Hooks deliver at most 40,000 UTF-8 bytes including framing per invocation.
-The queue holds at most 1 MiB/64 replies and refuses overflow without
-discarding earlier replies. Continuation asks for `kg_sync` to trigger the
-next hook. A new prompt does not discard a pending reply.
-
-Each queued snapshot carries its original read timestamp. Session seen,
-full-read, preload and sync effects commit after the adapter writes the final
-chunk and acknowledges it. A failed round trip retries the packet; a later
-concurrent edit remains newer than an old delivered view. Queues and effects
-persist across server restarts. Graph promotion and read timestamps currently
-happen before delivery, including on a refused read: this is a known defect,
-not part of the intended acknowledgement contract.
-
-Conversation ids from MCP `_meta` and hook payloads select the same KG
-binding. Another conversation's session id is refused. Hooks are required
-for large output: with no hook evidence for this conversation, a large reply
-returns a setup hint and leaves session view/sync effects uncommitted, subject
-to the graph-side defect above. There is no pagination fallback
-in v1. Workspace selection uses the first path; hook process cwd is never
-used as the project. Folderless sessions are user-only.
-
-The [mapping](../docs/harnesses/antigravity-mapping.md) and
-[card](../docs/harnesses/cards/antigravity.md) retain
-the original 1.2.14 observations. This guide records the implemented decisions
-and the 1.2.15/1.2.16 follow-ups. Maintenance, quota, paid-credit policy and
-remaining real-model lifecycle validation are separate work.
+Research behind this adapter, as dated records: the
+[mapping](../docs/harnesses/antigravity-mapping.md) from the Codex
+integration, the [harness card](../docs/harnesses/cards/antigravity.md) and the
+[probe tools](../docs/harnesses/tools/antigravity-probe/README.md).

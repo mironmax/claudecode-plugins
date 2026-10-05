@@ -55,7 +55,7 @@ an agent working only from this repository.
 | 08 | [Visual editor: readable graphs, server-owned project list](tasks/08-visual-editor-readable-graphs.md) | A mature graph opens as a picture of what is live; projects come from the server, for every harness | done: PR #38 (unreleased) |
 | 09 | [Sessions model without the project fallback](tasks/09-sessions-model-no-fallback.md) | Re-check hook identity and dedup under the new resolution rule | done: both hold after the F12 fix (unreleased) |
 | 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | done: `python -m eval --transcripts` (unreleased) |
-| 11 | [Antigravity CLI](../docs/harnesses/antigravity-cli.md) | Bring the Codex lessons to a third harness | experimental v1 on `codex/antigravity-cli`; native 1.2.15 mock gate passed, real-model/lifecycle tests remain |
+| 11 | [Antigravity CLI](../knowledge-graph/ANTIGRAVITY.md) | Bring the Codex lessons to a third harness | experimental adapter on main (unreleased): checkpoint and refused-read state fixed; signed-in resume/fork/clear/compaction checks remain |
 
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
@@ -71,10 +71,9 @@ bites"; shipping an updated recommended output style; verifying which hook
 events can carry context at the moment a tool is about to run.
 
 Current main also includes Codex shell-directory resolution and a rollout
-scouting recipe, server-owned project discovery, and visual search and score
-inspection. These are unreleased; see [CHANGELOG.md](../CHANGELOG.md).
-The Antigravity adapter is on a separate experimental branch and has not
-passed its lifecycle gates; see [its status](../docs/harnesses/antigravity-status.md).
+scouting recipe, server-owned project discovery, visual search and score
+inspection, and the experimental Antigravity adapter. These are unreleased;
+see [CHANGELOG.md](../CHANGELOG.md).
 
 ## Later
 
@@ -82,8 +81,12 @@ passed its lifecycle gates; see [its status](../docs/harnesses/antigravity-statu
   principles, to test whether a well-kept memory multiplies what the model
   can do. Held until its design is agreed.
 - **More harnesses**: Cursor's prompt-context and quota channels still need
-  verification. Antigravity now has a working experimental transport, with
-  checkpoint and read-delivery state defects to resolve before stable support.
+  verification. Antigravity needs its signed-in lifecycle checks, then a
+  maintenance runner and quota gate, before stable support.
+- **Bounded replies for every client**: a full-node batch or an oversized
+  graph can exceed what Claude Code and Codex keep inline, and the server
+  records it as read either way. Bounded replies with explicit continuation
+  would close this for every harness.
 - **Desktop apps**: Claude Desktop's Code tab runs hooks; its chat gets tools
   without hooks. Codex desktop preload and tools were checked on Linux.
   Broader desktop/OS coverage remains open.

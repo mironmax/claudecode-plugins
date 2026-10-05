@@ -5,8 +5,8 @@ examined in the original survey. They are not today's support table.
 Codex now supports `apply_patch`, verified shell execution directories,
 explicit `nl`/`rg` file reads, rollout scouting and server-owned project
 discovery; see the [current support table](../../knowledge-graph/README.md#codex-cli).
-Antigravity's later native hooks and queued delivery are described in
-[Antigravity status](antigravity-status.md); that adapter remains experimental.
+Antigravity's later native hooks and queued delivery are described in the
+[Antigravity guide](../../knowledge-graph/ANTIGRAVITY.md); that adapter is experimental.
 
 The plugin's jobs, taken from the verified table in the
 [coupling map](coupling-map.md), against each harness. Each cell names the

@@ -1,7 +1,7 @@
 # Google Antigravity CLI
 
 **Dated survey.** Later 1.2.15 transport probes and a signed-in 1.2.16 test
-refine some observations; see [current Antigravity status](../antigravity-status.md).
+refine some observations; see the [Antigravity guide](../../../knowledge-graph/ANTIGRAVITY.md).
 
 Version examined: Antigravity CLI `agy 1.2.14`, installed with the official
 script (<https://antigravity.google/cli/install.sh>) on 2026-10-01. This card
