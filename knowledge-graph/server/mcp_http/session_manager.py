@@ -209,7 +209,8 @@ class HTTPSessionManager:
                      last_synced_ts=parent.get("last_synced_ts", parent["start_ts"]))
         clone.pop("claude_sid", None)
         # Pending output belongs to its original conversation, not a fork.
-        for key in ("agy_pending", "agy_delivery", "agy_hooks_seen", "agy_prompt_key"):
+        for key in ("agy_pending", "agy_delivery", "agy_hooks_seen", "agy_prompt_key",
+                    "agy_scan_pos", "agy_checkpoint"):
             clone.pop(key, None)
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
         self._sessions[session_id] = clone
@@ -472,6 +473,23 @@ class HTTPSessionManager:
         return touched
 
     @_locked
+    def reset_context(self, session_id: str) -> None:
+        """The harness replaced the model's context (compaction): forget what
+        it was shown, so recall and the full read stop treating dropped gists
+        as present. View times stay: stale-write protection compares a write
+        with the content the session last saw, wherever that content went.
+        First-route attribution (seen_via) stays for endorsement logging."""
+        from .delivery import restart
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        for key in ("seen_ids", "preloaded_ids", "full_read_ts"):
+            session.pop(key, None)
+        restart(session)
+        session["context_resets"] = session.get("context_resets", 0) + 1
+        self.save_sessions()
+
+    @_locked
     def mark_full_read(self, session_id: str) -> None:
         """Record that this session has made the loud full-graph kg_read.
 
@@ -529,10 +547,11 @@ class HTTPSessionManager:
                                          at if at is not None else time.time())
 
     @_locked
-    def queue_context(self, session_id: str, text: str, kind: str, effects=()) -> bool:
+    def queue_context(self, session_id: str, text: str, kind: str, effects=(),
+                      first: bool = False) -> bool:
         from .delivery import enqueue
         data = self._sessions.get(session_id)
-        if data is None or not enqueue(data, text, kind, list(effects)):
+        if data is None or not enqueue(data, text, kind, list(effects), first):
             return False
         self.save_sessions()
         return True
@@ -576,6 +595,18 @@ class HTTPSessionManager:
         fresh = data.get("agy_prompt_key") != prompt_key
         data["agy_prompt_key"] = prompt_key
         return fresh
+
+    @_locked
+    def note_antigravity_transcript(self, session_id: str, position: int,
+                                    checkpoint: int | None) -> bool:
+        """Advance the transcript scan; True when a new checkpoint replaced
+        the conversation's context."""
+        data = self._sessions[session_id]
+        data["agy_scan_pos"] = position
+        if checkpoint is None or checkpoint <= data.get("agy_checkpoint", -1):
+            return False
+        data["agy_checkpoint"] = checkpoint
+        return True
 
     @_locked
     def get_sync_ts(self, session_id: str) -> float:

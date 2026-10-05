@@ -65,15 +65,17 @@ def apply_graph_effects(store, effects):
         getattr(store, effect["method"])(*effect["args"], **effect["kwargs"])
 
 
-def enqueue(data, text, kind, effects):
-    """Append without evicting anything already promised to the model."""
+def enqueue(data, text, kind, effects, first=False):
+    """Add without evicting anything already promised to the model. `first`
+    puts orientation ahead of replayed replies, unless a packet is out."""
     queue = data.setdefault("agy_pending", [])
     size = len(text.encode("utf-8"))
     if len(queue) >= QUEUE_ITEMS or size + sum(
             len(item["text"].encode("utf-8")) for item in queue) > QUEUE_BYTES:
         return False
-    queue.append({"id": uuid.uuid4().hex, "kind": kind, "text": text,
-                  "offset": 0, "effects": effects})
+    item = {"id": uuid.uuid4().hex, "kind": kind, "text": text,
+            "offset": 0, "effects": effects}
+    queue.insert(0 if first and not data.get("agy_delivery") else len(queue), item)
     return True
 
 
@@ -114,6 +116,15 @@ def prepare(data, sid):
     packet = {"id": uuid.uuid4().hex, "text": text, "selected": selected}
     data["agy_delivery"] = packet
     return packet
+
+
+def restart(data):
+    """Replay pending replies from their start after a context replacement:
+    chunks delivered before it may be gone, and an outstanding packet's
+    acknowledgement must not commit into the new context."""
+    for item in data.get("agy_pending") or []:
+        item["offset"] = 0
+    data.pop("agy_delivery", None)
 
 
 def acknowledge(manager, data, delivery_id):

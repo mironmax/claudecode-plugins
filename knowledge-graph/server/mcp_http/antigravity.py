@@ -19,6 +19,7 @@ from .delivery import DeferredView, INLINE_BYTES
 from .session_manager import safe_transcript_path
 
 PROMPT_BYTES = 256 * 1024
+CHECKPOINT_SCAN_BYTES = 4 * 1024 * 1024
 TOOLS = {
     "view_file": ("Read", {"file_path": "AbsolutePath"}),
     "write_to_file": ("Write", {"file_path": "TargetFile"}),
@@ -77,46 +78,78 @@ async def call_with_delivery(store, manager, call_tool, name, arguments, convers
                    "using or updating the memories.")
 
 
-def latest_prompt(transcript_path):
-    """Bounded tail of the actual human record; never injected USER_MESSAGE."""
+def _read_transcript(transcript_path, start, limit):
+    """Complete JSONL lines from `start` (or the last `limit` bytes) to the end.
+
+    Returns (resolved path, lines, end position, size); end is just past the
+    last complete line, so a partial row is read again next time."""
     if not isinstance(transcript_path, str):
-        return "", None, 0
+        return None, [], 0, 0
     resolved = safe_transcript_path(transcript_path)
     if not resolved:
-        return "", None, 0
+        return None, [], 0, 0
     try:
         fd = os.open(resolved, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
         with os.fdopen(fd, "rb") as stream:
             info = os.fstat(stream.fileno())
             if not stat.S_ISREG(info.st_mode):
-                return "", None, 0
-            start = max(0, info.st_size - PROMPT_BYTES)
-            stream.seek(start)
-            tail = stream.read(PROMPT_BYTES)
-        if start:
-            tail = tail.partition(b"\n")[2]
-        tail = tail[:tail.rfind(b"\n") + 1]
-        for line in reversed(tail.splitlines()):
-            try:
-                row = json.loads(line)
-            except (ValueError, UnicodeError, RecursionError):
-                continue
-            if not isinstance(row, dict) or row.get("type") != "USER_INPUT":
-                continue
-            content = row.get("content")
-            if not isinstance(content, str):
-                continue
-            begin = content.find("<USER_REQUEST>")
-            end = content.find("</USER_REQUEST>", begin + 14)
-            if begin < 0 or end < 0:
-                return "", None, info.st_size
-            prompt = content[begin + len("<USER_REQUEST>"):end].strip()
-            key = f"{resolved}:{row.get('step_index')}:{row.get('created_at')}:" + hashlib.sha256(
-                prompt.encode("utf-8")).hexdigest()[:16]
-            return prompt, key, info.st_size
-    except (OSError, ValueError):
-        pass
+                return None, [], 0, 0
+            if start > info.st_size:  # Rewritten: read it afresh.
+                start = 0
+            begin = max(start, info.st_size - limit)
+            stream.seek(begin)
+            data = stream.read(info.st_size - begin)
+    except OSError:
+        return None, [], 0, 0
+    if begin > start:  # Landed mid-line.
+        skipped, _, data = data.partition(b"\n")
+        begin += len(skipped) + 1
+    complete = data.rfind(b"\n") + 1
+    return resolved, data[:complete].splitlines(), begin + complete, info.st_size
+
+
+def _rows(lines):
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except (ValueError, UnicodeError, RecursionError):
+            continue
+        if isinstance(row, dict):
+            yield row
+
+
+def latest_prompt(transcript_path):
+    """Bounded tail of the actual human record; never injected USER_MESSAGE."""
+    resolved, lines, _, size = _read_transcript(transcript_path, 0, PROMPT_BYTES)
+    for row in reversed(list(_rows(lines))):
+        if row.get("type") != "USER_INPUT":
+            continue
+        content = row.get("content")
+        if not isinstance(content, str):
+            continue
+        begin = content.find("<USER_REQUEST>")
+        end = content.find("</USER_REQUEST>", begin + 14)
+        if begin < 0 or end < 0:
+            return "", None, size
+        prompt = content[begin + len("<USER_REQUEST>"):end].strip()
+        key = f"{resolved}:{row.get('step_index')}:{row.get('created_at')}:" + hashlib.sha256(
+            prompt.encode("utf-8")).hexdigest()[:16]
+        return prompt, key, size
     return "", None, 0
+
+
+def latest_checkpoint(transcript_path, start):
+    """(scan position, highest CHECKPOINT step index appended since start).
+
+    No hook fires on compaction; its CHECKPOINT row in the transcript is the
+    only evidence that the conversation's context was replaced."""
+    _, lines, end, _ = _read_transcript(transcript_path, start, CHECKPOINT_SCAN_BYTES)
+    index = None
+    for row in _rows(line for line in lines if b"CHECKPOINT" in line):
+        step = row.get("step_index")
+        if row.get("type") == "CHECKPOINT" and isinstance(step, int) and not isinstance(step, bool):
+            index = step if index is None else max(index, step)
+    return end, index
 
 
 def normalize_event(payload, cwd):
@@ -181,6 +214,10 @@ def handle_event(store, manager, event_name, payload):
         manager.attach_project(sid, cwd)
     cwd = data.get("project_path") or cwd
     manager.note_antigravity_hook(sid)
+    if transcript:
+        position, checkpoint = latest_checkpoint(transcript, data.get("agy_scan_pos", 0))
+        if manager.note_antigravity_transcript(sid, position, checkpoint):
+            manager.reset_context(sid)
 
     if event_name != "PostToolUse" and "preloaded_ids" not in data and not manager.has_pending_context(sid, "preload"):
         from .read_format import build_bootstrap
@@ -192,7 +229,7 @@ def handle_event(store, manager, event_name, payload):
         view = DeferredView(manager)
         view.set_preloaded(sid, result["shown_ids"])
         view.mark_seen(sid, result["shown_ids"], via="preload", at=at)
-        manager.queue_context(sid, result["context"], "preload", view.effects)
+        manager.queue_context(sid, result["context"], "preload", view.effects, first=True)
 
     if event_name == "PostToolUse":
         if not payload.get("error"):

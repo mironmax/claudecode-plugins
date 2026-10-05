@@ -186,6 +186,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                     "text": "",
                     "stats": {},
                 }
+            if reused:  # compact: the summary kept only part of what was shown
+                session_manager.reset_context(session_id)
             viewed_at = time.time()
             graphs = store.read_graphs(session_id)
             scores = store.scores_for_read(session_id)

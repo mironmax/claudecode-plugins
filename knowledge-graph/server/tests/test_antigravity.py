@@ -225,6 +225,50 @@ class AntigravityTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.sm.has_pending_context(sid))
         self.assertIsNone(self.sm.viewed_at(sid, "large-memory", full=True))
 
+    def transcript(self, *rows):
+        path = self.root / ".gemini/antigravity-cli/transcript_full.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a") as stream:
+            stream.writelines(json.dumps(row) + "\n" for row in rows)
+
+    async def test_checkpoint_restores_preload_and_forgets_what_the_summary_dropped(self):
+        self.transcript({"type": "USER_INPUT", "step_index": 1, "content": "<USER_REQUEST>hi</USER_REQUEST>"})
+        sid = await self.bootstrap()
+        self.seed("outside-preload", "OUTSIDE_GIST")
+        viewed = time.time()
+        self.sm.mark_seen(sid, ["outside-preload"], via="read", at=viewed, full=True)
+        self.sm.mark_full_read(sid)
+        self.assertEqual((await self.hook())["output"], {})  # No checkpoint yet.
+        self.transcript({"type": "CHECKPOINT", "step_index": 9, "content": "{{ CHECKPOINT 0 }} summary"})
+        packet = await self.hook(invocationNum=4)  # Compaction can land mid-turn.
+        self.assertIn("KG MEMORY PRELOADED", self.text(packet))
+        self.assertNotIn("outside-preload", self.sm.get_seen(sid))
+        self.assertFalse(self.sm.has_full_read(sid))
+        self.assertEqual(self.sm.viewed_at(sid, "outside-preload", full=True), viewed)
+        self.assertTrue(await self.ack(packet))
+        self.assertIn("outside-preload", self.sm.get_preloaded(sid))
+        self.assertEqual((await self.hook())["output"], {})  # Same checkpoint: once.
+
+    async def test_checkpoint_during_delivery_replays_from_the_start(self):
+        self.transcript({"type": "USER_INPUT", "step_index": 1, "content": "<USER_REQUEST>hi</USER_REQUEST>"})
+        sid = await self.bootstrap()
+        self.seed(notes=["BEGIN_REPLY_" + "z" * 90000 + "_END_REPLY"])
+        await self.call("kg_read", {"session_id": sid, "id": "large-memory"})
+        first = await self.hook()
+        self.assertIn("BEGIN_REPLY_", self.text(first))
+        self.assertTrue(await self.ack(first))
+        outstanding = await self.hook()
+        self.assertNotIn("BEGIN_REPLY_", self.text(outstanding))
+        self.transcript({"type": "CHECKPOINT", "step_index": 9, "content": "{{ CHECKPOINT 0 }} summary"})
+        replay = await self.hook()
+        self.assertTrue(self.text(replay).startswith("KG context — preload:"))
+        self.assertFalse(await self.ack(outstanding))  # Old-context receipt.
+        self.assertTrue(await self.ack(replay))
+        rest = "".join(await self.drain())
+        self.assertIn("BEGIN_REPLY_", self.text(replay) + rest)
+        self.assertIn("_END_REPLY", rest)
+        self.assertIsNotNone(self.sm.viewed_at(sid, "large-memory", full=True))
+
     def archive(self, nid):
         _, key = self.store._resolve_graph_key("project", self.writer, None)
         node = self.store.graphs[key]["nodes"][nid]

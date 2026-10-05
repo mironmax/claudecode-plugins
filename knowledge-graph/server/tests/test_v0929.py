@@ -20,6 +20,7 @@ depends on):
 Uses a temp KG_STORAGE_ROOT and a temp project under ~/.cache.
 """
 
+import time
 import json
 import os
 import shutil
@@ -119,6 +120,9 @@ def main():
         sid1 = r["session_id"]
         check("startup registers fresh", r["reused"] is False)
 
+        viewed = time.time()
+        session_manager.mark_seen(sid1, ["outside-preload"], via="read", at=viewed, full=True)
+        session_manager.mark_full_read(sid1)
         r = client.get("/api/session_bootstrap", params={
             "project_path": project_dir, "claude_session_id": "cc-boot-1",
             "source": "compact"}).json()
@@ -127,6 +131,11 @@ def main():
         check("compact re-renders the preload (context lost it)",
               bool(r["stats"]) and "resumed" not in r["context"][:40],
               r["context"][:80])
+        check("compact forgets what the summary may have dropped",
+              "outside-preload" not in session_manager.get_seen(sid1)
+              and not session_manager.has_full_read(sid1))
+        check("compact keeps the view time for stale-write protection",
+              session_manager.viewed_at(sid1, "outside-preload", full=True) == viewed)
 
         resumed_tf = tf.parent / "resumed.jsonl"
         resumed_tf.write_text(
