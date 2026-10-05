@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here.
 
+## [0.12.0] - 2026-10-05
+
+**Breaking: the plugins now need the `kg` command.** Install once with `uv tool install kg-memory && kg setup`; a session without it says how. Memory data is unchanged.
+
+### Added
+- **`kg`, one command for the memory, published on PyPI as `kg-memory`.** `kg setup` checks every piece and fixes what you accept, backing up each file first: the command on PATH, a systemd user service on Linux, the server, and for Claude Code, Codex, Antigravity and Claude Desktop the plugin, permissions and settings. `kg doctor` checks, `kg update` upgrades kg, the server and every plugin together, `kg uninstall` reverses setup and keeps your memory. Also `kg start/stop/restart/status/logs/commit` and `kg gauge` (the Claude status-line quota tap).
+- **`kg mcp`: every harness connects over stdio.** It starts the server when it is down and waits out a restart, then retries, so the tools stay connected instead of needing `/mcp` → Reconnect. Only a refused connection is retried, so a write never lands twice. Claude Code, Codex, Antigravity and Claude Desktop all use it; Desktop no longer needs Node or the `mcp-remote` bridge.
+- **`kg editor`** starts the visual editor (and the server it reads) and opens it.
+- Releases publish to PyPI from the version tag through trusted publishing.
+
+### Changed
+- The SessionStart hooks start the server through `kg` and wait for it, so a cold start still gets its preload.
+- `kg start` is serialised: concurrent starts from a harness and its hook share one server instead of leaving a false start error.
+- The server refuses to run twice on the same storage directory.
+- The repository is now `mironmax/kg-memory`; the old URL redirects and installed marketplaces keep working.
+
+### Removed
+- The plugin's own launchers: `server/manage_server.sh` and its per-plugin Python environment, `install_command.sh` (`kg-memory`/`kg-visual` links), `setup_desktop.py` and `desktop_bridge.sh`, `visual-editor/manage_visual.sh`, and the `memory-mcp.service` unit. `kg setup` retires the old links and moves an existing Desktop entry to `kg mcp`; `kg-memory` stays as a shim that runs `kg`.
+
 ## [0.11.0] - 2026-10-05
 
 ### Added

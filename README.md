@@ -11,6 +11,8 @@ uv tool install kg-memory     # needs uv: https://docs.astral.sh/uv/
 kg setup                      # asks before each change, backs up what it edits
 ```
 
+No uv yet? `curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh` installs it and runs both steps. Asking an agent to install it? Point it at [INSTALL.md](INSTALL.md).
+
 `kg setup` finds Claude Code, Codex CLI, Antigravity CLI (experimental) and Claude Desktop, connects each of them (the knowledge-graph plugin, or Desktop's config), and runs one local memory server for all of them (a systemd user service on Linux). `kg doctor` checks everything afterwards; `kg update` keeps it current.
 
 Two steps are yours: in Codex, run `/hooks` and trust the knowledge-graph hooks (Codex keeps plugin hooks off until you approve them); restart Claude Desktop. Then start a new session. Platform notes: [Codex](knowledge-graph/README.md#codex-cli) · [Antigravity](knowledge-graph/ANTIGRAVITY.md).
