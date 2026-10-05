@@ -203,6 +203,16 @@ quota-sensitive scheduling to `five_hour_resets_at` (the window drifts with
 first use), not to wall-clock times. Pace so the session ends on a checkpoint —
 handover letter + KG writes cost budget too; stop near ~90%, not at 100%.
 
+**Budget notices (the plugin, every harness).** The server reads the
+session's own gauge on the hooks it already serves and tells the agent once
+per level per window: "plan the wrap-up" at 80% of five hours, "wrap up now"
+at 90%; 90/95% for the week. Claude Code: this status-line file (no notices
+without it). Codex: the session's own rollout, nothing to install. Antigravity:
+a live `agy -p /usage` reading, cached five minutes. Off: `"budget_notices":
+false` in `~/.knowledge-graph/chores.json`, or `KG_BUDGET_NOTICES=0` in the
+server's environment. Antigravity's own self-read: `agy -p /usage
+--output-format json` (no model call).
+
 ## Maintenance chores (activity-triggered gardening)
 
 The server can run small maintenance chores while you work: one debt category,
@@ -240,8 +250,8 @@ gauge fresh AND usage low, and those two are almost never true together.
   when v0.9.35 added it, and its one id pass recorded `ids_renamed: 0`.
   Override with `"settings"` / `"pass_settings"` only if you must.
 - **Runner** — which harness runs the agent, and whose quota it spends:
-  `"runner": "auto"` (default: Claude Code if installed, else Codex),
-  `"claude"` or `"codex"`. The quota gate reads the runner's own gauge:
+  `"runner": "auto"` (default: Claude Code if installed, else Codex, else
+  Antigravity), `"claude"`, `"codex"` or `"antigravity"`. The quota gate reads the runner's own gauge:
   `~/.claude/last-limits.json` for Claude, the newest quota event across
   recently written Codex rollouts for Codex — including sessions resumed
   from old date directories. A new rollout with no quota event can use
@@ -255,7 +265,22 @@ gauge fresh AND usage low, and those two are almost never true together.
   from the same `chores/*settings.json`), pre-approved.
   `"codex_model"` picks the model (default: Codex's own),
   `"codex_reasoning_effort"` the effort (default low for chores, medium for
-  passes). A configured `"claude_bin"`/`"codex_bin"` pins its runner.
+  passes). A configured `"claude_bin"`/`"codex_bin"`/`"antigravity_bin"`
+  pins its runner.
+  **Antigravity runs** (`"runner": "antigravity"`) are gated on a live
+  `agy -p /usage` reading for the run's model group (`"antigravity_model"`,
+  default the CLI's own Gemini; Claude/GPT models use the other bucket).
+  Plans with weekly buckets only skip the 5h gate. agy takes no per-run
+  settings, so a run uses your grants: it refuses unless
+  `~/.gemini/antigravity-cli/settings.json` allows the tier's kg tools
+  (`mcp(knowledge-graph_kg/kg_read)` etc., see ANTIGRAVITY.md), and refuses
+  while `useG1Credits` could spend paid credits (`"antigravity_allow_credits":
+  true` overrides). Leave `kg_delete_*` on Ask: headless agy soft-denies
+  them, so an Antigravity run never deletes. The run is
+  `server/mcp_http/agy_chore.py`: a tool-less `kg-maintainer` agent in
+  `~/.knowledge-graph/agy-runner/`; it refuses if `/agents` does not list the
+  agent and kills the run if agy logs a fallback to its default agent.
+  `"antigravity_effort"` defaults low for chores, medium for passes.
 - **Watch**: `tail -f ~/.knowledge-graph/chores.jsonl | jq .` — one line per
   decision, refusals included (`{"event":"skip","reason":"5h 71%"}`), so "why
   did nothing run" is always answerable. Dispatches log the targets; the

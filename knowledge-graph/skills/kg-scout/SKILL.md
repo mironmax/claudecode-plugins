@@ -1,14 +1,14 @@
 ---
 name: kg-scout
 user-invocable: true
-description: Mine Claude Code and Codex conversation history for patterns and insights worth preserving
+description: Mine Claude Code, Codex and Antigravity conversation history for patterns and insights worth preserving
 ---
 
 # History Scout — Mining Past Sessions for Knowledge
 
 ## Overview
 
-Scout extracts knowledge from Claude Code and Codex conversation history using a **tension-driven, tiered approach**: lightweight scanning first, deep investigation only when signals indicate value.
+Scout extracts knowledge from Claude Code, Codex and Antigravity CLI conversation history using a **tension-driven, tiered approach**: lightweight scanning first, deep investigation only when signals indicate value.
 
 The goal is **not** to extract everything — it's to find patterns worth preserving while being economical with tokens.
 
@@ -105,6 +105,33 @@ skip list for Codex. Use overlapping context around the cursor for understanding
 but do not recapture already processed records. Report absent/pruned rollouts
 as unavailable, not reviewed.
 
+### Antigravity CLI — index, inventory, then selective transcript reads
+
+All under `~/.gemini/antigravity-cli/` (the CLI's directory; the desktop app
+and IDE keep their own and are out of scope).
+
+- **Prompt index:** `history.jsonl`, one line per prompt or slash command:
+  `display`, `timestamp` (ms), `workspace`, `conversationId`, `type`.
+- **Inventory:** `conversation_summaries.db` (SQLite; open read-only, e.g.
+  `sqlite3 'file:...?mode=ro'`), table `conversation_summaries`:
+  `conversation_id`, `workspace_uris` (JSON list of `file://` URIs; filter the
+  project with these), `step_count`, `last_modified_time`, `nesting_depth`,
+  `parent_conversation_id`, `agent_name`. Skip `nesting_depth > 0`
+  (subagents) and `agent_name = 'kg-maintainer'` (this plugin's own chores).
+- **Record:** `brain/<conversation_id>/.system_generated/logs/transcript_full.jsonl`,
+  one step per line: `step_index`, `source`, `type`, `created_at`, and
+  `content` or `tool_calls` (arguments as objects). Human prompts are
+  `USER_INPUT` from `USER_EXPLICIT`; the words are between `<USER_REQUEST>`
+  and `</USER_REQUEST>`, and the rest of that record is metadata. Model turns
+  are `PLANNER_RESPONSE` (text and `tool_calls`, KG tools named
+  `mcp_knowledge-graph_kg_kg_*`); `GENERIC` steps are tool results.
+  `SYSTEM_MESSAGE` steps are injections (KG preload and recall among them) and
+  `CHECKPOINT` steps are compaction summaries: navigation, never new claims.
+
+Keep a per-conversation cursor in the scout progress state under an
+`antigravity` object: conversation id, last reviewed `step_index`, and
+`step_count` when read. A conversation whose `step_count` grew has new steps.
+
 ## Tension-Driven Investigation
 
 Don't read full sessions blindly. Use the prompt index to identify **tension signals**:
@@ -134,6 +161,8 @@ cursor above. If empty, begin with a bounded inventory of the requested scope.
 - **Codex:** use the rollout inventory above: `session_meta` of each changed
   rollout, then its genuine user prompts. Codex's `history.jsonl` is optional
   and misses app sessions, so it is never the index on its own.
+- **Antigravity:** `history.jsonl` in the CLI's directory, joined to the
+  inventory above by `conversationId`.
 
 Group by:
 - **Frequency:** Topics asked about repeatedly
@@ -155,7 +184,8 @@ For sessions with tension signals:
 3. Extract: decisions, corrections, preferences, non-obvious patterns
 
 For Codex, follow the rollout recipe above instead of constructing a Claude
-transcript path.
+transcript path. For Antigravity, read the conversation's
+`transcript_full.jsonl` from its cursor.
 
 **Assistant message parsing:** Content is nested: `.message.content[] | select(.type == "text") | .text`
 
@@ -207,6 +237,11 @@ deep-dive and again before each further session:
 - **Codex:** the newest `rate_limits` event in your own rollout. Its windows
   are told apart by `window_minutes` (300 = 5h, 10080 = weekly), each with
   `used_percent` and `resets_at`.
+- **Antigravity:** `agy -p /usage --output-format json` (no model call):
+  `command.data.groups[].buckets[]` with `remaining_fraction` and
+  `reset_time`; used % = (1 − remaining_fraction) × 100. Use the group of the
+  model you run on (Gemini or Claude/GPT). Plans with weekly buckets only have
+  no 5h gate; the weekly gates below still apply.
 
 Continue only while all three hold. These are the gates a maintenance pass uses:
 - 5h below 40%;
