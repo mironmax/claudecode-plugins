@@ -15,7 +15,9 @@ not yet been checked in a signed-in session (see [Status](#status)).
 | Web capture nudges | `read_url_content` and `search_web` are mapped |
 | Large replies | Queued and delivered by the next `PreInvocation` hook in UTF-8 chunks |
 | Compaction | A new `CHECKPOINT` in the transcript resets what the session counts as in context and re-queues the preload |
-| Background maintenance, history scouting, quota gate | Not available: Antigravity hooks never dispatch a runner |
+| Budget notices | Wrap-up notices from a live `agy -p /usage` reading |
+| Background maintenance | Prompts dispatch chores like Claude Code and Codex; `"runner": "antigravity"` runs them on agy (see [Maintenance runner](#maintenance-runner)) |
+| History scouting | `/kg-scout` has an Antigravity recipe |
 | IDE and desktop app | Not supported; their hook events are ignored |
 
 ## Install
@@ -70,6 +72,19 @@ Node and edge deletion stay on Ask. The plugin grants no permissions and
 changes no global settings. It registers no `PreToolUse` hook: in this CLI an
 empty reply there denies the tool.
 
+### Maintenance runner
+
+With chores switched on (`/kg-ops`), a human prompt in Antigravity can
+dispatch one, as in Claude Code and Codex; the configured runner spends the
+quota. `"runner": "antigravity"` in `~/.knowledge-graph/chores.json` runs it on
+agy itself. Because agy takes no per-run settings, the run uses your grants:
+it is refused unless `permissions.allow` above holds the kg tools, and while
+`useG1Credits` could spend paid credits. Deletions stay on Ask, which headless
+agy soft-denies, so an Antigravity run never deletes. The gate is a live
+`agy -p /usage` reading for the run's model group; plans with weekly buckets
+only skip the five-hour gate. The run is a tool-less `kg-maintainer` agent
+in `~/.knowledge-graph/agy-runner/`, refused unless `agy -p /agents` lists it.
+
 ## How memory reaches the model
 
 The CLI cuts MCP results short: eager tools deliver about 10 KB whole, but
@@ -109,20 +124,22 @@ path is the project; without one the session is user-only.
 
 Verified:
 
-- Native transport on `agy 1.2.15` and `1.2.16` with a mock model (the smoke
+- Native transport on `agy 1.2.15`, `1.2.16` and `1.2.17` with a mock model (the smoke
   below, 11 checks): hooks, rule and eager schemas load; full graph, large
   Unicode node and file recall reach the next model input whole.
 - Signed-in `agy 1.2.16` sessions on a real graph: read, search, sync,
   write and endorsement calls, prompt and file recall, queued delivery.
 - HTTP boundary tests for identity, deferred effects, refused reads,
   checkpoints during delivery, stale writes, restarts and queue bounds.
+- The maintenance runner on `agy 1.2.16` and `1.2.17` with a mock model (the chore
+  smoke below, 7 checks).
 - Checkpoint detection against the signed-in transcript whose summary lost
   27 of 28 preloaded memories.
 
 Not yet verified in a signed-in session: compaction after this fix,
 `--conversation` resume, `/fork`, `/clear`, a restart during a pending read,
-and quota exhaustion. Antigravity has no maintenance runner, quota gate or
-history-scout recipe.
+quota exhaustion, and a real maintenance run with the kg tools granted (the
+runner is verified with a mock model only).
 
 ## Development and verification
 
@@ -161,6 +178,15 @@ knowledge-graph/server/venv/bin/python docs/harnesses/tools/antigravity-probe/kg
 
 It uses dummy credentials, a scripted model and a native install, and checks
 transport and bookkeeping, not how a real model uses memory.
+
+Maintenance-runner smoke: the chore wrapper against a real agy, a mock model
+and a real server (7 checks: the agent loads, only MCP tools are offered,
+`kg_read` reaches the server, hooks stand down, the run stays in its own
+workspace). The agy binary must also live outside `$HOME`:
+
+```bash
+knowledge-graph/server/venv/bin/python docs/harnesses/tools/antigravity-probe/chore_smoke.py --agy /path/outside/home/agy
+```
 
 Signed-in checklist before calling support stable:
 

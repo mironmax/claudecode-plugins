@@ -77,8 +77,9 @@ installed, choose the cache whose version you intend the shared server to run.
 reinstall from the updated checkout. Check `agy -p /hooks` for SessionStart,
 PreInvocation and PostToolUse, then start a new conversation. A server older
 than the adapter says so at session start: restart it from the updated plugin.
-Large replies need this conversation's hooks. Antigravity hooks never dispatch
-background maintenance. Isolated testing and permissions:
+Large replies need this conversation's hooks. Its prompts dispatch chores like
+the other harnesses; the Antigravity runner is below. Isolated testing and
+permissions:
 [the Antigravity guide](../../ANTIGRAVITY.md).
 
 ## After a plugin update

@@ -191,9 +191,9 @@ the last chunk is delivered. A checkpoint (compaction) re-queues the preload.
 Install with `agy plugin install <checkout>/knowledge-graph`; there is no
 marketplace or git-URL install.
 
-Signed-in resume, fork, clear and compaction checks are still open, and
-Antigravity has no maintenance runner, quota gate or history scouting. See
-the [Antigravity guide](ANTIGRAVITY.md).
+Budget notices, maintenance chores (including an Antigravity runner) and
+`/kg-scout` history mining work here too. Signed-in resume, fork, clear and
+compaction checks are still open. See the [Antigravity guide](ANTIGRAVITY.md).
 
 ---
 
@@ -206,7 +206,8 @@ The system is designed to work without being asked. With the harness hooks enabl
 - **Recall at the moment of relevance** — each prompt you type is matched against the graph server-side; when unseen nodes fit, their gists arrive with the prompt. Precision is deliberate: nothing injects twice, weak matches stay silent, and machine records (notifications, pasted images and paths) never trigger it — the channel only speaks when a human asked something.
 - **Capture when re-derivation is proven** — reading a file a second session in a row (or fetching the same URL twice) with no node covering it earns a one-time nudge to write the bottom line down. First-time reads never nudge; hard throttles keep it rare.
 - **Self-aware maintenance** — every read carries a `DEBT:` line per graph (oversized gists, unconnected nodes, touches that no longer resolve, episodes waiting to be lifted into a principle, time since last tended, weighted by how actively the graph is used). When it reads HIGH, `/kg-maintain` runs a bounded pass — or the agent spawns a maintenance subagent with the dispatch prompt the skill provides.
-- **Chores, if you switch them on** — the server can also pay debt down while you work: one category, one or two targets it names itself, a handful of tool calls, run as a detached headless agent with MCP access limited to its maintenance tools, so your session spends no context on it. Codex also disables shell and hosted web and blocks filesystem writes with a read-only sandbox. Every dispatch and every refusal is logged. Chores run through Claude Code or Codex, each gated on its own subscription's limits. Off by default because they spend quota — `/kg-ops` has the switch and the gates.
+- **Budget notices** — the server reads the session's own quota gauge (Claude Code's status-line file, the Codex rollout, Antigravity's `/usage`) and says once per window when to plan the wrap-up (80% of five hours) and when to wrap up now (90%); 90/95% for the week. Codex sessions were found running to 90–97% without once reading their quota.
+- **Chores, if you switch them on** — the server can also pay debt down while you work: one category, one or two targets it names itself, a handful of tool calls, run as a detached headless agent with MCP access limited to its maintenance tools, so your session spends no context on it. Codex also disables shell and hosted web and blocks filesystem writes with a read-only sandbox. Every dispatch and every refusal is logged. Chores run through Claude Code, Codex or Antigravity, each gated on its own subscription's limits. Off by default because they spend quota — `/kg-ops` has the switch and the gates.
 
 ## Usage Tips
 
@@ -242,6 +243,7 @@ The server reads tunables from environment variables. Set them in your shell rc 
 | `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
+| `KG_BUDGET_NOTICES` | `1` | `0` turns budget notices off (or `"budget_notices": false` in `~/.knowledge-graph/chores.json`) |
 | `KG_AUTOCOMMIT_INTERVAL` | `900` | Git auto-commit interval for the storage root (seconds); `0` disables. Only acts when `~/.knowledge-graph` is a git repository |
 
 > Don't edit the plugin's bundled `.mcp.json` — that file just declares the HTTP endpoint the harness connects to (`http://127.0.0.1:8765/`), and it gets overwritten on every plugin update.
