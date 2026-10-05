@@ -1,5 +1,6 @@
-"""kg doctor and kg setup: the same checks, read-only or with fixes."""
+"""kg doctor, setup, update and uninstall: one set of steps, read, fixed or reversed."""
 
+import os
 import sys
 
 try:
@@ -69,10 +70,8 @@ def setup(assume_yes: bool, only: set[str] | None, plan: bool) -> int:
     failed = 0
     print()
     for step, _, detail in offered:
-        if not assume_yes:
-            answer = input(f"{step.group}: {step.title}? [Y/n] ").strip().lower()
-            if answer not in ("", "y", "yes"):
-                continue
+        if not confirm(f"{step.group}: {step.title}", assume_yes):
+            continue
         try:
             print(f"  ✓ {step.apply(ctx)}")
         except Exception as exc:
@@ -83,3 +82,82 @@ def setup(assume_yes: bool, only: set[str] | None, plan: bool) -> int:
     for step, detail in manual:
         print(f"Still for you: {step.group}: {detail}")
     return 1 if failed else 0
+
+
+def confirm(question: str, assume_yes: bool) -> bool:
+    if assume_yes:
+        return True
+    return input(f"{question}? [Y/n] ").strip().lower() in ("", "y", "yes")
+
+
+def update(after_upgrade: bool) -> int:
+    """Upgrade kg the way it was installed, then bring the server and every
+    installed plugin to its version."""
+    kind = steps.install_kind()
+    if not after_upgrade:
+        before = kg.version()
+        upgrade = {"uv": ["uv", "tool", "upgrade", "kg-memory"],
+                   "pipx": ["pipx", "upgrade", "kg-memory"]}.get(kind)
+        if upgrade:
+            print(f"Upgrading kg ({kind})...")
+            try:
+                steps.run(upgrade)
+            except Exception as exc:
+                print(f"✗ {exc}")
+                return 1
+            command = steps.kg_command()
+            now = steps.run([command, "version"]).strip() if command else before
+            if now != before:
+                print(f"kg {before} → {now}")
+                os.execv(command, [command, "update", "--after-upgrade"])
+            print(f"kg {before} is the latest.")
+        elif kind == "checkout":
+            print("Development checkout: update it with git. Continuing with its current code.")
+        else:
+            print("Update kg the way you installed it. Continuing with this version.")
+    ctx = steps.Context()
+    for step in steps.STEPS:
+        if step.key not in ("server", "claude-plugin", "codex-plugin", "agy-plugin"):
+            continue
+        state, detail = step.check(ctx)
+        if state != steps.FIX:
+            continue
+        print(f"{step.group}: {detail}")
+        try:
+            print(f"  ✓ {step.apply(ctx)}")
+        except Exception as exc:
+            print(f"  ✗ {exc}")
+    print()
+    return run()
+
+
+def uninstall(assume_yes: bool, plan: bool) -> int:
+    ctx = steps.Context()
+    undo = [(s, p) for s in reversed(steps.STEPS) if (p := s.undo_plan(ctx))]
+    kind = steps.install_kind()
+    print(f"Your memory stays in {kg.STORAGE_ROOT}: uninstall never touches it.")
+    if not undo:
+        print("Nothing set up by kg to reverse.")
+    else:
+        print("\nUninstall would:")
+        for step, text in undo:
+            print(f"  [{step.key}] {text}")
+        if plan:
+            return 0
+        if not assume_yes and not sys.stdin.isatty():
+            print("\nNo terminal to ask in: rerun with --yes.")
+            return 1
+        print()
+        for step, text in undo:
+            if not confirm(text[0].upper() + text[1:], assume_yes):
+                continue
+            try:
+                print(f"  ✓ {step.undo(ctx)}")
+            except Exception as exc:
+                print(f"  ✗ {step.key}: {exc}")
+        if ctx.backups.exists():
+            print(f"\nBackups of every changed file: {ctx.backups}")
+    remove = {"uv": "uv tool uninstall kg-memory", "pipx": "pipx uninstall kg-memory"}.get(kind)
+    if remove:
+        print(f"Last step, the kg command itself: {remove}")
+    return 0

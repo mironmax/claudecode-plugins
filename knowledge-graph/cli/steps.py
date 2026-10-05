@@ -74,6 +74,19 @@ def in_checkout() -> bool:
     return (kg.ROOT.parent / ".git").exists()
 
 
+def install_kind() -> str:
+    """How this kg was installed, which decides how it updates itself."""
+    if in_checkout():
+        return "checkout"
+    if "/pipx/venvs/" in str(kg.ROOT):
+        return "pipx"
+    if shutil.which("uv"):
+        tools = subprocess.run(["uv", "tool", "dir"], capture_output=True, text=True).stdout.strip()
+        if tools and str(kg.ROOT).startswith(tools):
+            return "uv"
+    return "other"
+
+
 class Context:
     """What a setup run shares: the version wanted and one backup directory."""
 
@@ -119,6 +132,13 @@ class Step:
     def apply(self, ctx: Context) -> str:
         raise NotImplementedError
 
+    def undo_plan(self, ctx: Context) -> str | None:
+        """What `kg uninstall` would reverse here, or None."""
+        return None
+
+    def undo(self, ctx: Context) -> str:
+        raise NotImplementedError
+
 
 # ── the kg command and the server ────────────────────────────────────────────
 
@@ -146,6 +166,16 @@ class Command(Step):
         link.symlink_to(kg.ROOT / "cli" / "kg-dev")
         return f"linked {link} → this checkout (development copy)"
 
+    def undo_plan(self, ctx):
+        link = HOME / ".local/bin/kg"
+        if link.is_symlink() and link.resolve() == (kg.ROOT / "cli" / "kg-dev").resolve():
+            return "remove the development kg link"
+        return None
+
+    def undo(self, ctx):
+        (HOME / ".local/bin/kg").unlink()
+        return "kg link removed"
+
 
 class LegacyCommands(Step):
     key, group, title = "legacy-commands", "kg", "kg-memory keeps working, through kg"
@@ -162,6 +192,17 @@ class LegacyCommands(Step):
                             'case "$1" in stop-port) set -- stop ;; esac\n'
                             'exec kg "$@"\n', 0o755)
         return "kg-memory now runs kg"
+
+    def undo_plan(self, ctx):
+        old = HOME / ".local/bin/kg-memory"
+        if old.is_file() and not old.is_symlink() and 'exec kg "$@"' in old.read_text():
+            return "remove the kg-memory shim"
+        return None
+
+    def undo(self, ctx):
+        ctx.backup(HOME / ".local/bin/kg-memory")
+        (HOME / ".local/bin/kg-memory").unlink()
+        return "kg-memory removed"
 
 
 def systemd_user() -> bool:
@@ -219,6 +260,19 @@ class Service(Step):
             raise RuntimeError(f"{UNIT} started but the server does not answer: journalctl --user -u {UNIT}")
         return f"{UNIT} enabled and running"
 
+    def undo_plan(self, ctx):
+        if (HOME / ".config/systemd/user" / UNIT).exists():
+            return f"disable and remove {UNIT}"
+        return None
+
+    def undo(self, ctx):
+        unit = HOME / ".config/systemd/user" / UNIT
+        subprocess.run(["systemctl", "--user", "disable", "--now", UNIT], capture_output=True)
+        ctx.backup(unit)
+        unit.unlink()
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        return f"{UNIT} removed"
+
 
 class Server(Step):
     key, group, title = "server", "kg", "one server, this version, this copy"
@@ -239,6 +293,13 @@ class Server(Step):
         if kg.restart():
             raise RuntimeError(f"the server did not come up: kg status, {kg.LOG_FILE}")
         return "server restarted on this copy (sessions reconnect on their next call)"
+
+    def undo_plan(self, ctx):
+        return "stop the memory server" if kg.health() else None
+
+    def undo(self, ctx):
+        kg.stop()
+        return "server stopped"
 
 
 # ── Claude Code ──────────────────────────────────────────────────────────────
@@ -276,6 +337,15 @@ class ClaudePlugin(Step):
         else:
             run([claude, "plugin", "install", PLUGIN])
         return f"plugin {claude_plugin_version()} (restart Claude Code sessions to load it)"
+
+    def undo_plan(self, ctx):
+        if find_binary("claude") and claude_plugin_version():
+            return "uninstall the Claude Code plugin"
+        return None
+
+    def undo(self, ctx):
+        run([find_binary("claude"), "plugin", "uninstall", PLUGIN])
+        return "Claude Code plugin uninstalled"
 
 
 class ClaudeAutoUpdate(Step):
@@ -332,6 +402,17 @@ class ClaudePermissions(Step):
         ctx.write_json(CLAUDE_SETTINGS, data)
         return "kg tools pre-approved; old-name entries removed"
 
+    def undo_plan(self, ctx):
+        allow = (load_json(CLAUDE_SETTINGS).get("permissions") or {}).get("allow") or []
+        return "remove the kg tool permissions" if any(a.startswith(CLAUDE_PREFIX) for a in allow) else None
+
+    def undo(self, ctx):
+        data = load_json(CLAUDE_SETTINGS)
+        perms = data["permissions"]
+        perms["allow"] = [a for a in perms["allow"] if not a.startswith(CLAUDE_PREFIX)]
+        ctx.write_json(CLAUDE_SETTINGS, data)
+        return "kg tool permissions removed"
+
 
 class ClaudeAutoMemory(Step):
     key, group, title = "claude-automemory", "Claude Code", "built-in auto-memory off"
@@ -348,6 +429,17 @@ class ClaudeAutoMemory(Step):
         data["autoMemoryEnabled"] = False
         ctx.write_json(CLAUDE_SETTINGS, data)
         return "auto-memory off"
+
+    def undo_plan(self, ctx):
+        if load_json(CLAUDE_SETTINGS).get("autoMemoryEnabled") is False:
+            return "turn Claude Code's built-in auto-memory back on"
+        return None
+
+    def undo(self, ctx):
+        data = load_json(CLAUDE_SETTINGS)
+        data.pop("autoMemoryEnabled", None)
+        ctx.write_json(CLAUDE_SETTINGS, data)
+        return "built-in auto-memory back to its default (on)"
 
 
 class ClaudeGauge(Step):
@@ -374,6 +466,32 @@ class ClaudeGauge(Step):
         ctx.write_json(CLAUDE_SETTINGS, data)
         return ("your status line now passes through kg gauge, unchanged" if current
                 else "status line set to kg gauge (a minimal quota line)")
+
+    def kg_line(self) -> list[str] | None:
+        line = (load_json(CLAUDE_SETTINGS).get("statusLine") or {}).get("command") or ""
+        try:
+            words = shlex.split(line)
+        except ValueError:
+            return None
+        if len(words) > 1 and words[1] == "gauge" and Path(words[0]).name in ("kg", "kg-dev"):
+            return words
+        return None
+
+    def undo_plan(self, ctx):
+        words = self.kg_line()
+        if not words:
+            return None
+        return "restore your own status line" if "--wrap" in words else "remove the kg status line"
+
+    def undo(self, ctx):
+        words = self.kg_line()
+        data = load_json(CLAUDE_SETTINGS)
+        if "--wrap" in words:
+            data["statusLine"]["command"] = words[words.index("--wrap") + 1]
+        else:
+            data.pop("statusLine")
+        ctx.write_json(CLAUDE_SETTINGS, data)
+        return "status line restored"
 
 
 # ── Codex ────────────────────────────────────────────────────────────────────
@@ -409,6 +527,15 @@ class CodexPlugin(Step):
         run([codex, "plugin", "add", PLUGIN])
         return (f"plugin {codex_plugin_version()}; Codex will ask you to trust its hooks: "
                 "run /hooks in Codex once")
+
+    def undo_plan(self, ctx):
+        if find_binary("codex") and codex_plugin_version():
+            return "remove the Codex plugin"
+        return None
+
+    def undo(self, ctx):
+        run([find_binary("codex"), "plugin", "remove", PLUGIN])
+        return "Codex plugin removed"
 
 
 class CodexHooks(Step):
@@ -467,6 +594,15 @@ class AgyPlugin(Step):
             shutil.rmtree(source.parent, ignore_errors=True)
         return "plugin installed; start a new Antigravity conversation"
 
+    def undo_plan(self, ctx):
+        if find_binary("agy") and AGY_PLUGIN.exists():
+            return "uninstall the Antigravity plugin"
+        return None
+
+    def undo(self, ctx):
+        run([find_binary("agy"), "plugin", "uninstall", "knowledge-graph"])
+        return "Antigravity plugin uninstalled"
+
 
 class AgyPermissions(Step):
     key, group, title = "agy-permissions", "Antigravity", "kg tools granted"
@@ -491,6 +627,17 @@ class AgyPermissions(Step):
         perms["allow"] = list(perms.get("allow") or []) + [f"mcp({AGY_SERVER}/{t})" for t in self.missing()]
         ctx.write_json(AGY_SETTINGS, data)
         return "kg tools granted; deletions stay on Ask"
+
+    def undo_plan(self, ctx):
+        allow = (load_json(AGY_SETTINGS).get("permissions") or {}).get("allow") or []
+        return "remove the kg tool grants" if any(f"mcp({AGY_SERVER}/" in a for a in allow) else None
+
+    def undo(self, ctx):
+        data = load_json(AGY_SETTINGS)
+        perms = data["permissions"]
+        perms["allow"] = [a for a in perms["allow"] if f"mcp({AGY_SERVER}/" not in a]
+        ctx.write_json(AGY_SETTINGS, data)
+        return "kg tool grants removed"
 
 
 # ── maintenance and storage ──────────────────────────────────────────────────
@@ -521,6 +668,16 @@ class Upkeep(Step):
         data["enabled"] = True
         ctx.write_json(path, data)
         return "on, within the quota gates in chores.json (runs only while quota is spare)"
+
+    def undo_plan(self, ctx):
+        return "switch background upkeep off" if load_json(kg.STORAGE_ROOT / "chores.json").get("enabled") else None
+
+    def undo(self, ctx):
+        path = kg.STORAGE_ROOT / "chores.json"
+        data = load_json(path)
+        data["enabled"] = False
+        ctx.write_json(path, data)
+        return "background upkeep off"
 
 
 class Storage(Step):

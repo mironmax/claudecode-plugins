@@ -280,17 +280,26 @@ def main(argv: list[str] | None = None) -> int:
     setup.add_argument("--yes", action="store_true", help="apply without asking")
     setup.add_argument("--only", help="comma-separated step keys, as `kg setup --plan` lists them")
     setup.add_argument("--plan", action="store_true", help="show what setup would do, change nothing")
+    update = sub.add_parser("update", help="upgrade kg, then the server and every installed plugin")
+    update.add_argument("--after-upgrade", action="store_true", help=argparse.SUPPRESS)
+    remove = sub.add_parser("uninstall", help="reverse what setup did (your memory stays)")
+    remove.add_argument("--yes", action="store_true", help="apply without asking")
+    remove.add_argument("--plan", action="store_true", help="show what it would do, change nothing")
     gauge = sub.add_parser("gauge", help="Claude Code status line: record the quota gauge")
     gauge.add_argument("--wrap", help="your own status-line command, run unchanged after recording")
     args = parser.parse_args(argv)
 
-    if args.command in ("doctor", "setup"):
+    if args.command in ("doctor", "setup", "update", "uninstall"):
         try:
             from . import doctor
         except ImportError:  # run as a script from a checkout
             import doctor
         if args.command == "doctor":
             return doctor.run()
+        if args.command == "update":
+            return doctor.update(args.after_upgrade)
+        if args.command == "uninstall":
+            return doctor.uninstall(args.yes, args.plan)
         only = set(args.only.split(",")) if args.only else None
         return doctor.setup(args.yes, only, args.plan)
     if args.command == "gauge":

@@ -183,6 +183,36 @@ class SetupTests(unittest.TestCase):
         self.assertIn("kg tools granted", again)
 
 
+class UninstallAndUpdateTests(unittest.TestCase):
+    def test_uninstall_gives_back_the_users_own_settings(self):
+        box = Sandbox(self)
+        fake_binaries(box, "claude", "agy")
+        original = {"permissions": {"allow": ["Bash(ls)", "mcp__memory__search_nodes"]},
+                    "statusLine": {"type": "command", "command": "my-line --flag 'a b'"}}
+        box.write(".claude/settings.json", json.dumps(original))
+        box.write(".gemini/antigravity-cli/settings.json", json.dumps({"permissions": {"allow": ["command(ls)"]}}))
+        keys = "claude-permissions,claude-automemory,claude-gauge,agy-permissions,upkeep,command"
+        self.assertEqual(box.kg("setup", "--yes", "--only", keys).returncode, 0)
+        plan = box.kg("uninstall", "--plan").stdout
+        self.assertIn("restore your own status line", plan)
+        self.assertIn("remove the development kg link", plan)
+        self.assertEqual(box.kg("uninstall", "--yes").returncode, 0)
+        self.assertEqual(json.loads((box.home / ".claude/settings.json").read_text()), original)
+        agy = json.loads((box.home / ".gemini/antigravity-cli/settings.json").read_text())
+        self.assertEqual(agy["permissions"]["allow"], ["command(ls)"])
+        self.assertFalse(json.loads((box.home / ".knowledge-graph/chores.json").read_text())["enabled"])
+        self.assertFalse((box.home / ".local/bin/kg").exists())
+        self.assertIn("Nothing set up by kg", box.kg("uninstall", "--plan").stdout)
+
+    def test_update_from_a_checkout_brings_the_server_up(self):
+        box = Sandbox(self)
+        self.addCleanup(box.kg, "stop")
+        out = box.kg("update")
+        self.assertIn("Development checkout", out.stdout)
+        self.assertIn("server restarted on this copy", out.stdout)
+        self.assertIn("Server is running", box.kg("status").stdout)
+
+
 class GaugeTests(unittest.TestCase):
     def gauge(self, box, frame, *args):
         return subprocess.run([sys.executable, str(KG), "gauge", *args], env=box.env,
