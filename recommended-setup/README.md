@@ -1,40 +1,46 @@
 # Recommended user-level setup
 
-Three small config files that tune how Claude Code works, communicates, and paces itself — measured, not guessed. They pair well with the Knowledge Graph plugin (a calm, verify-first working style is exactly the tone you want distilled into long-term memory), but they are useful on their own.
+Two files that tune how Claude Code works, communicates and paces itself: an output style that carries a working agreement, and a status line that lets the agent read its own quota. They pair well with the Knowledge Graph plugin (a calm, verify-first working style is exactly the tone you want distilled into long-term memory), but they are useful on their own.
 
-All three are user-level: they apply to every project on your machine and live under `~/.claude/`.
+Both are user-level: they apply to every project on your machine and live under `~/.claude/`.
 
-**Using Codex CLI?** Output styles and the status line are Claude Code features. The working agreement is plain prose, so its paragraphs carry over: Codex reads global guidance from `~/.codex/AGENTS.md`. The benchmarks below were run on Claude Code only.
+**Using Codex CLI?** The **[Codex setup guide](codex.md)** loads the same style text as `developer_instructions` and sets up Codex's native footer for limits and context.
 
 ## What's here
 
-- **[`CLAUDE.md`](CLAUDE.md)** — a working-agreement memory file. Its deeper job is setting the collaboration's emotional vector: calm, unhurried, truth-over-agreement. In benchmarks this framing roughly doubled unprompted exploration and discovery — with the concise output style active, a planted bug in an open-ended "explain this code" task was found in 5/5 runs with these paragraphs vs 1/5 without, at zero added output-token cost.
-- **[`output-styles/concise-quality-v2.md`](output-styles/concise-quality-v2.md)** — an output style tuned via blind A/B benchmark (45 runs, 3 arms, blind judges, real replace-mode mechanism): quality 9.13 vs 8.80 for the stock style, −27% output tokens, zero fluff or fabrication flags across all runs. Note that a selected output style *replaces* Claude Code's built-in tone/style rules rather than layering on top — the style text carries all the weight, which is why every line here earned its place.
+- **[`output-styles/concise-quality-v3.md`](output-styles/concise-quality-v3.md)** — one text for how the agent works and how it writes. It opens with a working agreement (calm, unhurried, truth over agreement), follows with response rules (lead with the answer; brevity in the report, not in the work; verify before asserting), and adds code standards, context management, memory habits and a note on collaboration. The Memory section applies only when the Knowledge Graph plugin is installed.
 - **[`statusline.sh`](statusline.sh)** — a two-line status line showing session identity and session health, including your rolling subscription quota. Its second job is the one that changes how Claude works: it writes the quota to `~/.claude/last-limits.json`, which is the only way an agent can read its own remaining budget. See [Working with the limits](#working-with-the-limits) below.
 
-**Use the first two together.** The one measured cost of the concise style was dampened *unprompted* digging on open-ended review asks — and the CLAUDE.md's calm/truth framing is what restored it. Adopting the style alone gives you the token savings but not the discovery recovery.
+### What was measured
+
+v3 merges two texts that were benchmarked separately on Claude Code in July 2026 and shipped here until September as a `CLAUDE.md` working agreement and the `concise-quality-v2` output style ([last version with both](https://github.com/mironmax/claudecode-plugins/tree/206b99c/recommended-setup)):
+
+- **The response rules** (v2), in a blind A/B benchmark (45 runs, 3 arms, blind judges, set as the real output style): quality 9.13 vs 8.80 for the stock style, −27% output tokens, zero fluff or fabrication flags. Their one measured cost was less *unprompted* digging on open-ended asks such as "explain this code".
+- **The working agreement** restored that digging: with the concise style active, a planted bug in an open-ended "explain this code" task was found in 5/5 runs with its paragraphs vs 1/5 without, at no added output-token cost.
+
+v3 as a whole, added sections included, has been in daily use since September 2026 and has not been re-benchmarked on Claude Code. On Codex, a small test (18 trials) confirmed where the text loads, but its sample is too small to rank the effect; see the [Codex guide](codex.md).
+
+### How the style loads
+
+In Claude Code 2.1.284 a selected output style is added to the system prompt and replaces nothing: the stock prompt no longer has separate tone or coding sections to drop, so `keep-coding-instructions` changes nothing here. (In July the style did replace Claude Code's built-in tone rules; the v2 numbers above come from that setup.) Two rules in v3 deliberately override the harness's own defaults: it cleans up excess comments where the harness says to match the surrounding comment density, and it wraps up with a handover before automatic summarization where the harness says there is no need to.
 
 ## Install
 
 ```bash
 # 1. The output style
 mkdir -p ~/.claude/output-styles
-cp output-styles/concise-quality-v2.md ~/.claude/output-styles/
+cp output-styles/concise-quality-v3.md ~/.claude/output-styles/
 
-# 2. The working-agreement memory
-#    If you don't have a ~/.claude/CLAUDE.md yet:
-cp CLAUDE.md ~/.claude/CLAUDE.md
-#    If you do: merge the sections in by hand — don't overwrite your own instructions.
-
-# 3. The status line (requires jq)
+# 2. The status line (requires jq)
 cp statusline.sh ~/.claude/statusline.sh
 chmod +x ~/.claude/statusline.sh
 ```
 
-Then point Claude Code at the script by adding this to `~/.claude/settings.json` (merge into your existing JSON — don't paste a second top-level object):
+Then select both in `~/.claude/settings.json` (merge into your existing JSON — don't paste a second top-level object):
 
 ```json
 {
+  "outputStyle": "concise-quality-v3",
   "statusLine": {
     "type": "command",
     "command": "~/.claude/statusline.sh"
@@ -42,14 +48,14 @@ Then point Claude Code at the script by adding this to `~/.claude/settings.json`
 }
 ```
 
-The tilde form is what Claude Code documents — the command runs through a shell. On Windows it routes through Git Bash, so the script needs Git Bash installed.
+The tilde form is what Claude Code documents — the command runs through a shell. On Windows it routes through Git Bash, so the script needs Git Bash installed. New sessions pick both up; a running session switches style on its next turn.
 
-Then in any Claude Code session run `/output-style concise-quality-v2` to make it your default. New sessions pick all three up automatically.
+**Moving from v2 and the old `CLAUDE.md`:** v3 contains both. Set `outputStyle` to `concise-quality-v3`, then delete the working-agreement sections (*How we work*, *Memory*, *Communication*) from `~/.claude/CLAUDE.md`, or the same text loads twice. Keep anything else you have there.
 
 **Verify:** start a fresh session and ask something trivial. The answer should lead with the outcome, no preamble, no closing pleasantries — and the status line should render two lines like this:
 
 ```
-maxim@Solaris 📁 claudecode-plugins 🕐 21:21 🔗 knowledge-graph,claude-in-chrome [concise-quality-v2]
+maxim@Solaris 📁 claudecode-plugins 🕐 21:21 🔗 knowledge-graph,claude-in-chrome [concise-quality-v3]
 ─────────────────────────────────────────────────────────────────────────────────────────────────────
 ⚡ Opus 5 │ 📊 5h:41%→02:10 7d:62%→Sun 02 │ 💾 cache:94% │ 📐 ctx:34%
 ```
@@ -66,7 +72,7 @@ jq . ~/.claude/last-limits.json
 
 **Watch out for:** per-project `.claude/settings.local.json` files with their own `outputStyle` or `statusLine` — they silently shadow the global ones. If one project still sounds or looks different, check there.
 
-**Undo:** `/output-style default` restores the stock style; remove the `statusLine` key from settings; remove or edit `~/.claude/CLAUDE.md` sections as you like.
+**Undo:** remove the `outputStyle` key from settings (or set it to `"default"`) to restore the stock style; remove the `statusLine` key to drop the status line.
 
 ---
 
@@ -128,7 +134,7 @@ and before committing to a large block of work; pace against it and say plainly
 when the budget argues for a smaller scope.
 ```
 
-That can live in `~/.claude/CLAUDE.md` — keep it factual and short, since in benchmarks padding that file diluted its effect rather than strengthening it. If you run the [Knowledge Graph plugin](../README.md), the cheaper home is a memory node: it arrives in the session-start preload, costs nothing in the always-loaded budget, and can accumulate your calibration numbers alongside it.
+That can live in `~/.claude/CLAUDE.md` or at the end of your output style — keep it factual and short, since in benchmarks padding the working agreement diluted its effect rather than strengthening it. If you run the [Knowledge Graph plugin](../README.md), the cheaper home is a memory node: it arrives in the session-start preload, costs nothing in the always-loaded budget, and can accumulate your calibration numbers alongside it.
 
 Finally, treat the gauge as a **pacing instrument rather than an alarm**. Its value is not the warning at 85% — it's that a plan made against a known budget gets scoped correctly at the start, so the warning never arrives. A session that ends on a checkpoint by choice is worth several that end mid-edit.
 
@@ -138,6 +144,6 @@ One caveat I'd rather state than have you discover: headless and scheduled sessi
 
 ## Adapting
 
-Treat all three files as starting points. Resist padding the first two: in benchmarks, adding extra instruction lines to CLAUDE.md *diluted* the effect rather than strengthening it. Short and settled beats long and thorough here.
+Treat both files as starting points. Resist padding the style: in benchmarks, adding extra instruction lines to the working agreement *diluted* its effect rather than strengthening it. Short and settled beats long and thorough here.
 
 The status line is the opposite — it's yours to rearrange freely. The segments are independent; the only part worth preserving verbatim is the `last-limits.json` write block, including its guard against overwriting a good reading with nulls.

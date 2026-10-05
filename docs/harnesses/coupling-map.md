@@ -25,7 +25,7 @@ needs these corrections.
 |---|---|
 | Ambient recall on each prompt | The path is `kg-remind.sh` → `POST /api/prompt_context` (`knowledge-graph/server/mcp_http/rest.py:234-275`) → `build_prompt_recall` (`knowledge-graph/server/mcp_http/ambient.py:229`). When the server has nothing deterministic to say, the hook falls back to staged random nudges that live in the hook itself (`knowledge-graph/hooks/kg-remind.sh:53-110`). |
 | Recall and nudges on tool use | The path is `kg-tool-event.sh` → `POST /api/tool_event` (`rest.py:277-295`) → `handle_tool_event` (`ambient.py:569`), which calls `file_targets` (`knowledge-graph/server/mcp_http/file_recall.py:263`). Claude Code tool names are hard-coded at `file_recall.py:107-108` and `ambient.py:492-503`. |
-| Doctrine delivery | `kg-core` declares `user-invocable: false` (`knowledge-graph/skills/kg-core/SKILL.md:3`). The repository does not show whether Claude Code auto-loads its body. Doctrine also rides the preload header (`knowledge-graph/server/mcp_http/read_format.py:244-265`), the hook nudges, and `recommended-setup/CLAUDE.md`. |
+| Doctrine delivery | `kg-core` declares `user-invocable: false` (`knowledge-graph/skills/kg-core/SKILL.md:3`). The repository does not show whether Claude Code auto-loads its body. Doctrine also rides the preload header (`knowledge-graph/server/mcp_http/read_format.py:244-265`), the hook nudges, and the Memory section of `recommended-setup/output-styles/concise-quality-v3.md`. |
 | Maintenance dispatch | Maintenance does not run on a clock. It is triggered by the per-prompt hook: `/api/prompt_context` starts `maybe_dispatch` on a thread (`rest.py:245-257`), so this job depends on the prompt hook too. The chore runs with `KG_CHORE=1`, which silences the plugin's own hooks (`knowledge-graph/hooks/kg-autostart.sh:26`, `kg-remind.sh:18`, `kg-tool-event.sh:13`), and from the storage root as its working directory (`chore_dispatch.py:381-388`). A systemd "tick" dispatcher is referenced (`chore_dispatch.py:3`, `knowledge-graph/server/core/constants.py:280`) but its script is not in this repository. |
 | Budget gate for maintenance | Correct as stated. The gauge path can be overridden with `"limits"` in `chores.json` (`chore_dispatch.py:253`). |
 | Session and project identity | Besides the hook's stdin fields, identity also depends on the SessionStart `source` value (`rest.py:124-149`), on KG session ids recovered from markers in the transcript file (`knowledge-graph/server/mcp_http/session_manager.py:14-51`), and on `CLAUDE_PROJECT_DIR` as a fallback (`kg-autostart.sh:40`). |
@@ -126,7 +126,7 @@ Code specifics.
 | `knowledge-graph/skills/kg-ops/SKILL.md` | about 40 of 314 | Install via `/plugin`, `/mcp` Reconnect, `~/.claude/plugins/cache`, the status line gauge, `${CLAUDE_PLUGIN_ROOT}` (`:28-58`, `:93-140`). |
 | `knowledge-graph/skills/kg-core/SKILL.md` | 3 | Mentions `CLAUDE.md` and subagents (`:126`, `:179-181`). |
 | `knowledge-graph/skills/kg-maintain/SKILL.md` | about 6 | Subagent dispatch (`:7`, `:134-137`). |
-| `recommended-setup/output-styles/concise-quality-v2.md`, `recommended-setup/CLAUDE.md` | 53 | Claude Code output style and memory file. |
+| `recommended-setup/output-styles/concise-quality-v3.md` | 3 | Only the output-style YAML header (`:1-3`); the body names no harness and loads on Codex as `developer_instructions`. |
 
 ### Claude Desktop adapter
 

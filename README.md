@@ -42,7 +42,7 @@ You don't operate the graph; the agent does. After install:
 **Also recommended:**
 - Turn off the harness's own memory, or two memory systems write conflicting entries. Claude Code: ⚙ Settings → Memory → Auto-memory **off**. Codex: its `memories` feature is off by default; leave it off.
 - Enable plugin auto-updates in Claude Code: `/plugin` → **Marketplaces** → `maxim-plugins` → **Enable auto-update** (off by default for third-party marketplaces).
-- Adopt the **[recommended user-level setup](recommended-setup/)** for Claude Code: a benchmarked `~/.claude/CLAUDE.md` working agreement, an output style, and a status line that pair well with graph memory. Better answer quality at −27% output tokens, a collaboration tone worth remembering, and a quota gauge the agent can read, so it paces long sessions instead of stopping mid-edit.
+- Adopt the **[recommended user-level setup](recommended-setup/)** for Claude Code: an output style carrying a working agreement, and a status line, which pair well with graph memory. Its parts were benchmarked at better answer quality with −27% output tokens; it sets a collaboration tone worth remembering, and the quota gauge lets the agent pace long sessions instead of stopping mid-edit. For Codex, the **[Codex setup](recommended-setup/codex.md)** loads the same style as developer instructions and sets up the footer for limits and context.
 
 ---
 

@@ -47,7 +47,8 @@ For Codex CLI, see [Codex CLI](#codex-cli) below: two commands, then one approva
 - **Enable plugin auto-updates** — `/plugin` → **Marketplaces** → `maxim-plugins` → **Enable auto-update**. Third-party marketplaces are off by default, so this is the only way to stay current without manual refreshes.
 
 **Optional:**
-- **[Recommended user-level setup](../recommended-setup/)** — a benchmarked `~/.claude/CLAUDE.md`, an output style, and a quota-aware status line. The status line matters here beyond taste: it persists your rolling 5h/7d usage to `~/.claude/last-limits.json`, the only channel through which Claude can read its own remaining budget — which is what lets a long session end on a clean checkpoint (handover letter + memory writes) instead of stopping mid-edit.
+- **[Recommended user-level setup](../recommended-setup/)** — an output style carrying a benchmarked working agreement, and a quota-aware status line. The status line matters here beyond taste: it persists your rolling 5h/7d usage to `~/.claude/last-limits.json`, the only channel through which Claude can read its own remaining budget — which is what lets a long session end on a clean checkpoint (handover letter + memory writes) instead of stopping mid-edit.
+- **[Codex CLI setup](../recommended-setup/codex.md)** — the same working style as developer instructions, and a native footer preset for limits and context.
 - **`kg-memory` / `kg-visual` shell commands** — for managing the server from your terminal. See [Server Management](#server-management) below.
 - **Auto-approval** — skip permission prompts by adding the permissions below to `~/.claude/settings.json`.
 
