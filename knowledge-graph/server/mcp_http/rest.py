@@ -278,6 +278,21 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
     # responses are ready-to-print hook output — the bash side never parses)
     # ========================================================================
 
+    def _with_budget(text: str | None, payload: dict) -> str | None:
+        """Append a quota notice the session has not heard yet."""
+        from . import budget
+        from .harness import from_transcript
+        try:
+            hit = session_manager.resolve_hook_session(
+                payload.get("session_id"), payload.get("cwd"), payload.get("transcript_path"))
+            note = budget.notice(session_manager, hit[0] if hit else None,
+                                 from_transcript(payload.get("transcript_path")),
+                                 payload.get("transcript_path"))
+        except Exception:
+            logger.debug("budget notice failed", exc_info=True)
+            note = None
+        return "\n\n".join(t for t in (text, note) if t) or None
+
     @rest_api.post("/api/prompt_context")
     async def rest_prompt_context(payload: dict):
         """UserPromptSubmit: full-read nudge or prompt-matched recall.
@@ -316,7 +331,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             )
         except Exception:
             logger.exception("prompt_context failed")
-            return {}
+            text = None
+        text = _with_budget(text, payload)
         if not text:
             return {}
         return {
@@ -336,7 +352,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             text = handle_tool_event(store, session_manager, payload)
         except Exception:
             logger.exception("tool_event failed")
-            return {}
+            text = None
+        text = _with_budget(text, payload)
         if not text:
             return {}
         return {

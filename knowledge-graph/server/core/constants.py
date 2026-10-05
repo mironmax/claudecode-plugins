@@ -336,6 +336,8 @@ CHORE_MODEL = "claude-sonnet-5"
 # Codex keeps its plan windows in the session rollout, one token_count event
 # per model response; the last one sits near the end, behind the turn itself.
 CODEX_ROLLOUT_TAIL_BYTES = 256 * 1024
+# `agy -p /usage` answers locally in ~3 s; a hung CLI must not stall a gate.
+AGY_USAGE_TIMEOUT_SECONDS = 20
 # Targets per chore, by kind. Small on purpose: the point is that a chore
 # always finishes, so the graph moves a little on most days instead of a lot
 # on the rare day every gate opens at once.

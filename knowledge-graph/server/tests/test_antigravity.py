@@ -10,6 +10,7 @@ from contextlib import AsyncExitStack
 import json
 import logging
 import os
+os.environ["KG_BUDGET_NOTICES"] = "0"  # hook outputs below are exact; budget.py has its own tests
 from pathlib import Path
 import sys
 import tempfile
@@ -401,6 +402,20 @@ class AntigravityTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("lunar-orbit-memory", self.sm.get_seen(sid))
             self.assertEqual((await self.hook(invocationNum=0))["output"], {})
             dispatch.assert_not_called()
+
+    async def test_a_new_prompt_dispatches_maintenance_when_chores_are_on(self):
+        await self.bootstrap()
+        self.transcript({"type": "USER_INPUT", "step_index": 1, "content": "<USER_REQUEST>tidy</USER_REQUEST>"})
+        with patch.object(chore_dispatch, "enabled", return_value=True), \
+                patch.object(chore_dispatch, "maybe_dispatch") as dispatch:
+            await self.hook(invocationNum=0)
+            await self.hook(invocationNum=1)
+            for _ in range(50):
+                if dispatch.called:
+                    break
+                await asyncio.sleep(0.01)
+        self.assertEqual(dispatch.call_count, 1)
+        self.assertEqual(dispatch.call_args.args[2], str(self.root))
 
     async def test_missing_workspace_is_user_only_and_ide_events_are_ignored(self):
         await self.hook("SessionStart", cid="folderless", workspacePaths=[])

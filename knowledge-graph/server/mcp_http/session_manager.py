@@ -609,6 +609,24 @@ class HTTPSessionManager:
         return True
 
     @_locked
+    def note_budget_level(self, session_id: str, window: str, level: int,
+                          resets_at: float | None) -> bool:
+        """True when this quota level is new for the session in this window.
+        A new reset time is a new window: its levels start over."""
+        data = self._sessions.get(session_id)
+        if data is None:
+            return False
+        levels = data.setdefault("budget_levels", {})
+        heard, heard_resets = levels.get(window) or (0, None)
+        if heard_resets != resets_at:
+            heard = 0
+        if level <= heard:
+            return False
+        levels[window] = [level, resets_at]
+        self.save_sessions()
+        return True
+
+    @_locked
     def get_sync_ts(self, session_id: str) -> float:
         """Get effective sync timestamp: last_synced_ts if present, else start_ts."""
         self.ensure_session(session_id)

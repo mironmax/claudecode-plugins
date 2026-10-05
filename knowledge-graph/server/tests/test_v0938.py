@@ -17,6 +17,7 @@ Covers:
   4. Both scanners stay fast on adversarial input (unclosed delimiters)
 """
 import os
+os.environ["KG_BUDGET_NOTICES"] = "0"  # hook outputs below are exact; budget.py has its own tests
 import sys
 import tempfile
 import time

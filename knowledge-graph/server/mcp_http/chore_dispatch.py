@@ -30,6 +30,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
@@ -61,6 +62,7 @@ from core.constants import (
     CHORE_MODEL,
     CHORE_TASK_ID,
     CHORE_TIMEOUT_SECONDS,
+    AGY_USAGE_TIMEOUT_SECONDS,
     CODEX_ROLLOUT_TAIL_BYTES,
     LIFT_EDGE_REL,
     PASS_GAUGE_MAX_5H,
@@ -353,7 +355,107 @@ class CodexRunner:
         return cmd
 
 
-RUNNERS = {r.name: r for r in (ClaudeRunner(), CodexRunner())}
+def antigravity_limits(envelope: dict, model: str | None, now: float) -> dict:
+    """Gauge keys from `agy -p /usage --output-format json`.
+
+    Buckets come in groups of models that share a limit: Gemini models in
+    one, Claude and GPT models in the other. The run's model picks the
+    group (Gemini when unset, the CLI's default family). A plan may have a
+    weekly bucket only; then the reading says so instead of inventing a
+    five-hour window, and the gates skip that check.
+    """
+    groups = (((envelope or {}).get("command") or {}).get("data") or {}).get("groups") or []
+    if not groups:
+        raise ValueError("no Antigravity quota groups (API key, or not signed in)")
+    gemini = not model or model.lower().startswith("gemini")
+    group = next((g for g in groups if any(
+        str(b.get("id", "")).startswith("gemini") == gemini for b in g.get("buckets") or [])), None)
+    if group is None:
+        raise ValueError(f"no Antigravity quota group for model {model!r}")
+    out = {"updated_at": now, "bucket_group": group.get("name")}
+    for bucket in group.get("buckets") or []:
+        key = {"weekly": "seven_day", "five_hour": "five_hour", "5h": "five_hour"}.get(
+            str(bucket.get("window", "")).lower())
+        fraction = bucket.get("remaining_fraction")
+        if not key or isinstance(fraction, bool) or not isinstance(fraction, (int, float)) \
+                or not math.isfinite(fraction) or not 0 <= fraction <= 1:
+            continue
+        resets = _iso_ts(bucket.get("reset_time"))
+        pct = round((1 - fraction) * 100, 1)
+        if resets and resets < now:
+            pct = 0.0
+        out[f"{key}_pct"] = pct
+        out[f"{key}_resets_at"] = resets
+    if "seven_day_pct" not in out and "five_hour_pct" not in out:
+        raise ValueError("no usable Antigravity quota bucket")
+    if "five_hour_pct" not in out:
+        out["no_five_hour_window"] = True
+    return out
+
+
+def antigravity_gauge(binary: str | None, model: str | None, now: float,
+                      timeout: float = AGY_USAGE_TIMEOUT_SECONDS) -> dict:
+    """A live reading: /usage answers locally, without a model call."""
+    if not binary:
+        raise ValueError("agy not found")
+    proc = subprocess.run([binary, "-p", "/usage", "--output-format", "json"],
+                          capture_output=True, text=True, timeout=timeout,
+                          cwd=str(get_storage_root()), env=chore_env(),
+                          stdin=subprocess.DEVNULL)
+    if proc.returncode != 0:
+        raise ValueError(f"agy /usage exited {proc.returncode}")
+    return antigravity_limits(json.loads(proc.stdout), model, now)
+
+
+AGY_SETTINGS = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
+AGY_MCP_SERVER = "knowledge-graph_kg"
+AGY_CHORE_SCRIPT = Path(__file__).resolve().with_name("agy_chore.py")
+
+
+class AntigravityRunner:
+    name = "antigravity"
+
+    def binary(self, cfg: dict) -> str | None:
+        explicit = cfg.get("antigravity_bin")
+        if explicit:
+            return explicit if Path(explicit).exists() else None
+        default = Path.home() / ".local/bin/agy"
+        return str(default) if default.exists() else shutil.which("agy")
+
+    def gauge(self, cfg: dict, now: float) -> dict:
+        return antigravity_gauge(self.binary(cfg), cfg.get("antigravity_model"), now)
+
+    def refusal(self, cfg: dict, settings: str) -> str:
+        """Why a run must not start: a headless agy soft-denies every tool the
+        user has not granted, and spends paid credits once the plan quota is
+        gone if useG1Credits is on. "" when it may run."""
+        try:
+            user = json.loads(AGY_SETTINGS.read_text())
+        except FileNotFoundError:
+            user = {}
+        except ValueError:
+            return "Antigravity settings.json unreadable"
+        if user.get("useG1Credits") and not cfg.get("antigravity_allow_credits"):
+            return "Antigravity useG1Credits is on: a run could spend paid credits"
+        allow = set((user.get("permissions") or {}).get("allow") or [])
+        if "mcp(*)" in allow or f"mcp({AGY_MCP_SERVER}/*)" in allow:
+            return ""
+        missing = [t for t in allowed_tools(settings)
+                   if t not in ("kg_delete_node", "kg_delete_edge")
+                   and f"mcp({AGY_MCP_SERVER}/{t})" not in allow]
+        return f"Antigravity has not granted {', '.join(missing)}" if missing else ""
+
+    def command(self, cfg: dict, job: dict) -> list[str]:
+        """A wrapper runs agy as the tool-less kg-maintainer agent and stops it
+        if agy falls back to its default agent (see agy_chore.py)."""
+        effort = cfg.get("antigravity_effort", "medium" if job["tier"] == "pass" else "low")
+        cmd = [sys.executable, str(AGY_CHORE_SCRIPT), "--bin", job["bin"], "--effort", effort]
+        if cfg.get("antigravity_model"):
+            cmd += ["--model", cfg["antigravity_model"]]
+        return cmd
+
+
+RUNNERS = {r.name: r for r in (ClaudeRunner(), CodexRunner(), AntigravityRunner())}
 
 
 def _runner(cfg: dict):
@@ -482,7 +584,9 @@ def _gauge_read(cfg: dict, now: float, runner) -> tuple[dict, dict | None, str]:
 def _chore_gauge_ok(cfg: dict, raw: dict) -> str:
     """"" when a chore may spend, else the gate that refused."""
     p5, p7 = raw.get("five_hour_pct"), raw.get("seven_day_pct")
-    if p5 is None or p5 >= cfg.get("max_5h", CHORE_GAUGE_MAX_5H):
+    if p5 is None and raw.get("no_five_hour_window") and p7 is not None:
+        pass  # a weekly-only plan: the weekly gate below is the whole check
+    elif p5 is None or p5 >= cfg.get("max_5h", CHORE_GAUGE_MAX_5H):
         return f"5h {p5}%"
     if p7 is not None and p7 >= cfg.get("max_7d", CHORE_GAUGE_MAX_7D):
         return f"7d {p7}%"
@@ -498,7 +602,9 @@ def _pass_gauge_ok(cfg: dict, raw: dict, now: float) -> str:
     linear line sits at 93% and would otherwise wave through a spent week.
     """
     p5, p7 = raw.get("five_hour_pct"), raw.get("seven_day_pct")
-    if p5 is None or p5 >= cfg.get("pass_max_5h", PASS_GAUGE_MAX_5H):
+    if p5 is None and raw.get("no_five_hour_window") and p7 is not None:
+        pass
+    elif p5 is None or p5 >= cfg.get("pass_max_5h", PASS_GAUGE_MAX_5H):
         return f"pass: 5h {p5}%"
     if p7 is not None and p7 >= cfg.get("pass_max_7d", PASS_GAUGE_MAX_7D):
         return f"pass: 7d {p7}%"
@@ -855,6 +961,10 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
         if not binary or not settings:
             _log({"event": "skip", "reason": f"{runner.name} binary or settings missing",
                   "tier": tier, "bin": binary, "settings": settings})
+            return
+        refusal = runner.refusal(cfg, settings) if hasattr(runner, "refusal") else ""
+        if refusal:
+            _log({"event": "skip", "reason": refusal, "runner": runner.name, "tier": tier})
             return
 
         level = payload["level"] if tier == "pass" else payload.level

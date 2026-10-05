@@ -20,6 +20,7 @@ real graphs under ~/.knowledge-graph.
 
 import json
 import os
+os.environ["KG_BUDGET_NOTICES"] = "0"  # hook outputs below are exact; budget.py has its own tests
 import re
 import shutil
 import sys

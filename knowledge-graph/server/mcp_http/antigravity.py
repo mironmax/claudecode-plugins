@@ -1,6 +1,6 @@
 """Experimental CLI adapter: conversation identity and persistent hook context.
 
-No maintenance runner is selected here. Claude Code/Codex keep their existing
+Claude Code and Codex keep their existing
 REST routes, hooks and tool replies. A native agy hook only carries JSON;
 normalization, retrieval and delivery decisions belong to this server.
 """
@@ -10,6 +10,7 @@ import json
 import os
 import random
 import stat
+import threading
 import time
 
 from mcp.types import CallToolResult, TextContent
@@ -188,6 +189,16 @@ def _pulse(size):
     return random.choice(pool)
 
 
+def _dispatch_maintenance(store, manager, project_path):
+    """A human prompt says this graph is in use: the moment a chore may run,
+    as for Claude Code and Codex. The runner the user chose spends quota."""
+    from . import chore_dispatch
+    if chore_dispatch.enabled():
+        threading.Thread(target=chore_dispatch.maybe_dispatch,
+                         args=(store, manager, project_path),
+                         daemon=True, name="kg-chore-dispatch").start()
+
+
 def handle_event(store, manager, event_name, payload):
     """Return internal delivery metadata and the exact native hook envelope."""
     if event_name not in ("SessionStart", "PreInvocation", "PostToolUse"):
@@ -245,6 +256,8 @@ def handle_event(store, manager, event_name, payload):
         fresh = manager.note_antigravity_hook(sid, key)
         # Drain earlier replies even when a denied tool ended the last turn.
         # Do not add a full-read nudge while the read itself is in flight.
+        if fresh:
+            _dispatch_maintenance(store, manager, data.get("project_path"))
         if fresh and not manager.has_pending_context(sid):
             from .ambient import _prompt_text, build_prompt_recall
             view = DeferredView(manager)
@@ -254,6 +267,11 @@ def handle_event(store, manager, event_name, payload):
                 text = _pulse(size)
             if text:
                 manager.queue_context(sid, text, "prompt recall", view.effects)
+    if event_name == "PreInvocation":
+        from . import budget
+        note = budget.notice(manager, sid, harness.ANTIGRAVITY, transcript)
+        if note:
+            manager.queue_context(sid, note, "budget")
     packet = manager.prepare_context(sid)
     if not packet:
         return {"output": {}}

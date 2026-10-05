@@ -11,6 +11,7 @@ Codex scratch path appear only as strings: nothing is created there.
 import asyncio
 import json
 import os
+os.environ["KG_BUDGET_NOTICES"] = "0"  # hook outputs below are exact; budget.py has its own tests
 from pathlib import Path
 import re
 import sys
