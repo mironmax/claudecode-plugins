@@ -99,7 +99,7 @@ def update(after_upgrade: bool) -> int:
         upgrade = {"uv": ["uv", "tool", "upgrade", "kg-memory"],
                    "pipx": ["pipx", "upgrade", "kg-memory"]}.get(kind)
         if upgrade:
-            print(f"Upgrading kg ({kind})...")
+            print(f"Upgrading kg ({kind})...", flush=True)
             try:
                 steps.run(upgrade)
             except Exception as exc:
@@ -108,7 +108,7 @@ def update(after_upgrade: bool) -> int:
             command = steps.kg_command()
             now = steps.run([command, "version"]).strip() if command else before
             if now != before:
-                print(f"kg {before} → {now}")
+                print(f"kg {before} → {now}", flush=True)   # execv drops unflushed output
                 os.execv(command, [command, "update", "--after-upgrade"])
             print(f"kg {before} is the latest.")
         elif kind == "checkout":
