@@ -4,6 +4,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import urllib.error
@@ -31,16 +32,24 @@ def unavailable(event, base):
         plugin = Path(__file__).resolve().parents[1]
         manage = plugin / "server/manage_server.sh"
         breadcrumb = plugin / "server/.last_start_error"
+        # An installed `kg` runs one server copy for every harness.
+        kg = shutil.which("kg") or str(Path.home() / ".local/bin/kg")
+        if os.access(kg, os.X_OK):
+            state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
+            breadcrumb = state / "knowledge-graph/last_start_error"
+            start = [kg, "start"]
+        else:
+            start = ["bash", str(manage), "start"]
         if breadcrumb.exists():
             cause = next((line[7:] for line in breadcrumb.read_text().splitlines()
                           if line.startswith("cause: ")), "cause not recorded")
             return output(f"KG memory server failed to start: {cause}. "
                           f"Check {breadcrumb}; repair its environment before retrying.")
-        if not manage.exists():
+        if start[0] == "bash" and not manage.exists():
             return output("KG memory server is offline and its start script is missing. "
                           "Check the knowledge-graph plugin installation.")
         env = {k: v for k, v in os.environ.items() if not k.startswith("ANTIGRAVITY_")}
-        subprocess.Popen(["bash", str(manage), "start"], env=env,
+        subprocess.Popen(start, env=env,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, start_new_session=True)
         return output("KG memory server was offline; starting it in the background. "

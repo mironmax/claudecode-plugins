@@ -126,7 +126,44 @@ def failure_cause() -> str:
     return errors[-1] if errors else "server did not answer /health within 15s"
 
 
+UNIT = "kg-memory.service"
+
+
+def service_enabled() -> bool:
+    """A systemd user unit owns the server: lifecycle goes through systemctl,
+    or a stop here would fight its supervisor."""
+    if not shutil.which("systemctl"):
+        return False
+    out = subprocess.run(["systemctl", "--user", "is-enabled", UNIT], capture_output=True, text=True)
+    return out.stdout.strip() == "enabled"
+
+
+def systemctl(action: str) -> int:
+    out = subprocess.run(["systemctl", "--user", action, UNIT], capture_output=True, text=True)
+    if out.returncode:
+        print(f"systemctl --user {action} {UNIT} failed: {out.stderr.strip()}")
+        return 1
+    if action != "stop" and not wait(lambda: health() is not None, 20):
+        print(f"{UNIT} is {action}ed but the server does not answer: journalctl --user -u {UNIT}")
+        return 1
+    print(f"Server {action}ed by {UNIT} (version {version()}).")
+    return 0
+
+
+def stop_strays() -> None:
+    """Servers this unit does not own (started by an older plugin or by hand)."""
+    main = subprocess.run(["systemctl", "--user", "show", "-p", "MainPID", "--value", UNIT],
+                          capture_output=True, text=True).stdout.strip()
+    for pid in port_owners():
+        if str(pid) != main:
+            os.kill(pid, signal.SIGTERM)
+    wait(lambda: all(str(p) == main for p in port_owners()), 6)
+
+
 def start() -> int:
+    if service_enabled():
+        stop_strays()
+        return systemctl("start")
     pid = running_pid()
     if pid:
         print(f"Server already running (PID {pid}).")
@@ -167,6 +204,8 @@ def commit_storage() -> None:
 
 
 def stop() -> int:
+    if service_enabled():
+        systemctl("stop")
     pids = {p for p in [running_pid(), *port_owners()] if p}
     if not pids:
         PID_FILE.unlink(missing_ok=True)
@@ -187,6 +226,9 @@ def stop() -> int:
 
 
 def restart() -> int:
+    if service_enabled():
+        stop_strays()
+        return systemctl("restart")
     stop()
     return start()
 
@@ -234,14 +276,29 @@ def main(argv: list[str] | None = None) -> int:
         sub.add_parser(name, help=text)
     sub.add_parser("logs", help="show the server log").add_argument(
         "-f", "--follow", action="store_true", help="keep following it")
+    setup = sub.add_parser("setup", help="set up every installed harness (asks before each change)")
+    setup.add_argument("--yes", action="store_true", help="apply without asking")
+    setup.add_argument("--only", help="comma-separated step keys, as `kg setup --plan` lists them")
+    setup.add_argument("--plan", action="store_true", help="show what setup would do, change nothing")
+    gauge = sub.add_parser("gauge", help="Claude Code status line: record the quota gauge")
+    gauge.add_argument("--wrap", help="your own status-line command, run unchanged after recording")
     args = parser.parse_args(argv)
 
-    if args.command == "doctor":
+    if args.command in ("doctor", "setup"):
         try:
             from . import doctor
         except ImportError:  # run as a script from a checkout
             import doctor
-        return doctor.run()
+        if args.command == "doctor":
+            return doctor.run()
+        only = set(args.only.split(",")) if args.only else None
+        return doctor.setup(args.yes, only, args.plan)
+    if args.command == "gauge":
+        try:
+            from . import gauge
+        except ImportError:
+            import gauge
+        return gauge.run(args.wrap)
     if args.command == "version":
         print(version())
         return 0

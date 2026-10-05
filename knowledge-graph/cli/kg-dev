@@ -1,0 +1,5 @@
+#!/bin/sh
+# kg from a development checkout: this checkout's code with its server venv.
+# Users install kg with uv instead (see README).
+CLI="$(dirname "$(readlink -f "$0")")"
+exec "$CLI/../server/venv/bin/python" "$CLI/kg.py" "$@"

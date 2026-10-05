@@ -92,8 +92,12 @@ fi
 
 HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANAGE="$HOOK_DIR/../server/manage_server.sh"
+# An installed `kg` runs one server copy for every harness; without it, this
+# plugin's own copy starts (the pre-kg layout).
+KG_BIN="$(command -v kg 2>/dev/null)"
+[ -z "$KG_BIN" ] && [ -x "$HOME/.local/bin/kg" ] && KG_BIN="$HOME/.local/bin/kg"
 
-if [ ! -f "$MANAGE" ]; then
+if [ -z "$KG_BIN" ] && [ ! -f "$MANAGE" ]; then
     echo "KG memory server is not running and its start script was not found — start it manually (see plugin docs)."
     exit 0
 fi
@@ -104,16 +108,26 @@ fi
 # same way every time, and the "warming up, ~1 min" message below would be
 # wrong every session, forever. Report the real cause instead and do not
 # start a process that will only die again.
-BREADCRUMB="$HOOK_DIR/../server/.last_start_error"
+if [ -n "$KG_BIN" ]; then
+    BREADCRUMB="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph/last_start_error"
+    REMEDY="run \`kg doctor\` and \`kg start\`, which print the cause and the fix"
+else
+    BREADCRUMB="$HOOK_DIR/../server/.last_start_error"
+    REMEDY="rebuild the environment with \`rm -rf <plugin>/server/venv\` then \`kg-memory start\`, which re-resolves dependencies against the current requirements.txt"
+fi
 if [ -f "$BREADCRUMB" ]; then
     CAUSE=$(grep -m1 '^cause: ' "$BREADCRUMB" 2>/dev/null | sed 's/^cause: //')
     WHEN=$(grep -m1 '^when: ' "$BREADCRUMB" 2>/dev/null | sed 's/^when: //')
     LOGPATH=$(grep -m1 '^log: ' "$BREADCRUMB" 2>/dev/null | sed 's/^log: //')
-    echo "KG memory server is DOWN and its last start attempt FAILED (${WHEN:-unknown time}): ${CAUSE:-cause not recorded}. This is not a warming-up delay — it will fail the same way until fixed, so do not tell the user to wait or to reconnect the MCP server. Report the cause above, point at the log (${LOGPATH:-see plugin docs}), and offer the remedy: rebuild the environment with \`rm -rf <plugin>/server/venv\` then \`kg-memory start\`, which re-resolves dependencies against the current requirements.txt. The kg_* tools are offline for this session; proceed without memory rather than retrying."
+    echo "KG memory server is DOWN and its last start attempt FAILED (${WHEN:-unknown time}): ${CAUSE:-cause not recorded}. This is not a warming-up delay — it will fail the same way until fixed, so do not tell the user to wait or to reconnect the MCP server. Report the cause above, point at the log (${LOGPATH:-see plugin docs}), and offer the remedy: ${REMEDY}. The kg_* tools are offline for this session; proceed without memory rather than retrying."
     exit 0
 fi
 
-nohup bash "$MANAGE" start > /dev/null 2>&1 &
+if [ -n "$KG_BIN" ]; then
+    nohup "$KG_BIN" start > /dev/null 2>&1 &
+else
+    nohup bash "$MANAGE" start > /dev/null 2>&1 &
+fi
 disown 2>/dev/null
 
 echo "KG memory server was down — starting it in the background now (a first run sets up its Python environment, ~1 min). Because it was down when this session connected, the kg_* MCP tools are likely offline for this session. When that is the case: (1) verify the server is up with \`curl -sf http://${HOST}:${PORT}/health\` (retry until it responds), then (2) tell the user to reconnect — in Claude Code: run /mcp, select plugin:knowledge-graph:kg, hit Reconnect; in Codex: start a new session. Only the user can do this step. After reconnect, call kg_read as usual."
