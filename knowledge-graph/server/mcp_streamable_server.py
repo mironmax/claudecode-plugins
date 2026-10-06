@@ -209,7 +209,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_put_node",
-                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, omitted fields stay unchanged, but notes and touches you send REPLACE the stored lists: to add a note to an existing node, read it (kg_read ids=[...]) and send the full list. A write built on a stale or partial view — the node changed since you last saw it, or you would replace notes you never read — is refused with the node as it stands; merge and call again. Search before creating to avoid duplicates. Connect with kg_put_edge after — unconnected nodes risk archival.",
+                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, omitted fields stay unchanged, but notes and touches you send REPLACE the stored lists: to add a note to an existing node, read it (kg_read ids=[...]) and send the full list. A write built on a stale or partial view — the node changed since you last saw it, or you would replace notes you never read — is refused with the node as it stands; merge and call again. One node holds one lesson: a session that taught several writes several nodes and connects them; a lesson met again is sharpened in place, its new case added as a note. Search before creating to avoid duplicates. Connect with kg_put_edge after — unconnected nodes risk archival.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -224,16 +224,16 @@ def create_mcp_server() -> Server:
                         },
                         "id": {
                             "type": "string",
-                            "description": "Node ID: kebab-case, 3-5 words NAMING THE SUBJECT. The claim about the subject goes in the gist, never in the id — 7+ words is refused. No dates: a date is a reference, not a meaning, and ages into noise. Ids are load-bearing: search weights them x3."
+                            "description": "Node ID: kebab-case, 3-5 words NAMING THE SUBJECT of its one lesson — never a container such as '…-lessons' or '…-log'. The claim about the subject goes in the gist, never in the id — 7+ words is refused. No dates: a date is a reference, not a meaning, and ages into noise. Ids are load-bearing: search weights them x3."
                         },
                         "gist": {
                             "type": "string",
-                            "description": "Compressed headline — the CLAIM this node makes about its subject. Scans best ≤300 chars; detail belongs in notes"
+                            "description": "The LESSON — the one claim this node makes about its subject, stated so it holds beyond the case that taught it. Scans best ≤300 chars; cases and detail belong in notes"
                         },
                         "notes": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Rationale, constraints, 'why' — recalled on demand. Replaces the stored list; send every entry to keep"
+                            "description": "The failure modes behind the lesson — one note per case that taught or confirmed it: what happened, where, what went wrong — plus rationale and constraints. Recalled on demand. Replaces the stored list; send every entry to keep"
                         },
                         "touches": {
                             "type": "array",
