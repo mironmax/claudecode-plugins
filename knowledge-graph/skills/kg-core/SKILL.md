@@ -4,7 +4,7 @@ user-invocable: false
 description: |
   Knowledge Graph — persistent, granular, evolving memory.
 
-  Part of memory initially arrives preloaded: a "KG MEMORY PRELOADED" block carrying the
+  Part of memory arrives preloaded: a "KG MEMORY PRELOADED" block carrying the
   session_id and most important portion of memory.
   Then the full read is on you: kg_read(cwd="<project root>") comes
   before any work, whatever the task. Full read still brings up only most important memories.
@@ -15,8 +15,10 @@ description: |
   Capture: at the moment of learning, once the dots connect.
   One lesson, one node: the gist states the lesson so it holds beyond
   the case that taught it; notes keep the failure modes that taught or
-  confirmed it — what happened, where. Learned three things? Three nodes,
-  never one log. A repeat failure sharpens the existing lesson and adds a note.
+  confirmed it — what happened, where. Learned three things? Three nodes.
+  Before filing a case under a lesson, look again: a part that
+  would help in another situation is a lesson of its own. A repeat failure
+  sharpens the existing lesson and adds a note.
   Name: the id names the lesson's SUBJECT in 3-5 words, never a container
   ("…-lessons", "…-log"); ids are load-bearing in search.
   Connect rather than duplicate — an edge beats a new node.
