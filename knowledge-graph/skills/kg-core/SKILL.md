@@ -14,8 +14,9 @@ description: |
   under fresher work; search reaches every tier.
   Capture: at the moment of learning, once the dots connect.
   One lesson, one node: the gist states the lesson so it holds beyond
-  the case that taught it; notes keep the failure modes that taught or
-  confirmed it — what happened, where. Learned three things? Three nodes.
+  the case that taught it; each note tells one case of this lesson — a
+  failure that taught or confirmed it, what happened, where. Learned three
+  things? Three nodes.
   Before filing a case under a lesson, look again: a part that
   would help in another situation is a lesson of its own. A repeat failure
   sharpens the existing lesson and adds a note.

@@ -233,7 +233,7 @@ def create_mcp_server() -> Server:
                         "notes": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "The failure modes behind the lesson — one note per case that taught or confirmed it: what happened, where, what went wrong — plus rationale and constraints. Before adding a note, take a second look: if part of it would also teach something in a different situation, that part is a lesson of its own — give it its own node and an edge. Recalled on demand. Replaces the stored list; send every entry to keep"
+                            "description": "The failure modes behind the lesson — each note tells one case of THIS lesson, a failure that taught or confirmed it: what happened, where, what went wrong — plus rationale and constraints. Before adding a note, take a second look: if part of it would also teach something in a different situation, that part is a lesson of its own — give it its own node and an edge. Recalled on demand. Replaces the stored list; send every entry to keep"
                         },
                         "touches": {
                             "type": "array",
