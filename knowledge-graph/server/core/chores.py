@@ -492,7 +492,7 @@ def build_chore_prompt(chore: Chore, cwd: str, lessons=(), lessons_budget: int =
         "",
         "Do exactly this:",
         "",
-        f'1. kg_read(cwd="{cwd}", ids=[{", ".join(repr(t) for t in chore.targets)}])',
+        f'1. kg_read(cwd="{cwd}", ids=[{", ".join(repr(t) for t in chore.targets)}], maintenance=true)',
         "   — it returns your session_id and the targets in full. Do NOT read the",
         "   whole graph: you have been told what to work on, and the orientation",
         "   pass is the cost a chore exists to avoid.",
@@ -583,7 +583,7 @@ def build_pass_prompt(level: str, cwd: str, debt: dict, lessons=(),
         ]
     parts += [
         "",
-        f'1. kg_read(cwd="{cwd}") — returns your session_id and both graphs with',
+        f'1. kg_read(cwd="{cwd}", maintenance=true) — returns your session_id and both graphs with',
         f"   their DEBT lines. Work the {level} graph.",
         "",
         f'2. kg_progress(session_id, task_id="maintain", level="{level}") — the',

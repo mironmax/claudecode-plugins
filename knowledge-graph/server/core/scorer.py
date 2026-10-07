@@ -93,9 +93,13 @@ class NodeScorer:
         return self._connectedness_details(node_id, active_ids, archived_ids, adj, include_counts=False)["raw"]
 
     def _recency(self, node_id: str, node: dict, versions: dict, current_time: float) -> float:
-        """Most recent of last write or last read. Higher = fresher."""
-        version_key = f"node:{node_id}"
-        write_ts = versions.get(version_key, {}).get("ts", 0)
+        """Most recent of last write or last read. Higher = fresher.
+
+        A write made by maintenance keeps the activity time it found (used_ts):
+        rewording or renaming a node is not using it.
+        """
+        entry = versions.get(f"node:{node_id}", {})
+        write_ts = entry.get("used_ts", entry.get("ts", 0))
         read_ts = node.get("_last_read_ts", 0)
         return max(write_ts, read_ts)
 

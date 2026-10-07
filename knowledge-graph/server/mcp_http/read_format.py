@@ -379,7 +379,9 @@ def format_node_full(node_id: str, result: dict) -> str:
     always visible.
     """
     node = result["node"]
-    status = "promoted from archive" if result.get("was_archived") else "active"
+    status = ("promoted from archive" if result.get("promoted", result.get("was_archived"))
+              else "archived, not promoted (maintenance read)" if result.get("was_archived")
+              else "active")
     lines = [f"▸ {node_id} ({result['level']}, {status})"]
     lines.append(f"  gist: {node.get('gist', '')}")
     notes = node.get("notes") or []

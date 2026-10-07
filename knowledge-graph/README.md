@@ -169,7 +169,7 @@ Graph data lives under `~/.knowledge-graph/` by default (`KG_STORAGE_ROOT` can c
 - **Sessions:** `~/.knowledge-graph/sessions.json` — session registry
 - **Tool-event counters:** `~/.knowledge-graph/projects/<slug>/tool_events.json` — per-target read/fetch counts feeding the capture nudges and the activity part of the DEBT score
 - **Maintenance memory:** `~/.knowledge-graph/maintain.json` — the maintenance agent's own lessons, never shown in sessions
-- **Logs:** `recall.jsonl` (what recall decided per prompt and tool event), `useful.jsonl` (endorsements), `chores.jsonl` (every chore decision) — all in `~/.knowledge-graph/`, size-capped
+- **Logs:** `recall.jsonl` (what recall decided per prompt and tool event), `useful.jsonl` (endorsements, and recurrence credits marked `via: "recurrence"`), `chores.jsonl` (every chore decision) — all in `~/.knowledge-graph/`, size-capped
 - **Chores:** `chores.json` (your switch and settings, if any) and `chore_state.json` (spacing and daily counts)
 
 Project slugs use the final directory name, without a path hash. Project roots

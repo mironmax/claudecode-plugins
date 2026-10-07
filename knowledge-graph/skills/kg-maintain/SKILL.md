@@ -30,8 +30,10 @@ session loses nothing. The DEBT line is both the trigger and the scoreboard:
 
 ## 0 — Orient
 
-`kg_read(session_id)` (dispatched subagent with no preload: `kg_read(cwd)`
-first — the result carries your session_id). Read both DEBT lines; target the
+`kg_read(session_id, maintenance=true)` (dispatched subagent with no preload:
+`kg_read(cwd, maintenance=true)` first — the result carries your session_id).
+`maintenance=true` keeps the pass's reads and writes from counting as use of
+the nodes it judges. Read both DEBT lines; target the
 higher-debt level unless the dispatch said otherwise. Announce:
 "Maintenance pass: <level> graph, debt <score> — <factors>."
 
@@ -137,7 +139,7 @@ When a session sees DEBT HIGH but is mid-task, spawn a subagent instead of
 context-switching. Subagents get NO preload — the prompt must carry:
 
     Run a knowledge-graph maintenance pass in <cwd>.
-    First call kg_read(cwd="<cwd>") — the result includes your session_id
+    First call kg_read(cwd="<cwd>", maintenance=true) — the result includes your session_id
     and both graphs with DEBT lines. Then follow the /kg-maintain skill's
     "Maintenance Pass" runbook against the <level> graph: entity
     consolidation (ONE smeared term, if the DEBT line lists any), oversized

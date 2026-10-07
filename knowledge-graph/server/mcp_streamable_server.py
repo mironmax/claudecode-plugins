@@ -184,6 +184,10 @@ def create_mcp_server() -> Server:
                             "type": "string",
                             "enum": ["user", "project", "maintain"],
                             "description": "Which graph. Omitted: searches user and project. Pass 'maintain' with no id/ids to render the maintenance memory instead of the graphs. " + MAINTAIN_LEVEL_DOC
+                        },
+                        "maintenance": {
+                            "type": "boolean",
+                            "description": "Only for a maintenance pass or chore: from this call on, the session's reads and writes do not count as use of the nodes (no recency, no promotion)."
                         }
                     },
                     "required": []
@@ -474,6 +478,9 @@ def create_mcp_server() -> Server:
                     if not result["project_path"]:
                         notice += _user_only_notice(session_id)
 
+                if arguments.get("maintenance"):
+                    store.mark_maintenance(session_id)
+
                 # Single or batch node read — full content, compact text.
                 ids = list(node_ids) if node_ids else ([node_id] if node_id else None)
                 if ids:
@@ -492,7 +499,7 @@ def create_mcp_server() -> Server:
                             read_ok.append(nid)
                             if deferred:
                                 view.record_read(nid, result["level"], session_id=session_id)
-                            if result.get("was_archived"):
+                            if result.get("promoted"):
                                 promoted.append(nid)
                         except NodeNotFoundError:
                             blocks.append(f"▸ {nid}: NOT FOUND (try kg_search — it reaches all tiers)")

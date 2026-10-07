@@ -49,7 +49,8 @@ from core.exceptions import NodeConflictError
 from core.constants import (
     WRITTEN_FIELD, GIST_TS_FIELD, GIST_TS_MAX, IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
     PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
-    PROGRESS_TRAIL_VALUE_CHARS, CHORE_TASK_ID,
+    PROGRESS_TRAIL_VALUE_CHARS, CHORE_TASK_ID, LIFT_EDGE_REL,
+    USEFUL_LOG_MAX_BYTES, USEFUL_LOG_NAME,
 )
 from core.persistence import (
     append_jsonl, references, rename_would_capture, rename_would_capture_on_disk,
@@ -299,10 +300,17 @@ class MultiProjectGraphStore:
         return level, graph_key
 
     def _bump_version(self, graph_key: str, key: str, session_id: str | None = None) -> dict:
-        """Increment version for a key and return new version. Caller must hold lock."""
+        """Increment version for a key and return new version. Caller must hold lock.
+
+        ts is when the key last changed (sync and stale-write guards need every
+        change). A maintenance session's change is not use, so it carries the
+        previous activity time forward as used_ts, which recency prefers.
+        """
         ts = time.time()
         current = self._versions[graph_key].get(key, {"v": 0})
         new_ver = {"v": current["v"] + 1, "ts": ts, "session": session_id}
+        if session_id in self._maintenance_sessions:
+            new_ver["used_ts"] = current.get("used_ts", current.get("ts", 0))
         self._versions[graph_key][key] = new_ver
         return new_ver
 
@@ -866,15 +874,21 @@ class MultiProjectGraphStore:
 
         project_path resolves a project graph directly (visual editor) — see
         _resolve_graph_key.
+
+        A NEW instance-of edge from a node created after its target credits the
+        target like an endorsement (_recurrence_credit).
         """
         validate_edge_ref(from_ref)
         validate_edge_ref(to_ref)
         validate_rel(rel)
+        credit = None
         with self.lock:
             level, graph_key = self._resolve_graph_key(level, session_id, project_path)
 
             edges = self.graphs[graph_key]["edges"]
             edge_key = (from_ref, to_ref, rel)
+            if rel == LIFT_EDGE_REL and edge_key not in edges:
+                credit = self._recurrence_credit(graph_key, from_ref, to_ref, session_id)
 
             # Create or update edge
             edge = edges.get(edge_key, {"from": from_ref, "to": to_ref, "rel": rel})
@@ -900,7 +914,46 @@ class MultiProjectGraphStore:
             )
 
             logger.debug(f"Put edge {from_ref}->{to_ref}:{rel} in {level} graph")
-            return {"edge": edge, "level": level}
+            result = {"edge": edge, "level": level}
+        if credit:
+            append_jsonl(get_storage_root() / USEFUL_LOG_NAME, credit, USEFUL_LOG_MAX_BYTES)
+        return result
+
+    def _recurrence_credit(self, graph_key: str, from_ref: str, to_ref: str,
+                           session_id: str | None) -> dict | None:
+        """Credit a lesson that recurred. Caller holds lock.
+
+        An instance-of edge says "this case is that lesson". When the case was
+        written after the lesson, the lesson was needed again: the strongest
+        evidence a node is alive, and until now the one the scorer never saw
+        (scorer-recurrence-blind-spots). It earns what an endorsement earns, a
+        _useful_ts stamp, and is logged to useful.jsonl with via "recurrence".
+        A lift (old episodes edged to a new principle) is not a recurrence and
+        earns nothing. The target may be a user node cited from a project graph.
+        """
+        nodes = self.graphs[graph_key]["nodes"]
+        target_key = graph_key if to_ref in nodes else (
+            "user" if to_ref in self.graphs.get("user", {}).get("nodes", {}) else None)
+        if from_ref not in nodes or target_key is None:
+            return None
+        target = self.graphs[target_key]["nodes"][to_ref]
+        if nodes[from_ref].get("_created_ts", 0) <= target.get("_created_ts", 0):
+            return None
+        now = time.time()
+        target.setdefault("_useful_ts", []).append(now)
+        self.dirty[target_key] = True
+        if target_key != graph_key:
+            self._write_through(target_key)
+        session = self.session_manager.lookup(session_id) if session_id else None
+        return {
+            "ts": round(now, 3),
+            "kg_session": session_id,
+            "project": (session or {}).get("project_path"),
+            "id": to_ref,
+            "level": "user" if target_key == "user" else "project",
+            "via": "recurrence",
+            "instance": from_ref,
+        }
 
     def delete_node(self, node_id: str, level: str | None = None, session_id: str | None = None,
                     project_path: str | None = None) -> dict:
@@ -1289,6 +1342,9 @@ class MultiProjectGraphStore:
                 "node": dict(node),
                 "level": resolved_level,
                 "was_archived": was_archived,
+                # A maintenance read never promotes (see _record_read); a
+                # deferred read promotes when its delivery is recorded.
+                "promoted": was_archived and session_id not in self._maintenance_sessions,
                 "edges": node_edges,
             }
 
@@ -1557,6 +1613,13 @@ class MultiProjectGraphStore:
     # ========================================================================
     # Progress Tracking
     # ========================================================================
+
+    def mark_maintenance(self, session_id: str) -> None:
+        """Flag a session as maintenance before its first read (kg_read's
+        maintenance argument): chores read their targets in the call that
+        opens the session, before any kg_progress could flag it."""
+        with self.lock:
+            self._maintenance_sessions.add(session_id)
 
     def _note_maintenance(self, task_id: str, session_id: str | None) -> None:
         """A pass or a chore opens with kg_progress on its own task; from then

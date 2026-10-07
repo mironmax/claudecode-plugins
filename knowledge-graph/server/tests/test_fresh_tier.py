@@ -9,8 +9,14 @@ FRESH TIER. The newest nodes by creation time stay active while their node
 lines fit in a share of the budget: unscored, never archived, and first back
 when archived. A window by budget, not by days, follows the project's pace.
 
-MAINTENANCE READS. A session that opened a pass or a chore (kg_progress on
-its task) reads to judge, not to use: no recency stamp, no promotion.
+MAINTENANCE. A session that opened a pass or a chore (kg_read with
+maintenance=true, or kg_progress on its task) reads and writes to judge, not
+to use: no recency stamp, no promotion, and a write keeps the activity time
+it found.
+
+RECURRENCE. A new instance-of edge from a node created after its target is
+the lesson needed again: the target earns an endorsement stamp, logged to
+useful.jsonl with via "recurrence".
 
 REBALANCE. Between the fill ceiling and the budget neither compaction nor
 refill acts, so a well-ranked archived node could sit below a poorly ranked
@@ -250,6 +256,73 @@ def test_maintenance_reads():
     check("other tasks do not flag a session", work not in store._maintenance_sessions)
 
 
+# --- 6. maintenance writes and recurrence credit ------------------------------
+
+def _store():
+    from mcp_http.session_manager import HTTPSessionManager
+    from mcp_http.store import GraphConfig, MultiProjectGraphStore
+    sm = HTTPSessionManager()
+    return MultiProjectGraphStore(GraphConfig(save_interval=9999), sm, broadcast_callback=None), sm
+
+
+def test_maintenance_writes():
+    print("maintenance writes:")
+    from core.scorer import NodeScorer
+    from mcp_http.read_format import format_node_full
+    store, sm = _store()
+    work = sm.register(str(Path.home()), claude_sid="cc-mw-work")["session_id"]
+    maint = sm.register(str(Path.home()), claude_sid="cc-mw-maint")["session_id"]
+    store.put_node(level="user", node_id="worded", gist="first wording", session_id=work)
+    before = store._versions["user"]["node:worded"]["ts"]
+    time.sleep(0.01)
+    store.mark_maintenance(maint)
+    sm.mark_seen(maint, ["worded"], via="read", at=time.time(), full=True)  # as kg_read does
+    store.put_node(level="user", node_id="worded", gist="second wording", session_id=maint)
+    entry = store._versions["user"]["node:worded"]
+    check("the version still moves (sync, stale guards)", entry["ts"] > before and entry["v"] == 2, entry)
+    check("activity time carried forward", entry.get("used_ts") == before, entry)
+    rec = NodeScorer(0)._recency("worded", store.graphs["user"]["nodes"]["worded"],
+                                 store._versions["user"], time.time())
+    check("recency reads the carried activity time", rec == before, (rec, before))
+    sm.mark_seen(work, ["worded"], via="read", at=time.time(), full=True)
+    store.put_node(level="user", node_id="worded", gist="third wording", session_id=work)
+    check("a work write is activity again", "used_ts" not in store._versions["user"]["node:worded"])
+
+    store.graphs["user"]["nodes"]["worded"]["_archived"] = True
+    result = store.read_node("worded", level="user", session_id=maint)
+    check("maintenance read reports no promotion", result["promoted"] is False, result)
+    check("its render says so", "not promoted" in format_node_full("worded", result))
+
+
+def test_recurrence_credit():
+    print("recurrence credit:")
+    from core.constants import USEFUL_LOG_NAME, get_storage_root
+    import json
+    store, sm = _store()
+    sid = sm.register(str(Path.home()), claude_sid="cc-rec")["session_id"]
+    store.put_node(level="user", node_id="the-lesson", gist="principle", session_id=sid)
+    store.put_node(level="user", node_id="old-episode", gist="before it", session_id=sid)
+    store.put_node(level="user", node_id="new-episode", gist="after it", session_id=sid)
+    nodes = store.graphs["user"]["nodes"]
+    nodes["old-episode"]["_created_ts"] = nodes["the-lesson"]["_created_ts"] - 100
+    nodes["new-episode"]["_created_ts"] = nodes["the-lesson"]["_created_ts"] + 100
+    log = get_storage_root() / USEFUL_LOG_NAME
+    lines_before = log.read_text().count("\n") if log.exists() else 0
+
+    store.put_edge("user", "old-episode", "the-lesson", "instance-of", session_id=sid)
+    check("a lift (older case) earns nothing", not nodes["the-lesson"].get("_useful_ts"))
+    store.put_edge("user", "new-episode", "the-lesson", "instance-of", session_id=sid)
+    check("a later case credits the lesson once", len(nodes["the-lesson"].get("_useful_ts", [])) == 1)
+    store.put_edge("user", "new-episode", "the-lesson", "instance-of", notes=["again"], session_id=sid)
+    check("updating the same edge does not credit again", len(nodes["the-lesson"]["_useful_ts"]) == 1)
+    store.put_edge("user", "new-episode", "the-lesson", "relates-to", session_id=sid)
+    check("other relations earn nothing", len(nodes["the-lesson"]["_useful_ts"]) == 1)
+
+    recs = [json.loads(x) for x in log.read_text().splitlines()[lines_before:]]
+    check("logged once with via recurrence",
+          [(r["id"], r["via"], r["instance"]) for r in recs] == [("the-lesson", "recurrence", "new-episode")], recs)
+
+
 if __name__ == "__main__":
     test_fresh_ids()
     test_compaction_spares_fresh()
@@ -257,5 +330,7 @@ if __name__ == "__main__":
     test_rebalance_and_refill_with_fresh()
     test_explain_fresh()
     test_maintenance_reads()
+    test_maintenance_writes()
+    test_recurrence_credit()
     print(f"\n{_PASS} passed, {_FAIL} failed")
     sys.exit(1 if _FAIL else 0)
