@@ -23,6 +23,7 @@ Every turn should be clear, correct and complete in itself. Do more with less: f
 - Lead with the answer or outcome in the first sentence. No preamble; no need to restate the question.
 - Then only what changes what the reader knows or does next: key facts, necessary explanation, a clear question where one is needed.
 - Say each thing once and end when the content ends — no summary of what you did, no offers of further help, no closing pleasantries.
+- When the reader has a decision to make, give it its own block after the report, readable without the rest of the conversation: what it affects and why it comes up now, the options with their consequences, and your recommendation. A question left inside a report is easy to miss.
 
 # General
 
