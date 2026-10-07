@@ -45,7 +45,7 @@ GIST_OVERSIZE_CHARS = GIST_SCAN_LIMIT
 SMEAR_MIN_TERM_LEN = 5
 SMEAR_MIN_DF = 6          # absolute floor of holders before a term counts
 SMEAR_DF_RATIO = 0.08     # ...or this fraction of the graph, whichever is more
-SMEAR_MAX_DF_RATIO = 0.25  # write-time nudge only: above this a term is domain vocabulary
+SMEAR_MAX_DF_RATIO = 0.25  # above this share of nodes a term is domain vocabulary
 _SMEAR_TOKEN_RE = re.compile(r"[a-z][a-z0-9]{4,}")
 _DATED_ID_RE = re.compile(r"20\d\d-\d\d")
 # Chronicle verbs and generic dev vocabulary that would false-flag; entities
@@ -72,6 +72,12 @@ _SMEAR_STOP = frozenset("""
 def smear_floor(n_nodes: int) -> float:
     """Holders a term needs before it counts as smeared."""
     return max(SMEAR_MIN_DF, SMEAR_DF_RATIO * n_nodes)
+
+
+def smear_ceiling(n_nodes: int) -> float:
+    """Holders beyond which a term is the graph's domain vocabulary, not an
+    entity ('stone' in a Go graph, 'claude' in a Claude-tools one)."""
+    return SMEAR_MAX_DF_RATIO * n_nodes
 
 
 def smeared_terms(nodes: list[dict], edges: list[dict], n_top: int = 3,
@@ -111,7 +117,7 @@ def smeared_terms(nodes: list[dict], edges: list[dict], n_top: int = 3,
     floor = smear_floor(len(texts))
     out = []
     for term, holders in df.items():
-        if len(holders) < floor:
+        if not floor <= len(holders) <= smear_ceiling(len(texts)):
             continue
         hubs = [nid for nid in holders
                 if not _DATED_ID_RE.search(nid)

@@ -640,7 +640,10 @@ def create_mcp_server() -> Server:
                     type="text",
                     text=f"Node '{arguments['id']}' saved to {arguments['level']} graph"
                          + gist_length_warning(arguments["gist"])
-                         + node_id_warning(arguments["id"]) + dup_note + _foreign(sid),
+                         + node_id_warning(arguments["id"]) + dup_note
+                         + ("\nA case added to a lesson counts as your endorsement of it."
+                            if result.get("note_credited") else "")
+                         + _foreign(sid),
                 )]
 
             elif name == "kg_put_edge":

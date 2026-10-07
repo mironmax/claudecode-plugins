@@ -102,7 +102,12 @@ Work in this order — each category caps, so a pass ends instead of sprawling:
    member can be the same mistake happening despite the lesson, which means
    the lesson is missing something. Candidates: principles whose members
    were created after them (a principle with no creation stamp predates
-   stamps; treat it as oldest). Then judge, in this order:
+   stamps; treat it as oldest), and lessons whose notes keep adding cases
+   after the lesson was written — above all notes that say the lesson was
+   in reach and still failed. In that shape the notes are the members:
+   classify them the same way, and when the content is shallow, sharpen the
+   gist to name the moment the cases share — the trigger the lesson should
+   have fired on — keeping the cases as notes. Then judge, in this order:
    - *Classify the members.* Failures (a correction, a repeat of the
      mistake) count; applications (the principle used in a new place) and
      findings (a fact discovered by following it) do not. Mostly

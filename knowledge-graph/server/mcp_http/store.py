@@ -674,6 +674,12 @@ class MultiProjectGraphStore:
             if not is_new and node.get("gist") != gist:
                 stamps = list(node.get(GIST_TS_FIELD) or []) + [time.time()]
                 node[GIST_TS_FIELD] = stamps[-GIST_TS_MAX:]
+            # A case added to a lesson another session wrote is that lesson
+            # recognised again — measured: 44% of such updates carried no
+            # kg_useful, so the recognition went uncounted.
+            note_credit = (not is_new and bool(session_id) and notes is not None
+                           and len(notes) > len(node.get("notes") or [])
+                           and (node.get(WRITTEN_FIELD) or {}).get("by") not in (None, session_id))
             node["gist"] = gist
             if notes is not None:
                 node["notes"] = notes
@@ -718,9 +724,34 @@ class MultiProjectGraphStore:
             )
 
             near_dup = self._near_duplicate(graph_key, node_id, gist) if is_new else None
+            credited = note_credit and self._note_credit(graph_key, node_id, node, level, session_id, now)
 
             logger.debug(f"Put node '{node_id}' in {level} graph")
-            return {"node": node, "level": level, "near_duplicate": near_dup}
+            return {"node": node, "level": level, "near_duplicate": near_dup,
+                    "note_credited": bool(credited)}
+
+    def _note_credit(self, graph_key: str, node_id: str, node: dict, level: str, session_id: str,
+                     now: float) -> bool:
+        """Count a case added to another session's lesson as this session's
+        endorsement of it: one _useful_ts stamp, the node joins the session's
+        likes (one vote per node per session, so a later kg_useful on it is a
+        duplicate), logged to useful.jsonl via "note". Caller holds the lock."""
+        from core.constants import MAX_LIKES_PER_SESSION, USEFUL_LOG_MAX_BYTES, USEFUL_LOG_NAME
+        session = self.session_manager.lookup(session_id)
+        if session is None:
+            return False
+        liked = session.setdefault("liked_ids", [])
+        if node_id in liked or len(liked) >= MAX_LIKES_PER_SESSION:
+            return False
+        node.setdefault("_useful_ts", []).append(now)
+        liked.append(node_id)
+        self.dirty[graph_key] = True
+        self._write_through(graph_key)
+        append_jsonl(get_storage_root() / USEFUL_LOG_NAME, {
+            "ts": round(now, 3), "kg_session": session_id, "claude_session": session.get("claude_sid"),
+            "project": session.get("project_path"), "id": node_id, "level": level, "via": "note",
+            "session_likes": len(liked)}, USEFUL_LOG_MAX_BYTES)
+        return True
 
     def _refuse_stale_write(self, level: str, node_id: str, node: dict, session_id: str,
                             notes, touches) -> None:
@@ -841,8 +872,8 @@ class MultiProjectGraphStore:
         must carry it as a token — that node is the suggested edge target.
         One suggestion max; caller renders it as a nudge.
         """
-        from core.debt import SMEAR_MAX_DF_RATIO, _SMEAR_STOP, smear_floor
-        floor, ceiling = smear_floor(len(fields)), SMEAR_MAX_DF_RATIO * len(fields)
+        from core.debt import _SMEAR_STOP, smear_ceiling, smear_floor
+        floor, ceiling = smear_floor(len(fields)), smear_ceiling(len(fields))
         slug_tokens: set[str] = set()
         if is_project_namespace(graph_key):
             slug_tokens = set(

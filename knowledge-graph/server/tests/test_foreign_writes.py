@@ -17,6 +17,8 @@ Covers:
   5. kg_sync still lists what the push only summarised
   6. A term held by over a quarter of the graph names no hub
   7. A stoplisted word names no hub
+  8. A case added to another session's lesson counts as that session's
+     endorsement — once, and not for its own lessons or a gist-only edit
 
 Uses a temp KG_STORAGE_ROOT and temp projects under ~/.cache.
 """
@@ -114,6 +116,33 @@ def main():
         m = res.get("near_duplicate")
         check("a stoplisted word names no hub",
               not (m and m.get("kind") == "mention" and m.get("term") == "before"), m)
+
+        print("note credit:")
+        store.put_node(level="user", node_id="lesson-x", gist="Lesson X", notes=["case 1"], session_id=a)
+        session_manager.note_viewed(b, ["lesson-x"], at=time.time(), full=True)
+        res = store.put_node(level="user", node_id="lesson-x", gist="Lesson X",
+                             notes=["case 1", "case 2"], session_id=b)
+        node = store.graphs["user"]["nodes"]["lesson-x"]
+        check("a case added to another session's lesson is credited",
+              res.get("note_credited") and len(node.get("_useful_ts", [])) == 1, res.get("note_credited"))
+        res = store.put_node(level="user", node_id="lesson-x", gist="Lesson X",
+                             notes=["case 1", "case 2", "case 3"], session_id=b)
+        check("once per node per session", not res.get("note_credited")
+              and len(node.get("_useful_ts", [])) == 1)
+        liked = store.mark_useful(["lesson-x"], b)
+        check("a later kg_useful from that session is a duplicate", "lesson-x" in liked["rejected"], liked)
+        session_manager.note_viewed(a, ["lesson-x"], at=time.time(), full=True)
+        res = store.put_node(level="user", node_id="lesson-x", gist="Lesson X",
+                             notes=["case 1", "case 2", "case 3", "case 4"], session_id=a)
+        check("adding to a lesson last written by someone else counts for the writer too",
+              res.get("note_credited"))
+        store.put_node(level="user", node_id="own-lesson-y", gist="Y", notes=["c1"], session_id=a)
+        res = store.put_node(level="user", node_id="own-lesson-y", gist="Y", notes=["c1", "c2"], session_id=a)
+        check("a case added to one's own last write is not credited", not res.get("note_credited"))
+        session_manager.note_viewed(b, ["own-lesson-y"], at=time.time(), full=True)
+        res = store.put_node(level="user", node_id="own-lesson-y", gist="Y sharpened", notes=["c1", "c2"],
+                             session_id=b)
+        check("a gist-only edit is not credited", not res.get("note_credited"))
     finally:
         shutil.rmtree(project, ignore_errors=True)
         shutil.rmtree(_TMP_STORAGE, ignore_errors=True)

@@ -342,11 +342,16 @@ def main():
         ]
         for i in range(8):
             smear_nodes.append({"id": f"log-2026-0{(i % 6) + 1}-1{i} ", "gist": f"Session {i}: touched zephyr config again"})
-        for i in range(4):
+        # 'zephyr' in 9 of 38 nodes: an entity. 'standalone' in 29 of 38, with
+        # a hub: above a quarter of the graph it is domain vocabulary.
+        for i in range(28):
             smear_nodes.append({"id": f"other-{i}", "gist": f"Standalone area {i}"})
+        smear_nodes.append({"id": "standalone-hub", "gist": "Standalone areas overview"})
         sm = smeared_terms(smear_nodes, [], slug="acme-shop")
         check("smeared term detected with its hub",
               any(s["term"].startswith("zephyr") and s["hub"] == "zephyr-gateway" for s in sm), sm)
+        check("a term held by over a quarter of the graph is domain vocabulary, not smear",
+              not any(s["term"].startswith("standalone") for s in sm), sm)
         sm2 = smeared_terms(smear_nodes, [], slug="zephyr-shop")
         check("project slug tokens are not smeared entities",
               not any(s["term"].startswith("zephyr") for s in sm2), sm2)
