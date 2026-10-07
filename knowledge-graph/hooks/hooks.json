@@ -22,7 +22,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash|WebFetch|WebSearch|apply_patch",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",

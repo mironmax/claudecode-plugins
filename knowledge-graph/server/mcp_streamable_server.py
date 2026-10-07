@@ -417,6 +417,16 @@ def create_mcp_server() -> Server:
     # Tool Handlers
     # ========================================================================
 
+    def _foreign(sid: str | None) -> str:
+        """Nodes other sessions wrote meanwhile, as a reply suffix ('' if none)."""
+        from mcp_http import foreign
+        try:
+            text = foreign.notice(store, session_manager, sid)
+        except Exception:
+            logger.debug("foreign writes notice failed", exc_info=True)
+            text = None
+        return f"\n\n{text}" if text else ""
+
     async def call_tool(name: str, arguments: dict,
                         client: str = harness.CLAUDE_CODE, view=None) -> list[TextContent]:
         """Handle tool calls. client: the calling harness (mcp_http.harness)."""
@@ -584,7 +594,7 @@ def create_mcp_server() -> Server:
                     )
                     view.mark_seen(sid, shown, via="search", at=viewed_at)
 
-                return [TextContent(type="text", text=text)]
+                return [TextContent(type="text", text=text + _foreign(sid))]
 
             elif name == "kg_put_node":
                 sid = arguments["session_id"]
@@ -616,14 +626,14 @@ def create_mcp_server() -> Server:
                 elif dup and dup.get("kind") == "mention":
                     dup_note = (
                         f"\nGraph already names '{dup['term']}': '{dup['id']}' — "
-                        f"\"{dup['gist']}\". An edge to it beats re-describing; "
+                        f"\"{dup['gist']}\". Link to it rather than re-describe it; "
                         "keep this gist to what is NEW here."
                     )
                 return [TextContent(
                     type="text",
                     text=f"Node '{arguments['id']}' saved to {arguments['level']} graph"
                          + gist_length_warning(arguments["gist"])
-                         + node_id_warning(arguments["id"]) + dup_note,
+                         + node_id_warning(arguments["id"]) + dup_note + _foreign(sid),
                 )]
 
             elif name == "kg_put_edge":

@@ -814,11 +814,16 @@ class MultiProjectGraphStore:
                      fields: dict, nodes: dict) -> dict | None:
         """The most-smeared entity this new node mentions, with its hub.
 
-        A stem qualifies when it is len ≥5, not a token of the project's own
-        slug (namespace, not entity), held by ≥3 nodes' id+gist, and some
-        undated node id carries it as a token — that node is the suggested
-        edge target. One suggestion max; caller renders it as a nudge.
+        A stem qualifies on the DEBT detector's terms (len ≥5, not stoplisted,
+        not a token of the project's own slug, held by ≥ max(6, 8%) of nodes'
+        id+gist) and is no more common than a quarter of the graph — beyond
+        that it is the graph's domain vocabulary, not an entity ('stone' in a
+        Go graph named an unrelated node on most writes). Some undated node id
+        must carry it as a token — that node is the suggested edge target.
+        One suggestion max; caller renders it as a nudge.
         """
+        from core.debt import SMEAR_MAX_DF_RATIO, _SMEAR_STOP, smear_floor
+        floor, ceiling = smear_floor(len(fields)), SMEAR_MAX_DF_RATIO * len(fields)
         slug_tokens: set[str] = set()
         if is_project_namespace(graph_key):
             slug_tokens = set(
@@ -827,11 +832,11 @@ class MultiProjectGraphStore:
 
         best = None
         for stem in probe_stems:
-            if len(stem) < 5 or any(stem.startswith(t) or t.startswith(stem)
-                                    for t in slug_tokens):
+            if len(stem) < 5 or stem in _SMEAR_STOP or any(
+                    stem.startswith(t) or t.startswith(stem) for t in slug_tokens):
                 continue
             holders = [nid for nid, f in fields.items() if stem in f[0] or stem in f[1]]
-            if len(holders) < 3:
+            if not floor <= len(holders) <= ceiling:
                 continue
             hubs = [nid for nid in holders
                     if not self._DATED_ID_RE.search(nid)
