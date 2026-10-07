@@ -209,7 +209,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_put_node",
-                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, omitted fields stay unchanged, but notes and touches you send REPLACE the stored lists: to add a note to an existing node, read it (kg_read ids=[...]) and send the full list. A write built on a stale or partial view — the node changed since you last saw it, or you would replace notes you never read — is refused with the node as it stands; merge and call again. One node holds one lesson. Before writing, walk back through what happened: each point where a different choice would have changed the outcome — or where a choice clearly worked — is a lesson, and a session rarely teaches just one. Each gets its own node, connected to the others; a lesson met again is sharpened in place, its new case added as a note. Search before creating to avoid duplicates. Connect with kg_put_edge after — unconnected nodes risk archival.",
+                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, omitted fields stay unchanged, but notes and touches you send REPLACE the stored lists: to add a note to an existing node, read it (kg_read ids=[...]) and send the full list. A write built on a stale or partial view — the node changed since you last saw it, or you would replace notes you never read — is refused with the node as it stands; merge and call again. One node holds one lesson. Before writing, walk back through what happened: each point where a different choice would have changed the outcome — or where a choice clearly worked — is a lesson, and a session rarely teaches just one. Each gets its own node, connected to the others; a lesson met again is sharpened in place, its new case added as a note. Search before creating to avoid duplicates. Connect related nodes with kg_put_edge.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -246,7 +246,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_put_edge",
-                description="Create or update a relationship between two nodes or file paths. Prefer edges over new nodes — relationships are cheaper and reuse existing concepts. Edges protect connected nodes from archival.",
+                description="Create or update a relationship between two nodes or file paths. When a node for the subject already exists, link to it rather than re-describe it. Edges protect connected nodes from archival.",
                 inputSchema={
                     "type": "object",
                     "properties": {

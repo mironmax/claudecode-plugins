@@ -21,7 +21,7 @@ description: |
   A failure met again sharpens its lesson and adds a note.
   Name: the id names the SUBJECT in 3-5 words, never a container
   ("…-lessons", "…-log"); ids are load-bearing in search.
-  Connect rather than duplicate — an edge beats a new node.
+  Connect rather than duplicate; a new lesson still earns its own node.
   Endorse with kg_useful — the nodes that helped, judged at wrap-up against
   results, and the ones that were MISSING when they should have been there,
   sent the moment the gap shows. That credit keeps a node alive, and a miss
