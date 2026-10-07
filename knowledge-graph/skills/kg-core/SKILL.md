@@ -17,10 +17,10 @@ description: |
   the case that taught it; each note tells one case of this lesson — a
   failure that taught or confirmed it, what happened, where. Learned three
   things? Three nodes.
-  Before filing a case under a lesson, look again: a part that
+  Before filing a case, look again: a part that
   would help in another situation is a lesson of its own. A repeat failure
   sharpens the existing lesson and adds a note.
-  Name: the id names the lesson's SUBJECT in 3-5 words, never a container
+  Name: the id names the SUBJECT in 3-5 words, never a container
   ("…-lessons", "…-log"); ids are load-bearing in search.
   Connect rather than duplicate — an edge beats a new node.
   Endorse with kg_useful — the nodes that helped, judged at wrap-up against
