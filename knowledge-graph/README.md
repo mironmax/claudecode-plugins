@@ -143,7 +143,6 @@ The server reads tunables from environment variables. Set them in your shell rc 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KG_GRACE_PERIOD_DAYS` | see `constants.py` | Days a newly created node is protected from archival; reads and updates do not restart this grace period |
 | `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
@@ -155,9 +154,9 @@ The server reads tunables from environment variables. Set them in your shell rc 
 > **The size budget is fixed by design.** Budgets are exact rendered characters: 17,500 per level, 40,000 for the combined full-graph render, and 10,000 for preload (8,000 in Codex). They were sized for the measured Claude Code/Codex clients; arbitrary batches of full-node notes and other clients have separate delivery limits. Oversized full graphs hide the lowest-scored archived anchors and edges with counts and a search pointer.
 
 > The full-graph figure is a target: active gists are preserved even if they
-> alone exceed it, including while creation grace prevents archival. Such a
-> render can exceed a client's inline limit; a maintenance pass or expiry of
-> grace is needed to restore headroom.
+> alone exceed it. The newest nodes (the fresh tier, up to 30% of a level's
+> budget) are never archived, so a level holding unusually long gists can
+> render past a client's inline limit until a maintenance pass tightens them.
 
 ---
 

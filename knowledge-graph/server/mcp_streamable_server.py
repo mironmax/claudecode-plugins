@@ -813,14 +813,13 @@ async def main():
     # Load configuration
     from core.constants import (
         get_storage_root, user_graph_path,
-        GRACE_PERIOD_DAYS, ORPHAN_GRACE_DAYS,
+        ORPHAN_GRACE_DAYS,
     )
     # The size budget is a fixed invariant (MAX_CHARS_PER_LEVEL), deliberately
     # NOT env-configurable: the inline guarantee's arithmetic depends on it.
     # The old KG_MAX_TOKENS override is gone.
     config = GraphConfig(
         orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", str(ORPHAN_GRACE_DAYS))),
-        grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", str(GRACE_PERIOD_DAYS))),
         save_interval=int(os.getenv("KG_SAVE_INTERVAL", "30")),
         storage_root=get_storage_root(),
         user_path=user_graph_path(),

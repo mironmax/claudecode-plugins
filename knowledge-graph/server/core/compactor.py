@@ -7,6 +7,7 @@ from .constants import (
     COMPACTION_TARGET_RATIO,
     ARCHIVED_BUDGET_RATIO,
     RESURRECTION_MARGIN,
+    REBALANCE_MAX_SWAPS,
 )
 from .estimator import CharEstimator
 from .scorer import NodeScorer
@@ -25,7 +26,7 @@ class Compactor:
         self.estimator = estimator
         self.max_chars = max_chars
         # Graphs whose over-budget stall (nothing eligible — all active nodes
-        # within grace) has already been logged. The maintenance tick retries
+        # in the fresh tier) has already been logged. The maintenance tick retries
         # every save_interval; without this the same stall logs twice a minute.
         self._stall_logged: set[str] = set()
 
@@ -46,9 +47,9 @@ class Compactor:
             self._stall_logged.discard(label)
             return []
 
-        # Score BEFORE announcing work: a sprint-week graph can sit over budget
-        # with every active node inside the grace period — that is a stall to
-        # report once, not a compaction to log every tick.
+        # Score BEFORE announcing work: a graph can sit over budget with every
+        # active node in the fresh tier (its edges and anchors take the rest) —
+        # that is a stall to report once, not a compaction to log every tick.
         active_scores = self.scorer.score_all(nodes, edges, versions, include_archived=False)
 
         if not active_scores:
@@ -60,11 +61,11 @@ class Compactor:
                 )
                 logger.info(
                     f"Graph {label or '?'} over budget ({estimated_chars} chars > {self.max_chars}) "
-                    f"but all {active_count} active nodes are within the grace period — "
-                    f"compaction deferred until one exits grace (further ticks logged at debug)"
+                    f"but all {active_count} active nodes are in the fresh tier — "
+                    f"compaction deferred until newer work pushes one out (further ticks logged at debug)"
                 )
             else:
-                logger.debug(f"Graph {label or '?'} still over budget, still nothing past grace")
+                logger.debug(f"Graph {label or '?'} still over budget, still nothing outside the fresh tier")
             return []
 
         self._stall_logged.discard(label)
@@ -189,8 +190,10 @@ class Compactor:
                 break
 
             # Scoring includes archived nodes so active and archived candidates
-            # share a comparable scale.
-            scores = self.scorer.score_all(nodes, edges, versions, include_archived=True)
+            # share a comparable scale. Fresh-tier nodes are unscored and belong
+            # active by definition, so an archived one (state from before the
+            # tier existed) comes back first.
+            scores = self._candidate_scores(nodes, edges, versions)
             ranked = sorted(candidates, key=lambda nid: scores.get(nid, 0.0), reverse=True)
 
             # Per-round fit check uses the exact promotion delta: promoting X swaps
@@ -247,6 +250,60 @@ class Compactor:
             logger.info(f"Refill: promoted {len(promoted)} archived node(s) to use spare budget, now {estimated_chars} chars")
         return promoted
 
+    def _candidate_scores(self, nodes: dict, edges: dict, versions: dict) -> dict[str, float]:
+        """Unified-pool scores, with fresh-tier nodes ranked above any score."""
+        fresh = self.scorer.fresh_ids(nodes, edges)
+        scores = self.scorer.score_all(nodes, edges, versions, include_archived=True)
+        return {**scores, **{nid: 2.0 + nodes[nid].get("_created_ts", 0) / 1e12 for nid in fresh}}
+
+    def rebalance(self, nodes: dict, edges: dict, versions: dict,
+                  max_swaps: int = REBALANCE_MAX_SWAPS) -> list[tuple[str, str]]:
+        """Swap the best archived node for the worst active one while it wins by
+        RESURRECTION_MARGIN and the graph stays within budget.
+
+        Compaction acts only above the budget and refill only below the fill
+        ceiling, so between the two the active set was frozen: whatever was there
+        stayed, however the ranking moved. Reads promote at any score, so the band
+        filled with whatever was read last while higher-ranked nodes stayed
+        archived (10-07: a 6th-of-156 node archived beside active 28th, 50th and
+        120th, the graph at 97% of budget). The margin keeps two near-equal nodes
+        from trading places every tick; max_swaps bounds one tick's work.
+
+        Fresh-tier nodes are never swapped out, and an archived fresh node wins
+        any comparison. Returns (promoted, archived) pairs.
+        """
+        swaps: list[tuple[str, str]] = []
+        for _ in range(max_swaps):
+            scores = self._candidate_scores(nodes, edges, versions)
+            fresh = self.scorer.fresh_ids(nodes, edges)
+            active = [nid for nid, n in nodes.items()
+                      if not n.get("_archived") and "_orphaned_ts" not in n
+                      and nid not in fresh and nid in scores]
+            archived = [nid for nid, n in nodes.items()
+                        if n.get("_archived") and "_orphaned_ts" not in n and nid in scores]
+            if not active or not archived:
+                break
+            worst = min(active, key=lambda nid: scores[nid])
+            swapped = False
+            for best in sorted(archived, key=lambda nid: scores[nid], reverse=True):
+                if scores[best] - scores[worst] < RESURRECTION_MARGIN:
+                    break
+                nodes[worst]["_archived"] = True
+                nodes[best]["_archived"] = False
+                if self.estimator.estimate_graph(nodes, edges, include_archived=False) > self.max_chars:
+                    nodes[worst]["_archived"] = False
+                    nodes[best]["_archived"] = True
+                    continue
+                swaps.append((best, worst))
+                logger.debug(f"Rebalanced: '{best}' ({scores[best]:.2f}) in, '{worst}' ({scores[worst]:.2f}) out")
+                swapped = True
+                break
+            if not swapped:
+                break
+        if swaps:
+            logger.info(f"Rebalance: {len(swaps)} swap(s) inside the budget band")
+        return swaps
+
     def orphan_archived_if_needed(self, nodes: dict, edges: dict, versions: dict) -> list[str]:
         """
         Demote archived nodes to orphaned when archived section exceeds budget.
@@ -284,7 +341,7 @@ class Compactor:
         # Lowest archival score first — the blend that archived them, so an
         # endorsed node outlasts one nobody credited and an entity hub outlasts
         # its satellites. Ranking by edges to active nodes alone orphaned both
-        # early. Nodes still in grace have no score yet and go last.
+        # early. Fresh-tier nodes have no score and go last.
         scores = self.scorer.score_all(nodes, edges, versions, include_archived=True)
         sorted_archived = sorted(archived_nodes, key=lambda nid: scores.get(nid, math.inf))
 

@@ -194,6 +194,9 @@ FILE_RECALL_REASON = "file_recall"  # recall.jsonl reason; outcome says what hap
 ARCHIVED_BUDGET_RATIO = 0.30
 # Resurrection: minimum score delta for an archived node to displace a freshly-archived one.
 RESURRECTION_MARGIN = 0.05
+# Rebalance: at most this many archived↔active swaps per maintenance tick while
+# the graph sits between the fill ceiling and the budget.
+REBALANCE_MAX_SWAPS = 3
 # Usefulness signal ("likes"): explicit endorsement via kg_useful — the agent marks
 # the nodes that helped a session, AND the ones that should have been surfaced and
 # were not. The second kind is what keeps the signal two-sided: credit earned only
@@ -430,8 +433,13 @@ PASS_GAUGE_MAX_7D = 70
 SESSION_ID_LENGTH = 8
 SESSION_TTL_SECONDS = 24 * 60 * 60  # 24 hours
 
-# Grace periods
-GRACE_PERIOD_DAYS = 5
+# Fresh tier: the most recently created nodes stay active, newest first, while
+# their node lines fit in this share of a level's budget. They are not scored and
+# never archived. A day count would protect nothing in a project touched twice a
+# month and everything in a sprint week; a share of the budget follows the work
+# whatever its pace, so recent work is always visible and the rest of the budget
+# is ranked. Part of the budget arithmetic, so not env-configurable.
+FRESH_BUDGET_RATIO = 0.30
 ORPHAN_GRACE_DAYS = 365
 
 # Graph levels

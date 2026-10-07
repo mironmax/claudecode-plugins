@@ -15,7 +15,7 @@ from core import (
     Compactor,
     GraphPersistence,
     Graph,
-    GRACE_PERIOD_DAYS,
+    FRESH_BUDGET_RATIO,
     ORPHAN_GRACE_DAYS,
     MAX_CHARS_PER_LEVEL,
     heal_node_fields,
@@ -49,7 +49,7 @@ from core.exceptions import NodeConflictError
 from core.constants import (
     WRITTEN_FIELD, GIST_TS_FIELD, GIST_TS_MAX, IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
     PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
-    PROGRESS_TRAIL_VALUE_CHARS,
+    PROGRESS_TRAIL_VALUE_CHARS, CHORE_TASK_ID,
 )
 from core.persistence import (
     append_jsonl, references, rename_would_capture, rename_would_capture_on_disk,
@@ -89,7 +89,6 @@ class GraphConfig:
     """Configuration for knowledge graph."""
     max_chars: int = MAX_CHARS_PER_LEVEL
     orphan_grace_days: int = ORPHAN_GRACE_DAYS
-    grace_period_days: int = GRACE_PERIOD_DAYS
     save_interval: int = 30
     storage_root: Path = field(default_factory=get_storage_root)
     user_path: Path = field(default_factory=user_graph_path)
@@ -115,13 +114,16 @@ class MultiProjectGraphStore:
 
         # Initialize components
         self.estimator = CharEstimator()
-        self.scorer = NodeScorer(config.grace_period_days)
+        self.scorer = NodeScorer(int(config.max_chars * FRESH_BUDGET_RATIO))
         self.compactor = Compactor(self.scorer, self.estimator, config.max_chars)
 
         # Graph storage: key = "user" or "project:<project_root>"
         self.graphs: dict[str, Graph] = {}
         self._versions: dict[str, dict] = {}
         self._progress: dict[str, dict] = {}
+        # Sessions doing maintenance (a pass or a chore): their full reads are
+        # judgement, not use, so they neither stamp recency nor promote.
+        self._maintenance_sessions: set[str] = set()
         self._persistence: dict[str, GraphPersistence] = {}
 
         # Thread safety
@@ -535,10 +537,10 @@ class MultiProjectGraphStore:
         """Node scores per level for kg_read's degradation ladder.
 
         Returns {"user": {node_id: score}, "project": {node_id: score}} scored
-        with archived nodes included (one comparable pool). Nodes inside the
-        grace period are absent — the ladder treats missing as "keep" for active
-        nodes and can't encounter it for archived ones (archiving only happens
-        past grace).
+        with archived nodes included (one comparable pool). Fresh-tier nodes are
+        absent — the ladder treats missing as "keep" for active nodes, and as
+        0.0 (first to drop) for an archived one, a transient state from before
+        the tier that refill and rebalance restore first.
         """
         with self.lock:
             result = {"user": {}, "project": {}}
@@ -1300,7 +1302,15 @@ class MultiProjectGraphStore:
 
     def _record_read(self, graph_key: str, resolved_level: str, node_id: str,
                      session_id: str | None) -> None:
-        """Read stamp and promotion of one full node read. Caller holds lock."""
+        """Read stamp and promotion of one full node read. Caller holds lock.
+
+        A maintenance session's read has no effect: recency and promotion say
+        "this was used", and a pass reads dozens of nodes to judge them. Counted,
+        the 10-07 pass lifted every node it inspected into the top of the
+        ranking and promoted nodes ranked 120th into the active tier.
+        """
+        if session_id in self._maintenance_sessions:
+            return
         nodes = self.graphs[graph_key]["nodes"]
         edges = self.graphs[graph_key]["edges"]
         node = nodes[node_id]
@@ -1548,9 +1558,17 @@ class MultiProjectGraphStore:
     # Progress Tracking
     # ========================================================================
 
+    def _note_maintenance(self, task_id: str, session_id: str | None) -> None:
+        """A pass or a chore opens with kg_progress on its own task; from then
+        on the session's reads are maintenance, not use (see _record_read)."""
+        from core.debt import MAINTAIN_TASK_ID
+        if session_id and task_id in (MAINTAIN_TASK_ID, CHORE_TASK_ID):
+            self._maintenance_sessions.add(session_id)
+
     def get_progress(self, task_id: str, level: str = "user", session_id: str | None = None) -> dict:
         """Read persistent progress for a task from _meta.progress."""
         with self.lock:
+            self._note_maintenance(task_id, session_id)
             _lvl, graph_key = self._resolve_graph_key(level, session_id, None)
             return self._progress.get(graph_key, {}).get(task_id, {})
 
@@ -1577,6 +1595,7 @@ class MultiProjectGraphStore:
         by the server clock in both the stamp and its trail copy.
         """
         with self.lock:
+            self._note_maintenance(task_id, session_id)
             # Resolve, don't just name: _resolve_graph_key LOADS a project
             # graph that is not in memory yet. Naming it alone wrote the stamp
             # into a dict the next lazy load overwrote from disk, and
@@ -1663,11 +1682,12 @@ class MultiProjectGraphStore:
     def _maybe_compact(self, graph_key: str):
         """Compact graph if over token limit. Caller must hold lock.
 
-        Passes (at most one of compact/refill acts per call — refill is skipped
-        on any tick that archived):
+        Passes (at most one of compact/refill/rebalance acts per call):
           Pass 1: archive lowest-scored active nodes until active tokens ≤ max_tokens.
           Pass 1r: refill — if active tokens sit under the fill ceiling, promote the
                    highest-scored archived nodes back up to use the headroom.
+          Pass 1b: rebalance — between the fill ceiling and the budget, swap the
+                   best archived node for the worst active one when it clearly wins.
           Pass 2: orphan lowest-scored archived nodes until archived tokens ≤ 30% of max.
         """
         nodes = self.graphs[graph_key]["nodes"]
@@ -1679,9 +1699,10 @@ class MultiProjectGraphStore:
         # ceiling refill fills to, so running both would partially undo the archive
         # in the same call. Skipping keeps "one of compact/refill acts per tick".
         refilled = [] if archived else self.compactor.refill_if_room(nodes, edges, versions)
+        swapped = [] if archived or refilled else self.compactor.rebalance(nodes, edges, versions)
         orphaned = self.compactor.orphan_archived_if_needed(nodes, edges, versions)
 
-        if archived or refilled or orphaned:
+        if archived or refilled or swapped or orphaned:
             self.dirty[graph_key] = True
             self._write_through(graph_key)
 

@@ -11,13 +11,14 @@ from .constants import (
     SCORE_WEIGHT_CONNECTEDNESS,
     SCORE_WEIGHT_USEFULNESS,
 )
+from .render import render_active_line, render_edge_citation
 
 
 class NodeScorer:
     """Scores nodes for compaction decisions."""
 
-    def __init__(self, grace_period_days: int):
-        self.grace_period_seconds = grace_period_days * 24 * 60 * 60
+    def __init__(self, fresh_chars: int):
+        self.fresh_chars = fresh_chars
 
     def _is_active(self, node: dict) -> bool:
         return not node.get("_archived") and "_orphaned_ts" not in node
@@ -113,10 +114,50 @@ class NodeScorer:
             for ts in node.get("_useful_ts", [])
         )
 
-    def _past_grace(self, node: dict, current_time: float) -> bool:
-        """Grace period based on _created_ts only — never reset by updates or reads."""
-        created_ts = node.get("_created_ts", 0)
-        return (current_time - created_ts) >= self.grace_period_seconds
+    def fresh_ids(self, nodes: dict, edges: dict) -> set:
+        """The fresh tier: the newest non-orphaned nodes, by _created_ts, while
+        their render cost fits in fresh_chars.
+
+        A node is charged what it costs on screen: its line plus the citation of
+        every edge it brings live (other end not orphaned), each edge once. Node
+        lines are well under half of a rendered level, so charging lines alone
+        let a 30% share hold about 70% of the visible nodes (replay 10-07).
+
+        Creation time only — reads and updates never make a node fresh again.
+        A window by budget, not by days, follows the project's own pace: a graph
+        touched once a month keeps its last work visible, a sprint week rotates
+        through. The walk stops at the first node that does not fit, so the tier
+        is always the most recent work, never a gap-filled mix. Nodes without
+        _created_ts predate the stamp and count as oldest.
+        """
+        if self.fresh_chars <= 0:
+            return set()
+        candidates = sorted(
+            (nid for nid, n in nodes.items() if "_orphaned_ts" not in n),
+            key=lambda nid: nodes[nid].get("_created_ts", 0), reverse=True,
+        )
+        incident: dict[str, list] = {}
+        for edge in edges.values():
+            incident.setdefault(edge["from"], []).append(edge)
+            if edge["to"] != edge["from"]:
+                incident.setdefault(edge["to"], []).append(edge)
+        fresh, used, charged = set(), 0, set()
+        for nid in candidates:
+            cost = len(render_active_line(nid, nodes[nid].get("gist", ""))) + 1
+            new_edges = []
+            for edge in incident.get(nid, ()):
+                key = (edge["from"], edge["to"], edge["rel"])
+                other = edge["to"] if edge["from"] == nid else edge["from"]
+                if key in charged or "_orphaned_ts" in nodes.get(other, {}):
+                    continue
+                new_edges.append(key)
+                cost += len(render_edge_citation(edge["rel"], other, edge["from"] == nid)) + 1
+            if used + cost > self.fresh_chars:
+                break
+            fresh.add(nid)
+            used += cost
+            charged.update(new_edges)
+        return fresh
 
     def score_all(self, nodes: dict, edges: dict, versions: dict, include_archived: bool = False) -> dict[str, float]:
         """The canonical scores used by compaction, refill and read ranking."""
@@ -125,15 +166,17 @@ class NodeScorer:
         ).items()}
 
     def score_breakdown(self, nodes: dict, edges: dict, versions: dict,
-                        include_archived: bool = False, current_time: float | None = None) -> dict:
+                        include_archived: bool = False, current_time: float | None = None,
+                        fresh: set | None = None) -> dict:
         """
         Score eligible nodes using percentile-based ranking.
 
         include_archived=True: score archived nodes alongside active ones (for resurrection pass).
         Returns the raw factors, percentile ranks and final score per node.
-        Grace period based on _created_ts only — updates and reads do not reset it.
+        Fresh-tier nodes are not scored (fresh=None computes the tier).
         """
         current_time = time.time() if current_time is None else current_time
+        fresh = self.fresh_ids(nodes, edges) if fresh is None else fresh
         active_ids = {nid for nid, n in nodes.items() if self._is_active(n)}
         # Archived (but not orphaned) neighbours contribute reduced connectedness so a
         # cluster that archived together isn't scored as fully disconnected (see
@@ -152,7 +195,7 @@ class NodeScorer:
                 continue
             if not include_archived and node.get("_archived"):
                 continue
-            if not self._past_grace(node, current_time):
+            if node_id in fresh:
                 continue
 
             eligible.append({
@@ -206,25 +249,25 @@ class NodeScorer:
         """Explain this node's current automatic score without changing it.
 
         Active nodes use the compaction pool; archived nodes use the unified
-        refill pool. Orphaned and grace-protected nodes have no automatic
-        score: show a clearly marked preview as an eligible node instead.
+        refill pool. Orphaned and fresh-tier nodes have no automatic score:
+        show a clearly marked preview as an eligible node instead.
         """
         node = nodes[node_id]
         now = time.time()
         orphaned = "_orphaned_ts" in node
-        protected = not self._past_grace(node, now)
+        fresh = self.fresh_ids(nodes, edges)
+        protected = node_id in fresh
         include_archived = bool(node.get("_archived")) and not orphaned
         eligible = not orphaned and not protected
         scoring_nodes = nodes
-        if not eligible:
+        if orphaned:
             preview = dict(node)
-            preview["_created_ts"] = min(node.get("_created_ts", 0), now - self.grace_period_seconds - 1)
-            if orphaned:
-                preview.pop("_orphaned_ts", None)
-                preview.pop("_archived", None)
+            preview.pop("_orphaned_ts", None)
+            preview.pop("_archived", None)
             scoring_nodes = {**nodes, node_id: preview}
         breakdown = self.score_breakdown(scoring_nodes, edges, versions,
-                                         include_archived=include_archived, current_time=now)
+                                         include_archived=include_archived, current_time=now,
+                                         fresh=fresh - {node_id})
         item = breakdown[node_id]
         active_ids = {nid for nid, n in scoring_nodes.items() if self._is_active(n)}
         archived_ids = {nid for nid, n in scoring_nodes.items()
@@ -244,7 +287,7 @@ class NodeScorer:
                 "contribution": weight * item[f"{key}_pct"],
             })
         reason = ("Preview if recalled to active; orphaned nodes are excluded from automatic ranking."
-                  if orphaned else "Preview after the creation grace period; this node is currently protected."
+                  if orphaned else "Preview once newer work pushes it out of the fresh tier; it is protected until then."
                   if protected else "Used for refill and orphaning among eligible active and archived nodes."
                   if include_archived else "Used for archival among eligible active nodes.")
         return {
@@ -258,10 +301,10 @@ class NodeScorer:
                 "endorsements": len(node.get("_useful_ts", [])),
                 "half_life_days": USEFUL_HALF_LIFE_DAYS,
             },
-            "grace": {
+            "fresh": {
                 "protected": protected,
-                "days": self.grace_period_seconds / 86400,
-                "ends_ts": node.get("_created_ts", 0) + self.grace_period_seconds,
+                "tier_size": len(fresh),
+                "budget_chars": self.fresh_chars,
             },
             "calculated_at": now,
         }

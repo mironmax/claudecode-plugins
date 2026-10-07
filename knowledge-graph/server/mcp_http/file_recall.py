@@ -165,8 +165,8 @@ def _matches(store, root: str | None, needles: list[str], seen: set) -> list[dic
 
 def _rank(store, records: list[dict]) -> list[dict]:
     """Best first by the store's node score (archived included), ties by
-    recency. Nodes inside the grace period have no score yet and rank after
-    scored ones, by recency."""
+    recency. Fresh-tier nodes have no score and rank after scored ones, by
+    recency."""
     now = time.time()
     keyed = []
     with store.lock:

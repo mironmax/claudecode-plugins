@@ -10,7 +10,7 @@ Covers:
      read, announce moved AFTER the full read), budget still holds
   2. Session full-read tracking: mark/has, persistence across reload,
      find_by_project_path newest-wins and rejection of invalid paths
-  3. Compactor grace-period stall: logs the stall ONCE at INFO (later ticks
+  3. Compactor fresh-tier stall: logs the stall ONCE at INFO (later ticks
      debug), names the graph, resets after recovery, and the eligible path
      still archives with the label in its log line
 
@@ -119,10 +119,10 @@ def test_session_full_read_tracking():
         del os.environ["KG_STORAGE_ROOT"]
 
 
-# --- 3. compactor grace stall logs once ----------------------------------------
+# --- 3. compactor fresh-tier stall logs once ----------------------------------------
 def test_compactor_stall_single_log():
-    print("compactor grace stall:")
-    scorer = NodeScorer(grace_period_days=5)
+    print("compactor fresh-tier stall:")
+    scorer = NodeScorer(fresh_chars=10_000)  # all ten nodes fit the fresh tier
     est = CharEstimator()
     comp = Compactor(scorer, est, max_chars=800)
 
@@ -139,8 +139,8 @@ def test_compactor_stall_single_log():
     log.setLevel(logging.DEBUG)
     try:
         archived = comp.compact_if_needed(fresh, {}, {}, label="project:test")
-        check("nothing archived while all in grace", archived == [])
-        stall_infos = [m for m in cap.infos() if "grace period" in m]
+        check("nothing archived while all are fresh", archived == [])
+        stall_infos = [m for m in cap.infos() if "fresh tier" in m]
         check("stall logged once at INFO", len(stall_infos) == 1, cap.infos())
         check("stall log names the graph", "project:test" in stall_infos[0])
         check("stall log carries counts", "10 active nodes" in stall_infos[0], stall_infos[0])
@@ -163,17 +163,18 @@ def test_compactor_stall_single_log():
         # ...so going over budget again logs again
         comp.compact_if_needed(fresh, {}, {}, label="project:test")
         check("stall re-logs after recovery",
-              any("grace period" in m for m in cap.infos()), cap.infos())
+              any("fresh tier" in m for m in cap.infos()), cap.infos())
 
-        # eligible path: nodes past grace archive normally, log names the graph
+        # eligible path: nodes outside the fresh tier archive normally, log names the graph
         cap.records.clear()
         old_ts = now - 10 * 86400
         ripe = {
             f"r{i}": {"id": f"r{i}", "gist": "y" * 200, "_created_ts": old_ts}
             for i in range(10)
         }
-        archived = comp.compact_if_needed(ripe, {}, {}, label="project:ripe")
-        check("past-grace nodes archive", len(archived) > 0, archived)
+        ranked = Compactor(NodeScorer(fresh_chars=0), est, max_chars=800)
+        archived = ranked.compact_if_needed(ripe, {}, {}, label="project:ripe")
+        check("nodes outside the fresh tier archive", len(archived) > 0, archived)
         check("compaction log names the graph",
               any("Compacting graph project:ripe" in m for m in cap.infos()), cap.infos())
     finally:

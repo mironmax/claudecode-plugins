@@ -107,7 +107,7 @@ the npx `mcp-remote` bridge is replaced; Node is no longer needed.
 Env vars (shell rc, or the systemd unit), then `kg restart`:
 `KG_HTTP_PORT` (8765) · `KG_STORAGE_ROOT` (`~/.knowledge-graph`) ·
 `KG_SAVE_INTERVAL` (30s) · `KG_AUTOCOMMIT_INTERVAL` (900s, 0 disables) ·
-`KG_GRACE_PERIOD_DAYS` / `KG_ORPHAN_GRACE_DAYS` (see `server/core/constants.py`).
+`KG_ORPHAN_GRACE_DAYS` (see `server/core/constants.py`).
 Render budgets are fixed by design — no knob. Don't edit the bundled
 `.mcp.json` (overwritten on update).
 

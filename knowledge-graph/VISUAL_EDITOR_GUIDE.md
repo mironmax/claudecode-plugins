@@ -82,9 +82,9 @@ explicit endorsements with their 90-day decay half-life.
 
 Active nodes show the score used for archival among eligible active nodes.
 Archived nodes show the score used for refill among eligible active and
-archived nodes. Nodes still protected by their creation grace period have a
-marked preview after that period; orphaned nodes have a preview as if recalled
-to active. The card names its comparison pool and never recalls a node.
+archived nodes. Nodes in the fresh tier (the newest work, up to 30% of the
+level's budget) have a marked preview of their score once newer work pushes
+them out; orphaned nodes have a preview as if recalled to active. The card names its comparison pool and never recalls a node.
 
 ### Inline Editing
 
