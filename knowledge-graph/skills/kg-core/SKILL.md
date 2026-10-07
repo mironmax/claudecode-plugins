@@ -15,11 +15,10 @@ description: |
   Capture: at the moment of learning, once the dots connect.
   One lesson, one node: the gist states the lesson so it holds beyond
   the case that taught it; each note tells one case of this lesson — a
-  failure that taught or confirmed it, what happened, where. Learned three
-  things? Three nodes.
-  Before filing a case, look again: a part that
-  would help in another situation is a lesson of its own. A repeat failure
-  sharpens the existing lesson and adds a note.
+  failure that taught or confirmed it, what happened, where.
+  Before writing, walk back through the session: each point where another
+  choice would have changed the outcome is a lesson — rarely just one.
+  A failure met again sharpens its lesson and adds a note.
   Name: the id names the SUBJECT in 3-5 words, never a container
   ("…-lessons", "…-log"); ids are load-bearing in search.
   Connect rather than duplicate — an edge beats a new node.
