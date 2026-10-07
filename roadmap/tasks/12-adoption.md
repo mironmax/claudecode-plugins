@@ -83,11 +83,52 @@ chance to be noticed.
      Measure what it saves where that can be observed: re-reads avoided, or
      follow-through by route (`python -m eval --transcripts`).
    - Publish the method and the caveats next to the number.
-   - The with/without benchmark under "Later" in the roadmap is the stronger
-     proof. Its design still needs to be agreed.
-   - A LongMemEval-S run is a judgement call. It is the benchmark the field
-     cites, but it measures recall over chat haystacks, not capture-time
-     memory in coding work. If it is run, state that in the result.
+   - Run two external benchmarks that grade coding outcomes by execution,
+     not by an LLM judge. Run each unmodified, publish everything, and
+     report the result whether or not kg-memory wins:
+     - **[VibeMemBench](https://arxiv.org/abs/2609.23570)** (Alibaba and
+       SIAT). It has 111 SWE-bench-style targets from 90 real repositories,
+       with 3,634 history trajectories. The code is public at
+       [DAMO-ConvAI/VibeMemBench](https://github.com/AlibabaResearch/DAMO-ConvAI/tree/main/VibeMemBench).
+       - Of the 12 pairings of a memory system (Mem0, SimpleMem, MemoryOS,
+         A-MEM) with a solver, 11 scored at or below the memory-off baseline.
+         The one gain, MemoryOS on glm-5 at +2.0, has a bootstrap interval
+         that crosses zero. The open claim is a gain over memory-off that
+         holds up.
+       - The protocol ingests the history offline, then injects one
+         top-ranked experience into MiniSWEAgent before each run, with no
+         update during the run. That tests kg-memory's distillation, roughly
+         as `/kg-scout` does it, but not its live recall. Say so in the
+         result.
+       - There is no submission board. Independence comes from the public
+         harness plus a request to the authors to reproduce the run.
+     - **[AMB](https://github.com/GiulioDER/agent-memory-bench)** (Agent
+       Memory Bench). It is preregistered and graded by execution, with
+       pluggable memory layers for Claude Code. It has 34 tasks over a
+       deliberately noisy corpus (4,900 documents per condition, with stale,
+       contradictory and distractor sessions).
+       - The open call (2026-09-02,
+         [forum post](https://discuss.huggingface.co/t/open-call-test-your-agent-memory-layer-on-an-adversarial-coding-benchmark/179762))
+         says "no multi product ranking has been published", so the first
+         entry sets the bar.
+       - One person built it, and the submitter runs the evaluation with
+         their own credentials. Report it as self-run under a preregistered
+         protocol, not as an independent ranking.
+       - The adapter contract is not described in the post. Read it in the
+         repository before estimating the work.
+   - The with/without benchmark under "Later" in the roadmap stays the
+     proof for live recall, which neither external benchmark exercises. Its
+     design still needs to be agreed.
+   - Considered and not chosen for now:
+     - **The [Agent Memory Leaderboard](https://agentmemories.ai/).** It is
+       the most independent option: a university consortium runs every
+       evaluation itself. Its coding track (CAMBench Coding, 150 tasks) needs
+       a publicly hosted Add/Search API, and the organisers' model writes the
+       answers. That tests kg-memory as a retrieval layer, and it would need
+       a separate, authenticated public deployment. Revisit once CAMBench's
+       spec is public. Cycle 2 materials are due 2026-10-31 (UTC+8).
+     - **LongMemEval-S.** It measures recall over chat haystacks, not memory
+       in coding work.
 4. **Install that finishes inside the agent.**
    - When the `kg` command is missing, the SessionStart hook
      (`hooks/kg-autostart.sh`, and its equivalent in `kg-agy.py`) currently
@@ -134,8 +175,9 @@ chance to be noticed.
   (Hermes, OpenClaw) was the single largest lever in the survey: Hindsight
   went from 20k to 40k stars after it. It means a new harness adapter. It
   belongs with "More harnesses" under "Later", not in this item.
-- **A headline benchmark** (item 3): LongMemEval-S, the with/without coding
-  benchmark, or a token-cost measurement only.
+- **Which result leads the first screen** (item 3): the VibeMemBench
+  result, the AMB result, or the token-cost measurement. The order of the
+  runs is settled: VibeMemBench first, then AMB.
 
 ## Constraints
 

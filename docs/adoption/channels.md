@@ -50,6 +50,13 @@ one a claim uses. One independent controlled test of memory in coding agents
 found 15–28% token savings, against the 80–95% that vendors claim
 ([*secondhand*, not peer-reviewed](https://medium.com/@mrsandelin/the-first-controlled-benchmark-of-ai-memory-in-coding-agents-8e0bb776d39e)).
 
-Coding-specific memory benchmarks are only starting to appear
-([DreamBench-SWE](https://arxiv.org/pdf/2608.20664)). An honest with/without
-result on coding tasks is still an open niche.
+Coding-specific memory benchmarks graded by execution are only starting to
+appear. Three were checked on 2026-10-07:
+
+| Benchmark | Who runs the evaluation | State | Fit |
+|---|---|---|---|
+| [VibeMemBench](https://arxiv.org/abs/2609.23570) (Alibaba, SIAT) | You run the public harness | Of 12 memory-system and solver pairings, 11 scored at or below memory-off; no submission board | Tests downstream coding outcomes after offline ingestion; chosen in roadmap 12 |
+| [AMB](https://github.com/GiulioDER/agent-memory-bench) | You run it, under a preregistered protocol | Open call 2026-09-02; no ranking published | Pluggable Claude Code memory layers, noisy corpus; chosen in roadmap 12 |
+| [Agent Memory Leaderboard](https://agentmemories.ai/), coding track | The organisers, a university consortium | Cycle 2 open; materials due 2026-10-31 (UTC+8) | Needs a hosted Add/Search API and tests retrieval only; deferred |
+
+An honest with/without result on coding tasks is still an open niche.
