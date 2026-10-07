@@ -14,9 +14,10 @@ maintenance=true, or kg_progress on its task) reads and writes to judge, not
 to use: no recency stamp, no promotion, and a write keeps the activity time
 it found.
 
-RECURRENCE. A new instance-of edge from a node created after its target is
-the lesson needed again: the target earns an endorsement stamp, logged to
-useful.jsonl with via "recurrence".
+RECURRENCE. An instance-of edge from a node created after its target is the
+lesson needed again: the target earns one endorsement stamp dated the day the
+case was written, logged to useful.jsonl with via "recurrence". Graph loads
+reconcile every edge (backfill and catch-up), idempotently.
 
 REBALANCE. Between the fill ceiling and the budget neither compaction nor
 refill acts, so a well-ranked archived node could sit below a poorly ranked
@@ -313,6 +314,8 @@ def test_recurrence_credit():
     check("a lift (older case) earns nothing", not nodes["the-lesson"].get("_useful_ts"))
     store.put_edge("user", "new-episode", "the-lesson", "instance-of", session_id=sid)
     check("a later case credits the lesson once", len(nodes["the-lesson"].get("_useful_ts", [])) == 1)
+    check("the credit is dated the day the case was written",
+          nodes["the-lesson"]["_useful_ts"] == [nodes["new-episode"]["_created_ts"]])
     store.put_edge("user", "new-episode", "the-lesson", "instance-of", notes=["again"], session_id=sid)
     check("updating the same edge does not credit again", len(nodes["the-lesson"]["_useful_ts"]) == 1)
     store.put_edge("user", "new-episode", "the-lesson", "relates-to", session_id=sid)
@@ -321,6 +324,53 @@ def test_recurrence_credit():
     recs = [json.loads(x) for x in log.read_text().splitlines()[lines_before:]]
     check("logged once with via recurrence",
           [(r["id"], r["via"], r["instance"]) for r in recs] == [("the-lesson", "recurrence", "new-episode")], recs)
+
+
+def test_recurrence_reconcile():
+    print("recurrence reconcile (backfill on load):")
+    from core import recurrence
+    lesson_ts, case_ts = 1.0e9, 1.1e9
+    nodes = {"lesson": {"id": "lesson", "gist": "g", "_created_ts": lesson_ts,
+                        "_useful_ts": [1.05e9]},
+             "case-a": {"id": "case-a", "gist": "g", "_created_ts": case_ts},
+             "case-b": {"id": "case-b", "gist": "g", "_created_ts": case_ts + 50},
+             "older": {"id": "older", "gist": "g", "_created_ts": lesson_ts - 50}}
+    edges = {k: {"from": f, "to": "lesson", "rel": "instance-of"} for k, f in
+             (("a", "case-a"), ("b", "case-b"), ("o", "older"))}
+    credits = recurrence.reconcile(nodes, edges)
+    check("two later cases credited, the older one not",
+          sorted(c["instance"] for c in credits) == ["case-a", "case-b"], credits)
+    check("stamps keep the existing like and add the case days",
+          sorted(nodes["lesson"]["_useful_ts"]) == [1.05e9, case_ts, case_ts + 50])
+    check("a second pass adds nothing", recurrence.reconcile(nodes, edges) == [])
+    nodes["case-a-renamed"] = nodes.pop("case-a")
+    edges["a"]["from"] = "case-a-renamed"
+    check("a rename does not credit again", recurrence.reconcile(nodes, edges) == [])
+
+    user = {"user-lesson": {"id": "user-lesson", "gist": "g", "_created_ts": lesson_ts}}
+    proj = {"proj-case": {"id": "proj-case", "gist": "g", "_created_ts": case_ts}}
+    cross = {"x": {"from": "proj-case", "to": "user-lesson", "rel": "instance-of"}}
+    done = recurrence.reconcile(proj, cross, user)
+    check("a project case credits a user lesson",
+          done and done[0]["cross_level"] and user["user-lesson"]["_useful_ts"] == [case_ts], done)
+
+    # the store reconciles on load: write a graph with an uncredited history edge
+    from core.persistence import GraphPersistence
+    from mcp_http.session_manager import HTTPSessionManager
+    from mcp_http.store import GraphConfig, MultiProjectGraphStore
+    from core.constants import user_graph_path
+    hist = {"lesson": {"id": "lesson", "gist": "g", "_created_ts": lesson_ts},
+            "case": {"id": "case", "gist": "g", "_created_ts": case_ts}}
+    hedges = {("case", "lesson", "instance-of"): {"from": "case", "to": "lesson", "rel": "instance-of"}}
+    GraphPersistence(user_graph_path()).save({"nodes": hist, "edges": hedges}, {}, {})
+    store = MultiProjectGraphStore(GraphConfig(save_interval=9999), HTTPSessionManager(),
+                                   broadcast_callback=None)
+    loaded = store.graphs["user"]["nodes"]["lesson"]
+    check("loading the graph backfills the history edge", loaded.get("_useful_ts") == [case_ts], loaded)
+    store2 = MultiProjectGraphStore(GraphConfig(save_interval=9999), HTTPSessionManager(),
+                                    broadcast_callback=None)
+    check("reloading does not credit twice",
+          store2.graphs["user"]["nodes"]["lesson"].get("_useful_ts") == [case_ts])
 
 
 if __name__ == "__main__":
@@ -332,5 +382,6 @@ if __name__ == "__main__":
     test_maintenance_reads()
     test_maintenance_writes()
     test_recurrence_credit()
+    test_recurrence_reconcile()
     print(f"\n{_PASS} passed, {_FAIL} failed")
     sys.exit(1 if _FAIL else 0)

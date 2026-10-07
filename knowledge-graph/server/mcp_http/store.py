@@ -46,6 +46,7 @@ from core.search import (
     rank_nodes, connection_paths,
 )
 from core.exceptions import NodeConflictError
+from core import recurrence
 from core.constants import (
     WRITTEN_FIELD, GIST_TS_FIELD, GIST_TS_MAX, IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
     PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
@@ -180,6 +181,7 @@ class MultiProjectGraphStore:
             self._clean_orphaned_edges(graph)
             # Heal nodes whose gist swallowed their notes (one-time repair, idempotent)
             healed = self._heal_corrupt_nodes(graph)
+            credited = self._reconcile_recurrence(graph, None, user_key)
 
             self.graphs[user_key] = graph
             self._bump_gen(user_key)
@@ -189,7 +191,8 @@ class MultiProjectGraphStore:
             self.dirty[user_key] = False
 
             # Persist the heal so the repair sticks and the next load is a no-op
-            if healed:
+            if healed or credited:
+                self.dirty[user_key] = True
                 self._write_through(user_key)
 
             logger.info(f"Loaded user graph: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
@@ -217,6 +220,8 @@ class MultiProjectGraphStore:
         self._clean_orphaned_edges(graph)
         # Heal nodes whose gist swallowed their notes (one-time repair, idempotent)
         healed = self._heal_corrupt_nodes(graph)
+        user_nodes = self.graphs.get("user", {}).get("nodes")
+        credited = self._reconcile_recurrence(graph, user_nodes, project_key)
 
         self.graphs[project_key] = graph
         self._bump_gen(project_key)
@@ -226,8 +231,12 @@ class MultiProjectGraphStore:
         self.dirty[project_key] = False
 
         # Persist the heal so the repair sticks and the next load is a no-op
-        if healed:
+        if healed or credited:
+            self.dirty[project_key] = True
             self._write_through(project_key)
+        if any(c["cross_level"] for c in credited):
+            self.dirty["user"] = True
+            self._write_through("user")
 
         logger.info(f"Loaded project graph for {project_root}: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges (path: {graph_path})")
 
@@ -875,8 +884,9 @@ class MultiProjectGraphStore:
         project_path resolves a project graph directly (visual editor) — see
         _resolve_graph_key.
 
-        A NEW instance-of edge from a node created after its target credits the
-        target like an endorsement (_recurrence_credit).
+        An instance-of edge from a node created after its target credits the
+        target once, like an endorsement dated the day the case was written
+        (core.recurrence; graph loads reconcile the same rule over all edges).
         """
         validate_edge_ref(from_ref)
         validate_edge_ref(to_ref)
@@ -887,7 +897,7 @@ class MultiProjectGraphStore:
 
             edges = self.graphs[graph_key]["edges"]
             edge_key = (from_ref, to_ref, rel)
-            if rel == LIFT_EDGE_REL and edge_key not in edges:
+            if rel == LIFT_EDGE_REL:
                 credit = self._recurrence_credit(graph_key, from_ref, to_ref, session_id)
 
             # Create or update edge
@@ -921,38 +931,50 @@ class MultiProjectGraphStore:
 
     def _recurrence_credit(self, graph_key: str, from_ref: str, to_ref: str,
                            session_id: str | None) -> dict | None:
-        """Credit a lesson that recurred. Caller holds lock.
+        """Apply core.recurrence to the edge being written. Caller holds lock.
 
-        An instance-of edge says "this case is that lesson". When the case was
-        written after the lesson, the lesson was needed again: the strongest
-        evidence a node is alive, and until now the one the scorer never saw
-        (scorer-recurrence-blind-spots). It earns what an endorsement earns, a
-        _useful_ts stamp, and is logged to useful.jsonl with via "recurrence".
-        A lift (old episodes edged to a new principle) is not a recurrence and
-        earns nothing. The target may be a user node cited from a project graph.
+        Returns the useful.jsonl record to append after the lock, or None.
         """
-        nodes = self.graphs[graph_key]["nodes"]
-        target_key = graph_key if to_ref in nodes else (
-            "user" if to_ref in self.graphs.get("user", {}).get("nodes", {}) else None)
-        if from_ref not in nodes or target_key is None:
+        user_nodes = self.graphs.get("user", {}).get("nodes") if graph_key != "user" else None
+        done = recurrence.credit_edge({"from": from_ref, "to": to_ref, "rel": LIFT_EDGE_REL},
+                                      self.graphs[graph_key]["nodes"], user_nodes)
+        if not done:
             return None
-        target = self.graphs[target_key]["nodes"][to_ref]
-        if nodes[from_ref].get("_created_ts", 0) <= target.get("_created_ts", 0):
-            return None
-        now = time.time()
-        target.setdefault("_useful_ts", []).append(now)
+        target_key = "user" if done["cross_level"] else graph_key
         self.dirty[target_key] = True
         if target_key != graph_key:
             self._write_through(target_key)
         session = self.session_manager.lookup(session_id) if session_id else None
+        return self._recurrence_record(done, target_key, session_id,
+                                       (session or {}).get("project_path"), "write")
+
+    def _reconcile_recurrence(self, graph: dict, user_nodes: dict | None, graph_key: str) -> list:
+        """Credit every uncredited recurrence of a graph being loaded and log
+        them: the backfill of history and the catch-up for edges that arrived
+        outside put_edge. Idempotent (core.recurrence)."""
+        credits = recurrence.reconcile(graph["nodes"], graph["edges"], user_nodes)
+        if credits:
+            project = graph_key.split(":", 1)[1] if ":" in graph_key else None
+            for done in credits:
+                target_key = "user" if done["cross_level"] else graph_key
+                append_jsonl(get_storage_root() / USEFUL_LOG_NAME,
+                             self._recurrence_record(done, target_key, None, project, "load"),
+                             USEFUL_LOG_MAX_BYTES)
+            logger.info(f"Recurrence credits on load of {graph_key}: {len(credits)}")
+        return credits
+
+    @staticmethod
+    def _recurrence_record(done: dict, target_key: str, session_id, project, at: str) -> dict:
         return {
-            "ts": round(now, 3),
+            "ts": round(time.time(), 3),
             "kg_session": session_id,
-            "project": (session or {}).get("project_path"),
-            "id": to_ref,
+            "project": project,
+            "id": done["id"],
             "level": "user" if target_key == "user" else "project",
             "via": "recurrence",
-            "instance": from_ref,
+            "instance": done["instance"],
+            "case_ts": done["case_ts"],
+            "at": at,
         }
 
     def delete_node(self, node_id: str, level: str | None = None, session_id: str | None = None,
