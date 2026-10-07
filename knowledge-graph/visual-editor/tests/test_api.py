@@ -128,6 +128,12 @@ class EditorTests(unittest.IsolatedAsyncioTestCase):
         self.clock = patch("core.scorer.time.time", return_value=NOW)
         self.clock.start()
         self.addCleanup(self.clock.stop)
+        # These few short nodes would all fit the real fresh tier and go unscored.
+        # Tier selection is tested in the server suite; here only new-node is fresh.
+        self.fresh = patch.object(self.store.scorer, "fresh_ids",
+                                  side_effect=lambda nodes, edges: {"new-node"} & set(nodes))
+        self.fresh.start()
+        self.addCleanup(self.fresh.stop)
 
     async def search(self, query, **params):
         response = await self.client.get("/api/search", params={"query": query, **params})
@@ -249,7 +255,7 @@ class EditorTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(data["score"])
             self.assertIsInstance(data["preview_score"], float)
             self.assertAlmostEqual(sum(c["contribution"] for c in data["components"]), data["preview_score"])
-        self.assertTrue((await self.score("new-node"))["grace"]["protected"])
+        self.assertTrue((await self.score("new-node"))["fresh"]["protected"])
         self.assertEqual(self.graph, before)
         self.assertFalse(self.store.dirty["user"])
 

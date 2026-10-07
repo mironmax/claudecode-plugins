@@ -143,7 +143,6 @@ The server reads tunables from environment variables. Set them in your shell rc 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KG_GRACE_PERIOD_DAYS` | see `constants.py` | Days a newly created node is protected from archival; reads and updates do not restart this grace period |
 | `KG_ORPHAN_GRACE_DAYS` | see `constants.py` | Days before orphaned archived nodes are permanently deleted |
 | `KG_STORAGE_ROOT` | `~/.knowledge-graph` | Root directory for all graph data |
 | `KG_SAVE_INTERVAL` | `30` | Auto-save interval (seconds) |
@@ -155,9 +154,9 @@ The server reads tunables from environment variables. Set them in your shell rc 
 > **The size budget is fixed by design.** Budgets are exact rendered characters: 17,500 per level, 40,000 for the combined full-graph render, and 10,000 for preload (8,000 in Codex). They were sized for the measured Claude Code/Codex clients; arbitrary batches of full-node notes and other clients have separate delivery limits. Oversized full graphs hide the lowest-scored archived anchors and edges with counts and a search pointer.
 
 > The full-graph figure is a target: active gists are preserved even if they
-> alone exceed it, including while creation grace prevents archival. Such a
-> render can exceed a client's inline limit; a maintenance pass or expiry of
-> grace is needed to restore headroom.
+> alone exceed it. The newest nodes (the fresh tier, up to 30% of a level's
+> budget) are never archived, so a level holding unusually long gists can
+> render past a client's inline limit until a maintenance pass tightens them.
 
 ---
 
@@ -170,7 +169,7 @@ Graph data lives under `~/.knowledge-graph/` by default (`KG_STORAGE_ROOT` can c
 - **Sessions:** `~/.knowledge-graph/sessions.json` — session registry
 - **Tool-event counters:** `~/.knowledge-graph/projects/<slug>/tool_events.json` — per-target read/fetch counts feeding the capture nudges and the activity part of the DEBT score
 - **Maintenance memory:** `~/.knowledge-graph/maintain.json` — the maintenance agent's own lessons, never shown in sessions
-- **Logs:** `recall.jsonl` (what recall decided per prompt and tool event), `useful.jsonl` (endorsements), `chores.jsonl` (every chore decision) — all in `~/.knowledge-graph/`, size-capped
+- **Logs:** `recall.jsonl` (what recall decided per prompt and tool event), `useful.jsonl` (endorsements, and recurrence credits marked `via: "recurrence"`), `chores.jsonl` (every chore decision) — all in `~/.knowledge-graph/`, size-capped
 - **Chores:** `chores.json` (your switch and settings, if any) and `chore_state.json` (spacing and daily counts)
 
 Project slugs use the final directory name, without a path hash. Project roots

@@ -5,8 +5,8 @@ Claude Code/Codex clients. Active gists are preserved even if they alone
 exceed it, so this is not an unconditional inline guarantee. Two layers
 normally keep the output within the target:
 
-  1. The compactor targets MAX_CHARS_PER_LEVEL per level; newly created nodes
-     still inside their grace period can defer archival while over budget.
+  1. The compactor targets MAX_CHARS_PER_LEVEL per level; the fresh tier
+     (newest nodes, up to 30% of it) is never archived.
   2. For graphs the compactor hasn't maintained (legacy, externally edited),
      this module degrades the output at render time: drop the lowest-scored
      archived anchors first, then the lowest-value edge citations — never
@@ -224,7 +224,7 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloade
     already in the session's context, so they render as id-only anchors and the
     freed budget keeps more archived anchors and edges visible.
     Active gists are never dropped — if active lines alone exceed the budget
-    (for example, an unmaintained graph or one protected by creation grace),
+    (for example, an unmaintained graph or one with unusually long gists),
     the output can exceed the target until archival becomes possible.
     """
     session_line = f"\n\nSession: {session_id}" if session_id else ""
@@ -379,7 +379,9 @@ def format_node_full(node_id: str, result: dict) -> str:
     always visible.
     """
     node = result["node"]
-    status = "promoted from archive" if result.get("was_archived") else "active"
+    status = ("promoted from archive" if result.get("promoted", result.get("was_archived"))
+              else "archived, not promoted (maintenance read)" if result.get("was_archived")
+              else "active")
     lines = [f"▸ {node_id} ({result['level']}, {status})"]
     lines.append(f"  gist: {node.get('gist', '')}")
     notes = node.get("notes") or []

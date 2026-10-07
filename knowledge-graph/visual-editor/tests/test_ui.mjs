@@ -246,7 +246,7 @@ await check('Score card labels excluded-node previews and keeps a zero score vis
         pool: { size: 3, include_archived: false },
         components: ['recency', 'connectedness', 'usefulness'].map((key, i) => ({ key, label: key, raw: 0, percentile: 0, weight: [0.25, 0.4, 0.35][i], contribution: 0 })),
         connectedness: { incoming: { active: 0, archived: 0, unweighted: 0 }, outgoing: { active: 0, archived: 0, unweighted: 0 }, weighted_in: 0, weighted_out: 0, weighted_degree: 0, hub_floor: 0, hub_floor_weight: 0.5, archived_neighbor_weight: 0.2 },
-        recency: { write_ts: 0, read_ts: 0 }, usefulness: { endorsements: 0, half_life_days: 90 }, grace: { protected: false },
+        recency: { write_ts: 0, read_ts: 0 }, usefulness: { endorsements: 0, half_life_days: 90 }, fresh: { protected: false, tier_size: 0, budget_chars: 5250 },
     };
     state.nodeScoreCache.set('user::active', { data });
     assert.match(app.buildNodeScoreContent(nodes[0]), /<strong>0.000<\/strong>/);

@@ -1530,7 +1530,7 @@ function buildNodeScoreContent(node) {
             <dt>Usefulness · ${raw('usefulness')}</dt>
             <dd>${data.usefulness.endorsements} explicit endorsements, decayed with a ${data.usefulness.half_life_days}-day half-life. Each contributes 0.5<sup>age / ${data.usefulness.half_life_days}</sup>.</dd>
         </dl></details>
-        ${data.grace.protected ? `<p class="score-note">Creation grace: ${data.grace.days} days, until ${escapeHtml(scoreDate(data.grace.ends_ts))}.</p>` : ''}
+        ${data.fresh.protected ? `<p class="score-note">Fresh tier: one of the ${data.fresh.tier_size} newest nodes, kept active until newer work pushes it out.</p>` : ''}
         <p class="score-note">Higher scores stay longer. Graph size and available context also determine archival and refill.</p>`;
 }
 

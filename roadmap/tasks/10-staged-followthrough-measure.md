@@ -40,7 +40,8 @@ through a one-off script.
   (`build_report`, `describe`, `format_text`), `replay.py` (`is_file_record`).
 - Inputs: `recall.jsonl` (reasons `injected` and `file_recall`; file outcomes
   include `injected`, `all_seen` and `throttled`) and `useful.jsonl` (accepted
-  endorsements).
+  endorsements; records with `via: "recurrence"` are server-side recurrence
+  credits, not agent endorsements — filter them out of follow-through).
 - Transcripts. Claude Code: `~/.claude/projects/<encoded-path>/<session>.jsonl`,
   where tool requests are assistant `tool_use` blocks. Codex:
   `${CODEX_HOME:-~/.codex}/sessions/**/rollout-*.jsonl`, where completed

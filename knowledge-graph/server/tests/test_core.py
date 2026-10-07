@@ -39,7 +39,6 @@ from core.constants import (
     ARCHIVED_BUDGET_RATIO,
     ARCHIVED_EDGE_WEIGHT,
     COMPACTION_TARGET_RATIO,
-    GRACE_PERIOD_DAYS,
 )
 
 # --- tiny test runner -------------------------------------------------------
@@ -58,7 +57,8 @@ def check(name, cond, detail=""):
 
 
 def past_grace_ts():
-    return time.time() - (GRACE_PERIOD_DAYS + 1) * 24 * 3600
+    """An old creation stamp. Scoring in these tests uses NodeScorer(0): no fresh tier."""
+    return time.time() - 30 * 24 * 3600
 
 
 # --- 1. healer --------------------------------------------------------------
@@ -221,7 +221,7 @@ def test_refill():
     check("fill ceiling below archive threshold", 0 < COMPACTION_TARGET_RATIO < 1.0)
 
     # connectedness now counts archived neighbours at reduced weight (not zero)
-    sc = NodeScorer(GRACE_PERIOD_DAYS)
+    sc = NodeScorer(0)
     nodes, edges = _cluster_graph()
     active_ids = {"anchor"}
     archived_ids = {"hub", "sat1", "sat2", "sat3", "sat4"}
@@ -318,7 +318,7 @@ def test_orphan_order():
         edges[f"sat{i}->hub:r"] = {"from": f"sat{i}", "to": "hub", "rel": "r"}
     est = CharEstimator()
     anchor_cost = est.estimate_archived("plain1")
-    comp = Compactor(NodeScorer(GRACE_PERIOD_DAYS), est,
+    comp = Compactor(NodeScorer(0), est,
                      max_chars=int(2.5 * anchor_cost / ARCHIVED_BUDGET_RATIO))
     orphaned = comp.orphan_archived_if_needed(nodes, edges, {})
     check("four orphaned to fit the budget", len(orphaned) == 4, orphaned)
