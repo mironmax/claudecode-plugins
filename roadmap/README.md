@@ -56,6 +56,7 @@ an agent working only from this repository.
 | 09 | [Sessions model without the project fallback](tasks/09-sessions-model-no-fallback.md) | Re-check hook identity and dedup under the new resolution rule | done: both hold after the F12 fix, 0.11.0 |
 | 10 | [Staged recall follow-through](tasks/10-staged-followthrough-measure.md) | Credit prompt and file recall by what the session did next, not by endorsements alone | done: `python -m eval --transcripts`, 0.11.0 |
 | 11 | [Antigravity CLI](../knowledge-graph/ANTIGRAVITY.md) | Bring the Codex lessons to a third harness | experimental in 0.11.0: checkpoint and refused-read state fixed; maintenance runner, quota gate and scout recipe added; signed-in resume/fork/clear/compaction checks and a real runner run remain |
+| 12 | [Adoption: positioning, proof, distribution](tasks/12-adoption.md) | People who would benefit find it, understand it in ten seconds, install it on the first try, and see evidence; research in `docs/adoption/` | open; research done |
 
 A formal pass over the server's concurrent and stateful parts (`formal/`,
 Lean models plus reproductions against the real code) found ten issues;
