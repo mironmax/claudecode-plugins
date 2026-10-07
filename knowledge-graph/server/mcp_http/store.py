@@ -737,6 +737,8 @@ class MultiProjectGraphStore:
         likes (one vote per node per session, so a later kg_useful on it is a
         duplicate), logged to useful.jsonl via "note". Caller holds the lock."""
         from core.constants import MAX_LIKES_PER_SESSION, USEFUL_LOG_MAX_BYTES, USEFUL_LOG_NAME
+        if session_id in self._maintenance_sessions:
+            return False  # a maintenance pass curating a lesson has not met it again
         session = self.session_manager.lookup(session_id)
         if session is None:
             return False
