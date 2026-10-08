@@ -365,14 +365,19 @@ def format_conflict(err) -> str:
              "Nothing was changed. The node as it stands now:",
              f"  gist: {node.get('gist', '')}"]
     notes = node.get("notes") or []
+    dropped = set(getattr(err, "dropped", None) or [])
     if notes:
         lines.append("  notes:")
-        lines.extend(f"    - {n}" for n in notes)
+        lines.extend(f"    - {n}" + ("   [your write removes this]" if n in dropped else "") for n in notes)
     touches = node.get("touches") or []
     if touches:
         lines.append("  touches: " + " · ".join(touches))
-    lines.append("Merge your change into this and call kg_put_node again. The notes and "
-                 "touches you send replace the stored lists, so send every entry to keep.")
+    if dropped:
+        lines.append("To add a case, send every stored note plus yours. If removing the marked "
+                     "notes is intended (merging or trimming them), send the same write again.")
+    else:
+        lines.append("Merge your change into this and call kg_put_node again. The notes and "
+                     "touches you send replace the stored lists, so send every entry to keep.")
     return "\n".join(lines)
 
 
