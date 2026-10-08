@@ -41,8 +41,11 @@ def unavailable(event, base):
                           "`kg setup --plan`, applying only the items the user accepts. Memory "
                           "loads from the next session; until then the kg_* tools are "
                           "unavailable, so proceed without memory.")
-        state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
-        breadcrumb = state / "knowledge-graph/last_start_error"
+        state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "knowledge-graph"
+        port = os.environ.get("KG_HTTP_PORT", "8765")
+        if port != "8765":   # as kg keeps it
+            state = state / f"port-{port}"
+        breadcrumb = state / "last_start_error"
         if breadcrumb.exists():
             cause = next((line[7:] for line in breadcrumb.read_text().splitlines()
                           if line.startswith("cause: ")), "cause not recorded")

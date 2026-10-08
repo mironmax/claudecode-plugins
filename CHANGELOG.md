@@ -9,6 +9,7 @@ All notable changes to this project are documented here.
 - **CI runs the test suite on macOS** as well (Python 3.x). It reports without failing the run until an intermittent failure there is understood.
 
 ### Fixed
+- **A second server no longer takes over the first one's state.** Every `kg` server kept its PID file, log and start-failure note in one folder whatever `KG_HTTP_PORT` was. A second server (a bench, a test) overwrote the live server's PID file, so `kg stop` on either port could stop the other, and a failed start on another port could make the next session's hook report the real server as failed instead of starting it. A server on a port other than 8765 now keeps its state in `port-<N>/` under `~/.local/state/knowledge-graph/`; the default port keeps today's paths, and both hooks read the start-failure note from the same place.
 - **Anchor repair keeps `~` paths when home is behind a symlink.** A moved file touched as `~/…` came back as an absolute path when the home directory is reached through a symlink (macOS `/var` → `/private/var`, or a linked home): the project root was resolved and home was not. Found by the first macOS CI run.
 
 ## [0.13.0] - 2026-10-08

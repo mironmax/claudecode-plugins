@@ -30,6 +30,7 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
   agent to offer the install (below).
 - Logs and state: `~/.local/state/knowledge-graph/` (`mcp_server.log`,
   `server.pid`, `last_start_error` when a start failed, `backups/` from setup).
+  A server on another `KG_HTTP_PORT` keeps its own in `port-<N>/` there.
 - Data: `~/.knowledge-graph/` (plain JSON — `user.json`,
   `projects/<slug>/graph.json`, `sessions.json`, plus `maintain.json`: the
   maintenance agent's own craft memory, never preloaded or searched). Survives

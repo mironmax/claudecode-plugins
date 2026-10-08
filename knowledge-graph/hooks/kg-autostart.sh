@@ -44,7 +44,9 @@ if ! healthy; then
     fi
     # A start that failed said why, and fails the same way until fixed:
     # report it instead of retrying every session.
-    BREADCRUMB="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph/last_start_error"
+    STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/knowledge-graph"
+    [ "$PORT" != 8765 ] && STATE_DIR="$STATE_DIR/port-$PORT"   # as kg keeps it
+    BREADCRUMB="$STATE_DIR/last_start_error"
     if [ -f "$BREADCRUMB" ]; then
         CAUSE=$(grep -m1 '^cause: ' "$BREADCRUMB" 2>/dev/null | sed 's/^cause: //')
         WHEN=$(grep -m1 '^when: ' "$BREADCRUMB" 2>/dev/null | sed 's/^when: //')
