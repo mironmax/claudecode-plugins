@@ -110,8 +110,8 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
         """Session-start memory preload, used by the SessionStart hook.
 
         Registers a session and returns a compact core render capped at
-        BOOTSTRAP_CHAR_BUDGET — hook additionalContext stays inline only up to
-        ~10K chars (measured; tool results tolerate ~50K), so the preload
+        the harness profile's preload limit — hook additionalContext stays inline
+        only up to ~10K (measured per client; tool results tolerate 40-50K), so the preload
         carries the top-scored gists and the loud kg_read renders the rest
         without repeating them. "context" is the final injectable text
         (instruction header included); "text" is the graph body alone for
@@ -196,7 +196,7 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
             except Exception:
                 debt = None
             result = build_bootstrap(graphs, scores, session_id, debt=debt,
-                                     budget=profile.preload_chars)
+                                     budget=profile.preload_limit, measure=profile.measure)
             session_manager.set_preloaded(session_id, result["shown_ids"])
             session_manager.mark_seen(session_id, result["shown_ids"], via="preload",
                                       at=viewed_at)

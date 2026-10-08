@@ -67,7 +67,7 @@ Both harnesses talk to one local server, so a lesson captured in Codex is recall
 | Capability | Codex CLI support |
 |---|---|
 | MCP tools and shared memory | Supported, including when hooks are off |
-| Preload and prompt recall | Supported with trusted hooks; preload fits 8,000 characters |
+| Preload and prompt recall | Supported with trusted hooks; preload fits 9,000 bytes |
 | File recall and read counters | `apply_patch` and explicit file operands of `cat`, `head`, `tail`, `less`, `sed -n`, `grep`, `jq`, `nl`, `rg`; relative shell paths need a verified execution directory |
 | Hosted web search | No hook event, so no web-research capture nudges |
 | `/kg-extract` | Codebase mapping works in either harness |

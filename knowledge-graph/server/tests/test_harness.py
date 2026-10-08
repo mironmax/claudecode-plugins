@@ -48,7 +48,7 @@ os.environ.pop("KG_CHORES", None)
 _CODEX_HOME = Path(_tmpdir(prefix="kg-test-codex-"))
 os.environ["CODEX_HOME"] = str(_CODEX_HOME)
 
-from core.constants import BOOTSTRAP_CHAR_BUDGET, CHORE_LOG_NAME, CODEX_BOOTSTRAP_CHAR_BUDGET  # noqa: E402
+from core.constants import CHORE_LOG_NAME  # noqa: E402
 from mcp_http import chore_dispatch as cd  # noqa: E402
 from mcp_http import harness  # noqa: E402
 from mcp_http.file_recall import file_targets, patch_files  # noqa: E402
@@ -231,13 +231,42 @@ def test_preload_budget():
                        f"a gist long enough to fill the preload quickly, number {i} " * 3,
                        session_id=sid)
     graphs, scores = store.read_graphs(sid), store.scores_for_read(sid)
-    claude = build_bootstrap(graphs, scores, sid)
-    codex = build_bootstrap(graphs, scores, sid, budget=CODEX_BOOTSTRAP_CHAR_BUDGET)
-    check("the Codex preload fits its budget", len(codex["context"]) <= CODEX_BOOTSTRAP_CHAR_BUDGET,
-          len(codex["context"]))
+    def preload(name, graphs, scores):
+        p = harness.profile(name)
+        return build_bootstrap(graphs, scores, sid, budget=p.preload_limit, measure=p.measure)
+    claude, codex = preload(harness.CLAUDE_CODE, graphs, scores), preload(harness.CODEX, graphs, scores)
+    check("the Codex preload fits its budget",
+          harness.utf8_bytes(codex["context"]) <= harness.profile(harness.CODEX).preload_limit,
+          harness.utf8_bytes(codex["context"]))
     check("the Claude preload keeps its own",
-          CODEX_BOOTSTRAP_CHAR_BUDGET < len(claude["context"]) <= BOOTSTRAP_CHAR_BUDGET,
+          len(codex["context"]) < len(claude["context"])
+          and harness.utf16_units(claude["context"]) <= harness.profile(harness.CLAUDE_CODE).preload_limit,
           len(claude["context"]))
+    # Each client counts in its own unit (measured 2026-10-08): Claude Code in
+    # UTF-16 units (an emoji is two), Codex in UTF-8 bytes (Cyrillic is two a
+    # character). A budget in Python characters let both overflow.
+    usm = HTTPSessionManager()
+    ustore = MultiProjectGraphStore(GraphConfig(save_interval=9999), usm)
+    usid = usm.register(None)["session_id"]
+    for i in range(160):
+        ustore.put_node("user", f"wide-node-{i:03d}",
+                        f"урок {i}: проверяй границы 🙂🙂🙂🙂🙂🙂🙂🙂 перед ответом " * 2,
+                        session_id=usid)
+    ugraphs, uscores = ustore.read_graphs(usid), ustore.scores_for_read(usid)
+    wide = {name: preload(name, ugraphs, uscores) for name in (harness.CLAUDE_CODE, harness.CODEX)}
+    check("a non-ASCII Claude preload stays under Claude's 10,000 UTF-16 limit",
+          harness.utf16_units(wide[harness.CLAUDE_CODE]["context"]) <= 10000,
+          harness.utf16_units(wide[harness.CLAUDE_CODE]["context"]))
+    check("a non-ASCII Codex preload stays under Codex's 10,000-byte limit",
+          harness.utf8_bytes(wide[harness.CODEX]["context"]) <= 10000,
+          harness.utf8_bytes(wide[harness.CODEX]["context"]))
+    by_chars = build_bootstrap(ugraphs, uscores, usid, budget=9000, measure=len)
+    check("counted in characters, the same Codex preload would overflow",
+          harness.utf8_bytes(by_chars["context"]) > 10000, harness.utf8_bytes(by_chars["context"]))
+    by_chars = build_bootstrap(ugraphs, uscores, usid, budget=9500, measure=len)
+    check("counted in characters, the same Claude preload would overflow",
+          harness.utf16_units(by_chars["context"]) > 10000, harness.utf16_units(by_chars["context"]))
+    ustore.shutdown()
     kid = sm.register(None, claude_sid="codex-thread", harness=harness.CODEX)["session_id"]
     check("a session records the harness that registered it",
           sm.lookup(kid).get("harness") == harness.CODEX)

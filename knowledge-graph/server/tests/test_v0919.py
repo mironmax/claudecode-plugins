@@ -6,7 +6,7 @@ No pytest dependency — run directly with the project venv:
     cd knowledge-graph/server && ./venv/bin/python tests/test_v0919.py
 
 Covers:
-  1. build_bootstrap: hard BOOTSTRAP_CHAR_BUDGET cap (header included),
+  1. build_bootstrap: hard CLAUDE_PRELOAD_LIMIT cap (header included),
      shown_ids match the rendered gists, lowest-scored gists drop first,
      hubs survive, hidden-count line present, stats correct
   2. build_full_read preload dedup: preloaded nodes render as id-only
@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.constants import BOOTSTRAP_CHAR_BUDGET, READ_CHAR_BUDGET
+from core.constants import CLAUDE_PRELOAD_LIMIT, READ_CHAR_BUDGET
 from mcp_http.read_format import build_bootstrap, build_full_read
 
 # --- tiny test runner -------------------------------------------------------
@@ -84,7 +84,7 @@ def test_bootstrap_budget():
     graphs, scores = _big_graphs()
     result = build_bootstrap(graphs, scores, "testsess")
 
-    check("context fits hard budget", len(result["context"]) <= BOOTSTRAP_CHAR_BUDGET,
+    check("context fits hard budget", len(result["context"]) <= CLAUDE_PRELOAD_LIMIT,
           f"len={len(result['context'])}")
     check("header included in context", result["context"].startswith("KG MEMORY PRELOADED"),
           result["context"][:60])

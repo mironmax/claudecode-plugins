@@ -236,7 +236,8 @@ def handle_event(store, manager, event_name, payload):
         graphs = store.read_graphs(sid)
         scores = store.scores_for_read(sid)
         result = build_bootstrap(graphs, scores, sid, debt=store.maintenance_debt(sid),
-                                 budget=harness.profile(harness.ANTIGRAVITY).preload_chars)
+                                 budget=harness.profile(harness.ANTIGRAVITY).preload_limit,
+                                 measure=harness.profile(harness.ANTIGRAVITY).measure)
         view = DeferredView(manager)
         view.set_preloaded(sid, result["shown_ids"])
         view.mark_seen(sid, result["shown_ids"], via="preload", at=at)

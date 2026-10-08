@@ -14,19 +14,32 @@ Claude Code's hook fields on purpose, so the same keys arrive from both.
 
 import os
 from dataclasses import dataclass
+from typing import Callable
 
-from core.constants import BOOTSTRAP_CHAR_BUDGET, CODEX_BOOTSTRAP_CHAR_BUDGET
+from core.constants import (ANTIGRAVITY_PRELOAD_LIMIT, CLAUDE_PRELOAD_LIMIT,
+                            CODEX_PRELOAD_LIMIT)
 
 CLAUDE_CODE = "claude-code"
 CODEX = "codex"
 ANTIGRAVITY = "antigravity-cli"
 
 
+def utf16_units(text: str) -> int:
+    """Length as JavaScript counts it: an astral character (emoji) is two."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def utf8_bytes(text: str) -> int:
+    return len(text.encode("utf-8"))
+
+
 @dataclass(frozen=True)
 class Profile:
     name: str
-    # Hook context ceiling for the session-start preload.
-    preload_chars: int
+    # How the client counts the length of what it receives, and the hook
+    # context ceiling for the session-start preload in that unit.
+    measure: Callable[[str], int]
+    preload_limit: int
     # Reads arrive only through the shell (no Read tool), so shell reads
     # stand in for reads when counting what is worth a capture nudge.
     shell_reads_count: bool
@@ -40,9 +53,9 @@ class Profile:
 
 
 PROFILES = {
-    CLAUDE_CODE: Profile(CLAUDE_CODE, BOOTSTRAP_CHAR_BUDGET, False, True, None),
+    CLAUDE_CODE: Profile(CLAUDE_CODE, utf16_units, CLAUDE_PRELOAD_LIMIT, False, True, None),
     CODEX: Profile(
-        CODEX, CODEX_BOOTSTRAP_CHAR_BUDGET, True, False,
+        CODEX, utf8_bytes, CODEX_PRELOAD_LIMIT, True, False,
         "No Codex memory hooks have been observed for this project. "
         "The plugin's hooks may need trust: Codex keeps them off until "
         "the user approves them — ask the user to run /hooks, trust the "
@@ -50,7 +63,7 @@ PROFILES = {
         "preload, per-prompt recall or file recall; the kg_* tools work as usual.",
     ),
     ANTIGRAVITY: Profile(
-        ANTIGRAVITY, BOOTSTRAP_CHAR_BUDGET, False, False,
+        ANTIGRAVITY, utf8_bytes, ANTIGRAVITY_PRELOAD_LIMIT, False, False,
         "No Antigravity memory hook has been observed for this conversation. "
         "Install the native knowledge-graph plugin, check agy -p /hooks and "
         "start a new conversation. Large KG replies require PreInvocation; "
