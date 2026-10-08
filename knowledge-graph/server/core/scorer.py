@@ -5,7 +5,6 @@ import time
 
 from .constants import (
     ARCHIVED_EDGE_WEIGHT,
-    CREDITED_FIELD,
     HUB_FLOOR_WEIGHT,
     USEFUL_HALF_LIFE_DAYS,
     SCORE_WEIGHT_RECENCY,
@@ -94,18 +93,19 @@ class NodeScorer:
         return self._connectedness_details(node_id, active_ids, archived_ids, adj, include_counts=False)["raw"]
 
     def _recency(self, node_id: str, node: dict, versions: dict, current_time: float) -> float:
-        """Most recent of last write, last read or last maintenance credit.
-        Higher = fresher.
+        """Most recent of last write, last read or last credit. Higher = fresher.
 
         A write made by maintenance keeps the activity time it found (used_ts):
-        rewording or renaming a node is not using it. A credit is different: a
-        pass judged the lesson current, and a standing rule that is right never
-        gets rewritten, so without it the oldest rules could never come back.
+        rewording or renaming a node is not using it. Any credit is recent use
+        as of its stamp: an endorsement (a gist that worked never needs the full
+        read, so reads alone would miss the best nodes), a repeat (dated on the
+        case's day) or a maintenance credit (a right standing rule never gets
+        rewritten).
         """
         entry = versions.get(f"node:{node_id}", {})
         write_ts = entry.get("used_ts", entry.get("ts", 0))
         read_ts = node.get("_last_read_ts", 0)
-        credit_ts = max(node.get(CREDITED_FIELD) or [0])
+        credit_ts = max(node.get("_useful_ts") or [0])
         return max(write_ts, read_ts, credit_ts)
 
     @staticmethod
@@ -306,7 +306,7 @@ class NodeScorer:
             "pool": {"size": len(breakdown), "include_archived": include_archived},
             "components": components, "connectedness": connections,
             "recency": {"write_ts": write_ts, "read_ts": node.get("_last_read_ts", 0),
-                        "credit_ts": max(node.get(CREDITED_FIELD) or [0])},
+                        "credit_ts": max(node.get("_useful_ts") or [0])},
             "usefulness": {
                 "endorsements": len(node.get("_useful_ts", [])),
                 "half_life_days": USEFUL_HALF_LIFE_DAYS,

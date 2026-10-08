@@ -1524,7 +1524,7 @@ function buildNodeScoreContent(node) {
         <p class="score-note">Ranks among ${data.pool.size} eligible ${data.pool.include_archived ? 'active and archived' : 'active'} nodes in this graph. Equal values share a rank.</p>
         <details class="score-calculation"><summary>Raw values and calculation</summary><dl class="score-factors">
             <dt>Recency</dt>
-            <dd>Latest write or read: ${escapeHtml(scoreDate(data.components[0].raw))}<br>Write: ${escapeHtml(scoreDate(data.recency.write_ts))}<br>Read: ${escapeHtml(scoreDate(data.recency.read_ts))}</dd>
+            <dd>Latest write, read or credit: ${escapeHtml(scoreDate(data.components[0].raw))}<br>Write: ${escapeHtml(scoreDate(data.recency.write_ts))}<br>Read: ${escapeHtml(scoreDate(data.recency.read_ts))}<br>Credit: ${escapeHtml(scoreDate(data.recency.credit_ts))}</dd>
             <dt>Connectedness · ${raw('connectedness')}</dt>
             <dd>Incoming: ${incoming.active} active, ${incoming.archived} archived, ${incoming.unweighted} unweighted.<br>Outgoing: ${outgoing.active} active, ${outgoing.archived} archived, ${outgoing.unweighted} unweighted.<br>Active neighbors count ×1; archived ×${connected.archived_neighbor_weight}; others ×0.<br>0.66 × ${connected.weighted_in.toFixed(2)} + 0.33 × ${connected.weighted_out.toFixed(2)} = ${connected.weighted_degree.toFixed(3)}.<br>Hub floor: ${connected.hub_floor_weight} × ln(1 + ${edgeCount}) = ${connected.hub_floor.toFixed(3)}. The larger value is used.</dd>
             <dt>Usefulness · ${raw('usefulness')}</dt>

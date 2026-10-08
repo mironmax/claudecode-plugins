@@ -18,7 +18,7 @@ Covers:
   5. The pass total caps credits
   6. The evaluator drops maintenance and recurrence records, keeps endorsements
   7. A full node read shows when maintenance credited it
-  8. The latest credit counts as recency; an endorsement does not
+  8. Any credit, an endorsement included, counts as recent use
 
 Uses a temp KG_STORAGE_ROOT and a temp project under ~/.cache.
 """
@@ -83,17 +83,6 @@ def main():
         check("remaining counts the pass's credits",
               res["remaining"] == MAINTENANCE_CREDITS_PER_PASS - 2, res)
 
-        print("recency:")
-        versions = store._versions["user"]
-        scorer = store.compactor.scorer
-        for nid in ("rule-0", "rule-1"):
-            versions[f"node:{nid}"]["ts"] = 1000.0     # written long ago
-            nodes[nid].pop("_last_read_ts", None)
-        check("a credit counts as recent use",
-              scorer._recency("rule-0", nodes["rule-0"], versions, 0) == nodes["rule-0"]["_credited_ts"][-1])
-        check("an uncredited node keeps its old recency",
-              scorer._recency("rule-1", nodes["rule-1"], versions, 0) == 1000.0)
-
         print("weight bounds:")
         for bad in (0, 4):
             res = store.mark_useful(["rule-1"], chore, credits=bad)
@@ -116,6 +105,17 @@ def main():
         check("the pass total caps credits", res["accepted"] == ["rule-2", "rule-3", "rule-4", "rule-5"]
               and set(res["rejected"]) == {"rule-6", "rule-7"}, res)
         check("a capped node is untouched", not nodes["rule-6"].get("_useful_ts"))
+
+        print("recency:")
+        versions = store._versions["user"]
+        scorer = store.compactor.scorer
+        for nid in ("rule-0", "rule-1", "rule-7"):
+            versions[f"node:{nid}"]["ts"] = 1000.0     # written long ago
+            nodes[nid].pop("_last_read_ts", None)
+        recency = lambda nid: scorer._recency(nid, nodes[nid], versions, 0)
+        check("a maintenance credit counts as recent use", recency("rule-0") == nodes["rule-0"]["_useful_ts"][-1])
+        check("so does an endorsement", recency("rule-1") == nodes["rule-1"]["_useful_ts"][-1])
+        check("a node with neither keeps its old recency", recency("rule-7") == 1000.0)
 
         print("evaluator:")
         with open(Path(_TMP_STORAGE) / USEFUL_LOG_NAME, "a") as f:
