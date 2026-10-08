@@ -18,7 +18,9 @@ together, hubs first, each edge cited once at its first-encountered endpoint)
 — the same plan the estimator measures, so render == charge exactly.
 """
 
-from core.constants import CLAUDE_PRELOAD_LIMIT, READ_CHAR_BUDGET, SEARCH_CHAR_BUDGET
+import time
+
+from core.constants import CLAUDE_PRELOAD_LIMIT, CREDITED_FIELD, READ_CHAR_BUDGET, SEARCH_CHAR_BUDGET
 from core.debt import debt_line
 from core.render import plan_level, render_edge_line
 from mcp_http.harness import utf16_units
@@ -394,6 +396,10 @@ def format_node_full(node_id: str, result: dict) -> str:
     touches = node.get("touches") or []
     if touches:
         lines.append("  touches: " + " · ".join(touches))
+    credited = node.get(CREDITED_FIELD) or []
+    if credited:
+        days = ", ".join(time.strftime("%Y-%m-%d", time.localtime(ts)) for ts in credited)
+        lines.append(f"  credited by maintenance: {days}")
     edges = result.get("edges") or []
     if edges:
         lines.append("  edges:")

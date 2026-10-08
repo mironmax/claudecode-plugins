@@ -20,6 +20,7 @@ class Node(TypedDict):
     _created_ts: NotRequired[float]
     _last_read_ts: NotRequired[float]
     _useful_ts: NotRequired[list[float]]
+    _credited_ts: NotRequired[list[float]]   # maintenance credit events
     _gist_ts: NotRequired[list[float]]   # gist rewrites, bounded (churn guard)
 
 

@@ -361,7 +361,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_useful",
-                description="Endorse the nodes that earned their place — the usefulness signal feeding archival scoring (endorsed nodes stay active longer). TWO things earn it, both judged on what happened rather than on promise. It HELPED: it was in front of you and the work went differently for it — judge these at wrap-up against actual results, not on what seemed promising mid-flight. Or it was MISSING: it existed, this session needed it, and nothing surfaced it — you re-derived what the graph already held, took a wrong turn it would have prevented, or the user had to supply it. Send a miss the MOMENT you establish it, mid-session: the correction in front of you is the evidence, and only a miss can correct a wrong archival decision — a hit merely confirms a right one. If the missing node was archived, kg_read it as well: the read promotes it, the endorsement is what stops it sinking again. Five per session is the guidance, not a wall — spend them carefully, but if a session keeps turning up real signal (a run of misses after a correction), keep sending: a hard cap of 10 stops a flood, and past five the reply tells you how far over you are. One vote per node; reads alone never count.",
+                description="Endorse the nodes that earned their place — the usefulness signal feeding archival scoring (endorsed nodes stay active longer). TWO things earn it, both judged on what happened rather than on promise. It HELPED: it was in front of you and the work went differently for it — judge these at wrap-up against actual results, not on what seemed promising mid-flight. Or it was MISSING: it existed, this session needed it, and nothing surfaced it — you re-derived what the graph already held, took a wrong turn it would have prevented, or the user had to supply it. Send a miss the MOMENT you establish it, mid-session: the correction in front of you is the evidence, and only a miss can correct a wrong archival decision — a hit merely confirms a right one. If the missing node was archived, kg_read it as well: the read promotes it, the endorsement is what stops it sinking again. Five per session is the guidance, not a wall — spend them carefully, but if a session keeps turning up real signal (a run of misses after a correction), keep sending: a hard cap of 10 stops a flood, and past five the reply tells you how far over you are. One vote per node; reads alone never count. A maintenance pass (kg_read maintenance=true) does not endorse: it props up a lesson it judges should stay in view with credits=1-3 by conviction, which decay like endorsements, so the lesson stays only if sessions go on to find it useful.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -373,6 +373,12 @@ def create_mcp_server() -> Server:
                             "type": "array",
                             "items": {"type": "string"},
                             "description": "Node IDs that helped, or that should have been surfaced and were not (session budget: 5 total)"
+                        },
+                        "credits": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 3,
+                            "description": "Maintenance pass only: credits per node, 1-3 by conviction (15 per pass). A working session leaves it out."
                         }
                     },
                     "required": ["session_id", "ids"]
@@ -670,13 +676,17 @@ def create_mcp_server() -> Server:
                 from core.constants import LIKES_GUIDANCE_PER_SESSION
                 sid = arguments["session_id"]
                 session_manager.increment_ops(sid)
-                result = store.mark_useful(arguments["ids"], sid)
+                result = store.mark_useful(arguments["ids"], sid, arguments.get("credits", 1))
+                maintenance = store.is_maintenance(sid)
                 parts = []
                 if result["accepted"]:
-                    parts.append("Marked useful: " + ", ".join(result["accepted"]))
+                    parts.append((f"Credited ({result['credits']} each): " if maintenance
+                                  else "Marked useful: ") + ", ".join(result["accepted"]))
                 parts.extend(f"Skipped {nid}: {why}" for nid, why in result["rejected"].items())
                 over = result.get("over_guidance", 0)
-                if over:
+                if maintenance:
+                    parts.append(f"{result['remaining']} credit(s) left this pass.")
+                elif over:
                     parts.append(
                         f"{over} past the guidance of {LIKES_GUIDANCE_PER_SESSION} — fine if each "
                         f"one earned it; {result['remaining']} left before the hard cap."

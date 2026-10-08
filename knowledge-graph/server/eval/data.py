@@ -11,7 +11,8 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
-from core.constants import FILE_RECALL_REASON, RECALL_LOG_NAME, USEFUL_LOG_NAME, project_slug
+from core.constants import (FILE_RECALL_REASON, NON_USE_CREDIT_VIAS, RECALL_LOG_NAME,
+                            USEFUL_LOG_NAME, project_slug)
 from core.persistence import GraphPersistence
 
 # Graph state labels, strongest first. "known": git history proves the file
@@ -100,9 +101,9 @@ def load_logs(root: Path | None, recall_path: Path | None = None,
               useful_path: Path | None = None, since: float | None = None,
               until: float | None = None, skipped: dict | None = None, *, references=False
               ) -> tuple[list[dict], list[dict]]:
-    """(recall records, useful records) inside the window. Explicit paths
-    win over the storage root's default file names. Unreadable line counts
-    go into `skipped` ({"recall": n, "useful": n}) when given."""
+    """(recall records, useful records) inside the window, endorsements only.
+    Explicit paths win over the storage root's default file names. Unreadable
+    line counts go into `skipped` ({"recall": n, "useful": n}) when given."""
     recall_path = recall_path or (root / RECALL_LOG_NAME if root else None)
     useful_path = useful_path or (root / USEFUL_LOG_NAME if root else None)
     bad_r: list = []
@@ -111,8 +112,9 @@ def load_logs(root: Path | None, recall_path: Path | None = None,
     useful = read_jsonl(useful_path, bad_u, references=references) if useful_path else []
     if skipped is not None:
         skipped.update(recall=sum(bad_r), useful=sum(bad_u))
+    # Recurrence and maintenance credits share the log but are not use.
     return ([r for r in recall if in_window(r, since, until)],
-            [r for r in useful if in_window(r, since, until)])
+            [r for r in useful if in_window(r, since, until) and r.get("via") not in NON_USE_CREDIT_VIAS])
 
 
 def session_projects(root: Path | None, useful: list[dict]) -> dict:

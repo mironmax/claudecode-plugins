@@ -446,7 +446,7 @@ class MultiProjectGraphStore:
 
             return result
 
-    def mark_useful(self, node_ids: list, session_id: str) -> dict:
+    def mark_useful(self, node_ids: list, session_id: str, credits: int = 1) -> dict:
         """Record explicit usefulness endorsements ("likes") on nodes.
 
         The usefulness signal that feeds the scorer, and the only writer of
@@ -471,21 +471,31 @@ class MultiProjectGraphStore:
         Every id, accepted or refused, also appends a line to useful.jsonl
         naming how the node first reached the session (constants: USEFUL_LOG_NAME).
 
+        A maintenance session credits instead of endorsing: `credits` (1 to
+        MAINTENANCE_CREDIT_MAX_PER_NODE) stamps per node, within
+        MAINTENANCE_CREDITS_PER_PASS for the pass, logged as via "maintenance"
+        and recorded on the node's _credited_ts. Other sessions cast one vote.
+
         Returns {"accepted": [ids], "rejected": {id: reason},
-                 "remaining": endorsements left before the hard cap,
-                 "over_guidance": how far past the guidance this session is}.
+                 "remaining": endorsements (or a pass's credits) left,
+                 "over_guidance": how far past the guidance this session is,
+                 "credits": stamps per accepted id}.
         """
-        from core.constants import (LIKES_GUIDANCE_PER_SESSION, MAX_LIKES_PER_SESSION,
-                                    SURFACE_VIAS, USEFUL_LOG_MAX_BYTES, USEFUL_LOG_NAME)
+        from core.constants import (CREDITED_FIELD, LIKES_GUIDANCE_PER_SESSION,
+                                    MAINTENANCE_CREDIT_MAX_PER_NODE, MAINTENANCE_CREDITS_PER_PASS,
+                                    MAX_LIKES_PER_SESSION, SURFACE_VIAS, USEFUL_LOG_MAX_BYTES,
+                                    USEFUL_LOG_NAME)
 
         with self.lock:
             session = self.session_manager.lookup(session_id)
             if session is None:
                 raise SessionNotFoundError(session_id)
+            maintenance = session_id in self._maintenance_sessions
             liked = session.setdefault("liked_ids", [])
             seen_via = session.get("seen_via", {})
             seen = set(session.get("seen_ids", []))
             promoted = set(session.get("promoted_ids", []))
+            credited = session.get("maintenance_credits", 0)
 
             accepted: list = []
             rejected: dict = {}
@@ -495,7 +505,8 @@ class MultiProjectGraphStore:
             def record(node_id, refused=None, level=None, node=None):
                 # Seen with no route: the sighting predates route tracking
                 # (a session that spans the upgrade). Not the same as never shown.
-                via = seen_via.get(node_id) or ("unknown" if node_id in seen else None)
+                via = "maintenance" if maintenance else (
+                    seen_via.get(node_id) or ("unknown" if node_id in seen else None))
                 rec = {
                     "ts": round(now, 3),
                     "kg_session": session_id,
@@ -509,16 +520,37 @@ class MultiProjectGraphStore:
                     "archived": node is not None and (is_archived(node) or "_orphaned_ts" in node),
                     "session_likes": len(liked),
                 }
+                if maintenance and not refused:
+                    rec["credits"] = credits
                 if refused:
                     rec["refused"] = refused
                 records.append(rec)
 
+            if maintenance and not (type(credits) is int and 1 <= credits <= MAINTENANCE_CREDIT_MAX_PER_NODE):
+                bad_credits = f"credits must be 1-{MAINTENANCE_CREDIT_MAX_PER_NODE}"
+            elif not maintenance and credits != 1:
+                bad_credits = ("credits are for a maintenance pass (kg_read maintenance=true); "
+                               "a working session endorses with one vote")
+            else:
+                bad_credits = None
+
             for node_id in node_ids:
+                if bad_credits:
+                    rejected[node_id] = bad_credits
+                    record(node_id, "credits")
+                    continue
                 if node_id in liked:
                     rejected[node_id] = "already liked this session"
                     record(node_id, "duplicate")
                     continue
-                if len(liked) >= MAX_LIKES_PER_SESSION:
+                if maintenance and credited + credits > MAINTENANCE_CREDITS_PER_PASS:
+                    rejected[node_id] = (
+                        f"pass total reached — {MAINTENANCE_CREDITS_PER_PASS} credits per pass, "
+                        f"{MAINTENANCE_CREDITS_PER_PASS - credited} left"
+                    )
+                    record(node_id, "cap")
+                    continue
+                if not maintenance and len(liked) >= MAX_LIKES_PER_SESSION:
                     rejected[node_id] = (
                         f"hard cap reached — {MAX_LIKES_PER_SESSION} nodes already "
                         f"endorsed this session"
@@ -532,12 +564,17 @@ class MultiProjectGraphStore:
                     continue
                 level, graph_key = found
                 node = self.graphs[graph_key]["nodes"][node_id]
-                node.setdefault("_useful_ts", []).append(now)
+                node.setdefault("_useful_ts", []).extend([now] * (credits if maintenance else 1))
+                if maintenance:
+                    node.setdefault(CREDITED_FIELD, []).append(now)
+                    credited += credits
                 liked.append(node_id)
                 accepted.append(node_id)
                 record(node_id, level=level, node=node)
                 self.dirty[graph_key] = True
                 self._write_through(graph_key)
+            if maintenance:
+                session["maintenance_credits"] = credited
 
         log_path = get_storage_root() / USEFUL_LOG_NAME
         for rec in records:
@@ -546,8 +583,10 @@ class MultiProjectGraphStore:
         return {
             "accepted": accepted,
             "rejected": rejected,
-            "remaining": max(0, MAX_LIKES_PER_SESSION - len(liked)),
-            "over_guidance": max(0, len(liked) - LIKES_GUIDANCE_PER_SESSION),
+            "remaining": (MAINTENANCE_CREDITS_PER_PASS - credited if maintenance
+                          else max(0, MAX_LIKES_PER_SESSION - len(liked))),
+            "over_guidance": 0 if maintenance else max(0, len(liked) - LIKES_GUIDANCE_PER_SESSION),
+            "credits": credits if maintenance else 1,
         }
 
     def scores_for_read(self, session_id: str | None = None) -> dict:
