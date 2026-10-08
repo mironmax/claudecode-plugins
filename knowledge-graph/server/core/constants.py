@@ -228,6 +228,18 @@ USEFUL_HALF_LIFE_DAYS = 90
 # One vote per node per session either way.
 LIKES_GUIDANCE_PER_SESSION = 5
 MAX_LIKES_PER_SESSION = 10
+# A maintenance pass judges, it does not use: its own reads no longer promote, so
+# a lesson it decides should stay in view needs a deliberate channel. It credits
+# the node 1-3 times (by conviction): each credit is a _useful_ts stamp that
+# decays like an endorsement and, like every credit, counts as recent use (a
+# right standing rule never gets rewritten). Both fade, so the lesson stays only
+# if sessions go on to find it useful. _credited_ts records the event, so a later
+# pass sees on the node that it was propped before and sank.
+MAINTENANCE_CREDIT_MAX_PER_NODE = 3
+MAINTENANCE_CREDITS_PER_PASS = 15
+CREDITED_FIELD = "_credited_ts"
+# useful.jsonl records that are not evidence of use; follow-through drops them.
+NON_USE_CREDIT_VIAS = frozenset({"recurrence", "maintenance"})
 # Archival score blend (percentile ranks): recency / connectedness / usefulness.
 SCORE_WEIGHT_RECENCY = 0.25
 SCORE_WEIGHT_CONNECTEDNESS = 0.40

@@ -232,7 +232,9 @@ class EditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(sum(c["contribution"] for c in data["components"]), data["score"])
         self.assertEqual([c["weight"] for c in data["components"]], [0.25, 0.4, 0.35])
         raw = {c["key"]: c["raw"] for c in data["components"]}
-        self.assertEqual(raw["recency"], NOW - DAY)
+        # The latest endorsement (NOW) is newer than the last write (NOW - DAY).
+        self.assertEqual(raw["recency"], NOW)
+        self.assertEqual(data["recency"]["credit_ts"], NOW)
         self.assertEqual(raw["usefulness"], 1.5)
         self.assertEqual(data["usefulness"]["endorsements"], 2)
         self.assertEqual(data["connectedness"]["weighted_in"], 0.2)

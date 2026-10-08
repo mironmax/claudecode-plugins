@@ -76,7 +76,9 @@ share a percentile. The weighted contributions add up to a score from 0 to 1.
 Higher scores stay longer, with archival and refill also depending on the
 graph's context budget.
 
-Expand **Raw values and calculation** to see the latest write/read time,
+Expand **Raw values and calculation** to see the latest write, read and credit
+time (recency is the latest of the three; an endorsement, a repeat or a
+maintenance credit each count),
 incoming and outgoing connection counts and weights, the hub floor, and
 explicit endorsements with their 90-day decay half-life.
 
