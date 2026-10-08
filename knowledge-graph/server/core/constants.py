@@ -231,9 +231,10 @@ MAX_LIKES_PER_SESSION = 10
 # A maintenance pass judges, it does not use: its own reads no longer promote, so
 # a lesson it decides should stay in view needs a deliberate channel. It credits
 # the node 1-3 times (by conviction): each credit is a _useful_ts stamp that
-# decays like an endorsement, so the lesson stays only if sessions go on to find
-# it useful. _credited_ts records the event on the node, so a later pass can see
-# a lesson it is about to prop up again was propped before and sank.
+# decays like an endorsement, and the event (_credited_ts) counts as recent, since
+# a right standing rule never gets rewritten. Both fade, so the lesson stays only
+# if sessions go on to find it useful; a later pass sees on the node that it was
+# propped before and sank.
 MAINTENANCE_CREDIT_MAX_PER_NODE = 3
 MAINTENANCE_CREDITS_PER_PASS = 15
 CREDITED_FIELD = "_credited_ts"

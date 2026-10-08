@@ -18,6 +18,7 @@ Covers:
   5. The pass total caps credits
   6. The evaluator drops maintenance and recurrence records, keeps endorsements
   7. A full node read shows when maintenance credited it
+  8. The latest credit counts as recency; an endorsement does not
 
 Uses a temp KG_STORAGE_ROOT and a temp project under ~/.cache.
 """
@@ -81,6 +82,17 @@ def main():
               rec.get("via") == "maintenance" and rec.get("credits") == 2, rec)
         check("remaining counts the pass's credits",
               res["remaining"] == MAINTENANCE_CREDITS_PER_PASS - 2, res)
+
+        print("recency:")
+        versions = store._versions["user"]
+        scorer = store.compactor.scorer
+        for nid in ("rule-0", "rule-1"):
+            versions[f"node:{nid}"]["ts"] = 1000.0     # written long ago
+            nodes[nid].pop("_last_read_ts", None)
+        check("a credit counts as recent use",
+              scorer._recency("rule-0", nodes["rule-0"], versions, 0) == nodes["rule-0"]["_credited_ts"][-1])
+        check("an uncredited node keeps its old recency",
+              scorer._recency("rule-1", nodes["rule-1"], versions, 0) == 1000.0)
 
         print("weight bounds:")
         for bad in (0, 4):
