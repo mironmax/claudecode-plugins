@@ -46,6 +46,8 @@ class Sandbox:
             "KG_AUTOCOMMIT_INTERVAL": "0",
             "KG_CHORES": "0",
         }
+        # kg keeps a non-default port's state in its own folder
+        self.state = self.home / f".local/state/knowledge-graph/port-{self.port}"
 
     def kg(self, *args) -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(KG), *args], env=self.env,
@@ -100,6 +102,21 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(out.returncode, 1)
         self.assertIn("another memory server already uses", out.stdout)
 
+    def test_two_ports_keep_separate_state(self):
+        self.assertEqual(self.box.kg("start").returncode, 0)
+        first = int((self.box.state / "server.pid").read_text())
+        second_port = free_port()
+        second = dict(self.box.env, KG_HTTP_PORT=str(second_port),
+                      KG_STORAGE_ROOT=str(self.box.home / "second-storage"))
+        run = lambda *a: subprocess.run([sys.executable, str(KG), *a], env=second,
+                                        capture_output=True, text=True, timeout=60)
+        self.assertEqual(run("start").returncode, 0)
+        second_state = self.box.home / f".local/state/knowledge-graph/port-{second_port}"
+        self.assertNotEqual(int((second_state / "server.pid").read_text()), first)
+        self.assertEqual(int((self.box.state / "server.pid").read_text()), first)
+        self.assertEqual(run("stop").returncode, 0)
+        self.assertEqual(self.box.kg("status").returncode, 0)   # the first server is untouched
+
     def test_concurrent_starts_share_one_server(self):
         starts = [subprocess.Popen([sys.executable, str(KG), "start"], env=self.box.env,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -107,7 +124,7 @@ class LifecycleTests(unittest.TestCase):
         outputs = [p.communicate(timeout=60)[0] for p in starts]
         self.assertEqual([p.returncode for p in starts], [0, 0, 0], outputs)
         self.assertEqual(sum("Server started" in out for out in outputs), 1, outputs)
-        self.assertFalse((self.box.home / ".local/state/knowledge-graph/last_start_error").exists())
+        self.assertFalse((self.box.state / "last_start_error").exists())
 
     def test_a_held_port_refuses_and_leaves_the_cause(self):
         with socket.socket() as holder:
@@ -115,7 +132,7 @@ class LifecycleTests(unittest.TestCase):
             holder.listen()
             out = self.box.kg("start")
         self.assertEqual(out.returncode, 1)
-        crumb = self.box.home / ".local/state/knowledge-graph/last_start_error"
+        crumb = self.box.state / "last_start_error"
         self.assertIn(f"port {self.box.port} is held", crumb.read_text())
 
 
@@ -250,7 +267,7 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn("mcp(knowledge-graph_kg/kg_delete_node)", agy)
         self.assertTrue(json.loads((box.home / ".knowledge-graph/chores.json").read_text())["enabled"])
         self.assertTrue((box.home / ".local/bin/kg").is_symlink())
-        backups = list((box.home / ".local/state/knowledge-graph/backups").rglob("settings.json"))
+        backups = list((box.state / "backups").rglob("settings.json"))
         self.assertEqual(len(backups), 2)
         again = box.kg("doctor").stdout
         self.assertIn("kg tools pre-approved for every project", again)
@@ -384,7 +401,7 @@ class HookTests(unittest.TestCase):
         self.assertIn("KG MEMORY PRELOADED", context)
 
     def test_claude_and_codex_hook_reports_the_kg_breadcrumb(self):
-        self.box.write(".local/state/knowledge-graph/last_start_error",
+        self.box.write(str((self.box.state / "last_start_error").relative_to(self.box.home)),
                        "when: now\ncause: port 1 is held by another program\nlog: x\n")
         out = self.autostart()
         self.assertIn("port 1 is held by another program", out)

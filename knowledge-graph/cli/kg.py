@@ -21,15 +21,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SERVER_SCRIPT = ROOT / "server" / "mcp_streamable_server.py"
+HOST = os.environ.get("KG_HTTP_HOST", "127.0.0.1")
+PORT = int(os.environ.get("KG_HTTP_PORT", "8765"))
+# Each server keeps its own pid, log and breadcrumb, so a second one (a bench,
+# a test) never overwrites the live server's. The default port keeps the plain
+# path, which the hooks of every installed plugin read.
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "knowledge-graph"
+if PORT != 8765:
+    STATE_DIR = STATE_DIR / f"port-{PORT}"
 LOG_FILE = STATE_DIR / "mcp_server.log"
 PID_FILE = STATE_DIR / "server.pid"
 # The SessionStart hook starts the server in the background and never sees the
 # outcome; this file is how the next session learns why a start failed.
 BREADCRUMB = STATE_DIR / "last_start_error"
 STORAGE_ROOT = Path(os.environ.get("KG_STORAGE_ROOT") or Path.home() / ".knowledge-graph")
-HOST = os.environ.get("KG_HTTP_HOST", "127.0.0.1")
-PORT = int(os.environ.get("KG_HTTP_PORT", "8765"))
 # Matches legacy servers started from a plugin cache too, so stop/restart can
 # take over from them.
 SERVER_MARK = "mcp_streamable_server"

@@ -44,7 +44,7 @@ kg editor [stop]     # browser-based graph explorer at http://localhost:8766
 kg doctor            # check every piece the memory depends on
 ```
 
-**Server details:** endpoint `http://127.0.0.1:8765/` (health: `/health`); logs, PID and the last start error in `~/.local/state/knowledge-graph/`.
+**Server details:** endpoint `http://127.0.0.1:8765/` (health: `/health`); logs, PID and the last start error in `~/.local/state/knowledge-graph/` (a server on another `KG_HTTP_PORT` uses `port-<N>/` inside it).
 
 ---
 
