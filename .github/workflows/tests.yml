@@ -11,8 +11,6 @@ permissions:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
-    # macOS is new here: it reports what breaks without failing the run, until it is green.
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
