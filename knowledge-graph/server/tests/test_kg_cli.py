@@ -258,7 +258,9 @@ class SetupTests(unittest.TestCase):
 
     def test_desktop_and_old_commands_move_to_kg(self):
         box = Sandbox(self)
-        config = box.write(".config/Claude/claude_desktop_config.json", json.dumps({"mcpServers": {
+        rel = ("Library/Application Support/Claude" if sys.platform == "darwin"
+               else ".config/Claude") + "/claude_desktop_config.json"
+        config = box.write(rel, json.dumps({"mcpServers": {
             "knowledge-graph": {"command": str(box.home / ".local/bin/kg-desktop-bridge")},
             "other": {"command": "x"}}}))
         box.write(".local/bin/kg", "#!/bin/sh\n").chmod(0o755)
@@ -360,9 +362,17 @@ class HookTests(unittest.TestCase):
         self.assertIn("did not start", self.autostart())
         self.assertEqual(self.wait_marker(), "start")
 
-    def test_without_kg_the_hook_says_how_to_install_it(self):
+    def agy(self):
+        return subprocess.run([sys.executable, str(PLUGIN / "hooks/kg-agy.py"), "SessionStart"],
+                              input=json.dumps({"conversationId": "c1"}), env=self.box.env,
+                              capture_output=True, text=True, timeout=30).stdout
+
+    def test_without_kg_the_hooks_offer_the_install(self):
         (self.box.home / ".local/bin/kg").unlink()
-        self.assertIn("uv tool install kg-memory", self.autostart())
+        for out in (self.autostart(), self.agy()):
+            self.assertIn("Offer to install it", out)
+            self.assertIn("kg-ops skill", out)
+            self.assertIn("uv tool install kg-memory", out)
 
     def test_a_cold_start_still_preloads(self):
         self.addCleanup(self.box.kg, "stop")
@@ -382,10 +392,7 @@ class HookTests(unittest.TestCase):
         self.assertIsNone(self.wait_marker())
 
     def test_antigravity_hook_starts_kg(self):
-        out = subprocess.run([sys.executable, str(PLUGIN / "hooks/kg-agy.py"), "SessionStart"],
-                             input=json.dumps({"conversationId": "c1"}), env=self.box.env,
-                             capture_output=True, text=True, timeout=30).stdout
-        self.assertIn("is starting", out)
+        self.assertIn("is starting", self.agy())
         self.assertEqual(self.wait_marker(), "start")
 
 if __name__ == "__main__":

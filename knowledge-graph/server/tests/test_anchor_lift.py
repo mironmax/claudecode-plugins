@@ -195,6 +195,11 @@ def main():
     r = resolve_dangling(["docs/moved-doc.md"], proj, home, index=partial)[0]
     check("an incomplete walk never claims 'the only one' -> unknown",
           r["verdict"] == "unknown" and r["replacement"] is None, r)
+    linked = scratch / "linked-home"   # home reached through a symlink (macOS /var -> /private/var)
+    linked.symlink_to(home)
+    r = resolve_dangling(["~/proj/docs/moved-doc.md"], linked / "proj", linked)[0]
+    check("a symlinked home still repairs a ~ entry in ~ form",
+          r["replacement"] == "~/proj/notes/moved-doc.md", r)
 
     # --- 4. discovery via git ------------------------------------------------------
     print("discovery (git):")
