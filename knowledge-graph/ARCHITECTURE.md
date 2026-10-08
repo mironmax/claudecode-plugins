@@ -87,8 +87,8 @@ module (see "The Harness Layer").
 #### Why This Works
 
 **Load everything by default:**
-- Budgets are **exact rendered characters**, fixed by design (no env overrides): `MAX_CHARS_PER_LEVEL` (17,500) per level, `READ_CHAR_BUDGET` (40,000) for the combined kg_read output — single source of truth in `core/constants.py`, line rendering in `core/render.py`
-- The combined full-graph render targets 40K characters. It can exceed that target when active gists alone are too large, and node batches have no combined budget. So delivery is bounded separately, per client (`mcp_http/paging.py`): a kg_read reply longer than the client keeps whole (Claude Code 45,000 UTF-16 units of its measured 50,000; Codex 36,000 bytes of its 40,000) goes out in parts cut at line ends, and `kg_read(session_id, more=true)` returns the next. The read's effects are recorded and split by part: a node counts as seen, read or promoted only when the part showing it goes out, the full read completes with its last part, and a new read or a compaction drops undelivered parts. Antigravity queues large replies through its hooks instead (`mcp_http/delivery.py`).
+- Budgets are **exact rendered characters**, fixed by design (no env overrides): `MAX_CHARS_PER_LEVEL` (22,000) per level, `READ_CHAR_BUDGET` (50,000) for the combined kg_read output — single source of truth in `core/constants.py`, line rendering in `core/render.py`
+- The combined full-graph render targets 50K characters. It can exceed that target when active gists alone are too large, and node batches have no combined budget. So delivery is bounded separately, per client (`mcp_http/paging.py`): a kg_read reply longer than the client keeps whole (Claude Code 45,000 UTF-16 units of its measured 50,000; Codex 36,000 bytes of its 40,000) goes out in parts cut at line ends, and `kg_read(session_id, more=true)` returns the next. The read's effects are recorded and split by part: a node counts as seen, read or promoted only when the part showing it goes out, the full read completes with its last part, and a new read or a compaction drops undelivered parts. Antigravity queues large replies through its hooks instead (`mcp_http/delivery.py`).
 - For graphs the compactor hasn't maintained yet, a render-time degradation ladder enforces the ceiling: lowest-scored archived anchors are hidden first (with a count + kg_search pointer), then lowest-value edges — active gists never
 - The agent reads the bounded active graph directly; lexical search and file matching reach memories below that surface.
 - The rendering is node-centric: clusters render together (hub first), each node's relationships indented beneath it, every edge cited once at its first-rendered endpoint — the graph reads as connected knowledge paragraphs, not sections to join by id
@@ -154,7 +154,7 @@ module (see "The Harness Layer").
              │  - User graph (singleton)    │
              │  - Project graphs (N)        │
              │  - Write-through persistence │
-             │  - Auto-compact (17.5K chars)│
+             │  - Auto-compact (22K chars)  │
              │  - Self-heal on load/write   │
              └──────────┬───────────────────┘
                         │

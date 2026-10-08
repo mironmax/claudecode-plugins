@@ -56,8 +56,9 @@ logger = logging.getLogger(__name__)
 # compose it from /api/session_state). Wording matches v0.9.21.
 FULL_READ_NUDGE = (
     "KG preload is a PARTIAL view — the full graph is NOT in context yet. "
-    "Call kg_read(session_id) once before substantive work; it renders "
-    "everything the preload dropped without repeating it."
+    "Call kg_read(session_id) once before substantive work, following its parts "
+    "with more=true if it says it continues; it renders everything the preload "
+    "dropped without repeating it."
 )
 
 # Generic filler that would dominate term lists without carrying retrieval
