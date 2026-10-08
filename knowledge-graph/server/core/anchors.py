@@ -242,7 +242,7 @@ def resolve_dangling(entries, project_root, home=None, index: TreeIndex | None =
     """
     given = Path(os.path.normpath(project_root)) if project_root else None
     root = given.resolve() if given else None
-    home = Path(home) if home else None
+    home = Path(home).resolve() if home else None
     out = []
     for entry in entries:
         parsed = parse_touch(entry)

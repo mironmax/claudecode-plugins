@@ -258,7 +258,9 @@ class SetupTests(unittest.TestCase):
 
     def test_desktop_and_old_commands_move_to_kg(self):
         box = Sandbox(self)
-        config = box.write(".config/Claude/claude_desktop_config.json", json.dumps({"mcpServers": {
+        rel = ("Library/Application Support/Claude" if sys.platform == "darwin"
+               else ".config/Claude") + "/claude_desktop_config.json"
+        config = box.write(rel, json.dumps({"mcpServers": {
             "knowledge-graph": {"command": str(box.home / ".local/bin/kg-desktop-bridge")},
             "other": {"command": "x"}}}))
         box.write(".local/bin/kg", "#!/bin/sh\n").chmod(0o755)
