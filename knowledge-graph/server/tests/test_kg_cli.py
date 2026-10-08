@@ -74,6 +74,9 @@ class PackageTests(unittest.TestCase):
         out = box.kg("version")
         want = re.search(r'__version__ = "([^"]+)"', (PLUGIN / "server/version.py").read_text())[1]
         self.assertEqual(out.stdout.strip(), want)
+        # One release, one number: the marketplace ships the plugin by this field.
+        plugin = json.loads((PLUGIN / ".claude-plugin/plugin.json").read_text())
+        self.assertEqual(plugin["version"], want)
 
 
 class LifecycleTests(unittest.TestCase):
