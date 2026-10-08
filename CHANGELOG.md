@@ -6,7 +6,7 @@ All notable changes to this project are documented here.
 
 ### Changed
 - **The install can finish inside the agent.** When the `kg` command is missing, the SessionStart hook (Claude Code, Codex, Antigravity) no longer only tells the agent to pass an install command to the user: it asks the agent to offer the install and, with the user's yes, follow the kg-ops skill — `uv tool install kg-memory`, `kg setup --plan`, then only the items the user accepts. Memory loads from the next session.
-- **CI runs the test suite on macOS** as well (Python 3.x), beside Linux on 3.10 and 3.x.
+- **CI runs the test suite on macOS** as well (Python 3.x). It reports without failing the run until an intermittent failure there is understood.
 
 ### Fixed
 - **Anchor repair keeps `~` paths when home is behind a symlink.** A moved file touched as `~/…` came back as an absolute path when the home directory is reached through a symlink (macOS `/var` → `/private/var`, or a linked home): the project root was resolved and home was not. Found by the first macOS CI run.

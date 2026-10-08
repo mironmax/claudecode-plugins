@@ -351,7 +351,9 @@ def test_end_to_end():
           base["dug_up"]["replayable"] == 1 and base["dug_up"]["recovered"] == 0, base["dug_up"])
     check("variants are compared with the baseline",
           all("vs_baseline" in rep["replay"]["variants"][v] for v in ("score-only", "half-threshold")))
-    check("the harness never writes to the storage root", tree_digest(root) == before)
+    after = tree_digest(root)
+    check("the harness never writes to the storage root", after == before,
+          sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k)))
 
     # The check can fail: a log that disagrees with the graphs is reported.
     tampered = Path(_CLEANUP[0]) / "tampered-recall.jsonl"
