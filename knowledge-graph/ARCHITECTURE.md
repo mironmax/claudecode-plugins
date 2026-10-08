@@ -195,12 +195,18 @@ as a full read, so the merged retry goes through. The visual editor's writes
 are not checked, but are stamped. Modelled and reproduced first:
 `formal/concurrent-writes/`.
 
-Cross-session awareness for agents is **explicit**: `kg_sync(session_id)`
-returns a diff of what other sessions changed since the last sync. Explicit
-sync fits the workload — a handful of concurrent agents, on-demand
-coordination points, small JSON diffs — and keeps agent behavior predictable
-and debuggable: sync happens exactly when the agent decides its next move
-depends on shared knowledge.
+Cross-session awareness for agents is **pushed, with an explicit pull
+behind it**. A session assumes it works alone: measured on parallel runs, no
+session ever called `kg_sync` unprompted, and five concurrent sessions wrote
+one lesson as four nodes. So the server says it instead (`mcp_http/foreign.py`):
+on hook replies and on `kg_put_node`/`kg_search` replies it appends up to three
+gists of nodes other sessions wrote since this session last looked, plus a
+count and a pointer to `kg_sync` for the rest. Each change is pushed once
+(the window is claimed atomically), never the session's own writes, nor a node
+already read as it stands. Only writes that could hold this session's lesson
+qualify: none from a maintenance session, and user-level ones only from a
+session in the same project, since every project shares the user graph.
+`kg_sync(session_id)` still returns the full diff since the last sync.
 
 ### Transport Architecture
 
@@ -222,7 +228,7 @@ depends on shared knowledge.
 ```
 
 **Both patterns coexist:**
-- MCP tools: Explicit sync via `kg_sync()` (polling)
+- MCP tools: other sessions' writes pushed on replies; full diff via `kg_sync()`
 - Visual editor: Implicit updates via WebSocket (push)
 - Same underlying store, different transport needs
 
@@ -236,7 +242,7 @@ the hook layer parses nothing and can never break a session:
 |------|----------|----------------|
 | SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload ≤10K chars in Claude Code, ≤8K in Codex (each harness's hook ceiling, measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week; a recovered session still bound to another Claude sid is cloned, not moved, since that session may still be running); compact resets the session's context state (seen-set, preload set, full-read flag; view times stay for stale-write protection) and re-renders the core, since the summary kept only part of it; every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
 | UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), run through the shared search core (subtokens, stems, bigrams, field-weighted, sharpened IDF — ubiquitous words carry no signal), seen-deduped, corroboration threshold plus an evidence gate (a hit speaks only corroborated, near-unique, or named by the node's id/gist — lexical strays stay silent), hits injected in evidence-quality order: unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
-| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | file recall (`mcp_http/file_recall.py`): the file a tool touched is looked up in a touches reverse index (user + project graph, rebuilt only when that graph's write generation moves; `path:12-40 (anchor)`, `./`, `~` and absolute touches normalise to the file they name), unseen nodes injected as gist lines — archived included, never promoted — at most 3 within 1,200 chars, ranked by node score then recency, marked seen via `file`, throttled per session (3 per 10 min); Bash counts only for `cat`/`head`/`tail`/`less`/`sed -n`/`grep`/`jq` operands that exist as files; `apply_patch` for every file its patch adds, updates, deletes or moves to. Otherwise, for Read/WebFetch/WebSearch (and, under Codex, which has no Read tool, shell reads): per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap). A covered file never nudges |
+| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | file recall (`mcp_http/file_recall.py`): the file a tool touched is looked up in a touches reverse index (user + project graph, rebuilt only when that graph's write generation moves; `path:12-40 (anchor)`, `./`, `~` and absolute touches normalise to the file they name), unseen nodes injected as gist lines — archived included, never promoted — at most 3 within 1,200 chars, ranked by node score then recency, marked seen via `file`, throttled per session (3 per 10 min); Bash counts only for `cat`/`head`/`tail`/`less`/`sed -n`/`grep`/`jq` operands that exist as files; `apply_patch` for every file its patch adds, updates, deletes or moves to. Otherwise, for Read/WebFetch/WebSearch (and, under Codex, which has no Read tool, shell reads): per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap). A covered file never nudges. The hook fires for every tool, so other sessions' writes reach a session whatever tools its work runs through |
 
 Both recall channels log every decision to `recall.jsonl`, silences
 included: prompt recall under its own reasons with the prompt's terms, file

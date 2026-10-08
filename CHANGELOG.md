@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [0.13.0] - 2026-10-08
+
+Memory that learns from repeats. Measured first on a benchmark of parallel agent sessions sharing one graph (`kg-memory-bench`, Go against a fixed opponent), then replayed on copies of real graphs.
+
+### Added
+- **Sessions hear what other sessions wrote.** A session assumes it works alone: on parallel runs no session ever called `kg_sync` unprompted, and five concurrent sessions wrote one lesson as four nodes. The server now appends up to three gists of nodes other sessions wrote since this session last looked to its hook replies and to `kg_put_node`/`kg_search` replies, with a pointer to `kg_sync` for the rest, so a session updates the existing lesson instead of writing a duplicate. Each change is pushed once and never back to its writer. Only writes that could hold this session's lesson qualify: none from maintenance, and user-level ones only from a session in the same project. On the benchmark this change came with the jump in wins (21 of 40 games, against 2 of 18 with memory before it).
+- **A repeat credits the lesson.** A new `instance-of` edge from a node created after the lesson it points to means that lesson was needed again: the lesson earns what an endorsement earns, dated on the day of the case, so a pass linking an old episode today does not look like this week's need. Existing graphs are credited from their history on load. A case added as a note to a lesson another session wrote counts as that session's endorsement, once per node. Logged in `useful.jsonl` with `via: "recurrence"` or `"note"`.
+- **Maintenance reframes lessons that keep failing.** A principle that keeps gaining failures after it was written misses something. The full pass gains a category for it (at most one per pass): classify the members (failures count; applications and findings do not), separate a placement problem from a content one, and write the new shape as a HYPOTHESIS node that only real work can confirm. The lift chore now asks for the mechanism that connects its episodes and rejects advice nobody can act on. Lessons whose notes keep recording repeats are nominated too.
+
+### Changed
+- **One lesson per node, written at the turning points.** The memory instructions (kg-core and the tool descriptions) now ask for the gist to state the lesson so it holds beyond its case, one case per note, and a walk back through the session before writing: each point where another choice would have changed the outcome is a lesson. Texts that discouraged new nodes ("an edge beats a new node", "unconnected nodes risk archival") are softened: connect rather than duplicate, but a new lesson earns its own node.
+- **The newest nodes stay visible by budget, not by days.** The 5-day creation grace protected nothing in a project touched twice a month and everything in a busy week (on one graph it held 12 of 24 active slots). Now the newest nodes stay active while their render cost fits in 30% of the level's budget. `KG_GRACE_PERIOD_DAYS` is gone.
+- **The active set re-ranks between thresholds.** Archival acted only above the budget and refill only below the fill ceiling, so in between whatever was read last stayed active. Each idle tick now swaps the best archived node for the worst active one when it wins by the resurrection margin, at most three per tick.
+- **Maintenance is not use.** A maintenance pass or chore reads to judge and rewrites to tidy: its reads no longer stamp recency or promote, and its writes keep the node's previous activity time. `kg_read(maintenance=true)` flags the session before its first read.
+- **The write-time hub hint names fewer unrelated nodes.** It uses the debt detector's thresholds and its stoplist, and a term held by over a quarter of the graph counts as domain vocabulary, not an entity (the debt line's smear check uses the same ceiling).
+- **The PostToolUse hook fires for every tool** in Claude Code and Codex, so pushed writes reach sessions whose work runs through MCP or other tools. It adds about one second of hook time per session, measured on a week of real transcripts.
+- **Recommended output style:** a decision gets its own self-contained block at the end of a reply: what it affects, the options with consequences, a recommendation.
+
 ## [0.12.0] - 2026-10-05
 
 **Breaking: the plugins now need the `kg` command.** Install once with `uv tool install kg-memory && kg setup`; a session without it says how. Memory data is unchanged.

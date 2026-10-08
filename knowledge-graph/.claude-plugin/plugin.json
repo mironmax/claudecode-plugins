@@ -1,6 +1,6 @@
 {
   "name": "knowledge-graph",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Knowledge-graph memory for Claude Code and Codex CLI. Extract and remember patterns, insights and relationships worth preserving across sessions; knowledge is a graph, so nodes gain meaning through edges. Recall at session start, per prompt and per file, self-maintenance, visual editor.",
   "author": {
     "name": "Maxim",
