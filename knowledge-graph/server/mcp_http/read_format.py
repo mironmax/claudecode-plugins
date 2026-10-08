@@ -18,9 +18,10 @@ together, hubs first, each edge cited once at its first-encountered endpoint)
 — the same plan the estimator measures, so render == charge exactly.
 """
 
-from core.constants import BOOTSTRAP_CHAR_BUDGET, READ_CHAR_BUDGET, SEARCH_CHAR_BUDGET
+from core.constants import CLAUDE_PRELOAD_LIMIT, READ_CHAR_BUDGET, SEARCH_CHAR_BUDGET
 from core.debt import debt_line
 from core.render import plan_level, render_edge_line
+from mcp_http.harness import utf16_units
 
 
 def _health_line(plan: dict) -> str:
@@ -157,7 +158,7 @@ def _build_levels(graphs: dict, scores: dict, preloaded: set | None = None, debt
     return levels
 
 
-def _fit_to_budget(levels: list[dict], session_line: str, budget: int, prefix: str = "", drop_active: bool = False, degradation_note: bool = True) -> None:
+def _fit_to_budget(levels: list[dict], session_line: str, budget: int, prefix: str = "", drop_active: bool = False, degradation_note: bool = True, measure=len) -> None:
     """Degrade the level parts in place until the assembled text fits budget.
 
     One item per iteration — the summary/count lines change length as counts
@@ -167,7 +168,7 @@ def _fit_to_budget(levels: list[dict], session_line: str, budget: int, prefix: s
     scored first; bootstrap only — kg_read never drops active gists).
     """
     def over_budget() -> int:
-        return len(prefix) + len(_assemble(levels, session_line, degradation_note)) - budget
+        return measure(prefix + _assemble(levels, session_line, degradation_note)) - budget
 
     # Ladder step 1: drop archived anchors.
     while over_budget() > 0:
@@ -243,8 +244,9 @@ def build_full_read(graphs: dict, scores: dict, session_id: str | None, preloade
 
 
 def build_bootstrap(graphs: dict, scores: dict, session_id: str, debt: dict | None = None,
-                    budget: int = BOOTSTRAP_CHAR_BUDGET) -> dict:
-    """Render the session-start preload: a compact core under BOOTSTRAP_CHAR_BUDGET.
+                    budget: int = CLAUDE_PRELOAD_LIMIT, measure=utf16_units) -> dict:
+    """Render the session-start preload: a compact core under `budget`, as the
+    client counts length (`measure`, from the harness profile).
 
     Hook additionalContext rides a much smaller inline window than tool results
     (~10K chars vs ~50K), so this render may drop what kg_read never would:
@@ -274,7 +276,8 @@ def build_bootstrap(graphs: dict, scores: dict, session_id: str, debt: dict | No
         "project_active": len(levels[1]["active"]),
     }
 
-    _fit_to_budget(levels, session_line, budget, prefix=header, drop_active=True, degradation_note=False)
+    _fit_to_budget(levels, session_line, budget, prefix=header, drop_active=True,
+                   degradation_note=False, measure=measure)
 
     body = _assemble(levels, session_line, degradation_note=False)
     shown = [entry["nid"] for part in levels for entry in part["active"]]

@@ -31,19 +31,22 @@ READ_CHAR_BUDGET = 40000
 # kg_search output ceiling — same inline philosophy as READ_CHAR_BUDGET, sized
 # for a focused answer: top hits with notes, connections, a page of one-liners.
 SEARCH_CHAR_BUDGET = 10000
-# Session-start preload ceiling. Hook additionalContext rides a much smaller
-# inline window than tool results: measured on Claude Code 2.1.199, hook output
-# stays inline up to ~10,100 chars and spills to a persisted file (2KB preview)
-# at ~10,150. 10,000 keeps the whole preload — instruction header included —
-# safely inline. The bootstrap ladder degrades to fit: archived anchors first,
-# then edge citations, then lowest-scored active gists (the loud kg_read
-# renders whatever the preload had to drop, without repeating what it showed).
-BOOTSTRAP_CHAR_BUDGET = 10000
-# Codex caps hook context by tokens: about 2,500 by default, truncating past
-# that. A 9,675-char preload arrived whole on codex-cli 0.157.1 (09-27), close
-# to the edge; 8,000 leaves margin for token-dense gists. The ladder above
-# degrades the same way to fit, and kg_read renders what was dropped.
-CODEX_BOOTSTRAP_CHAR_BUDGET = 8000
+# Session-start preload ceilings, in the unit each client counts (the harness
+# profile's measure), header included. Hook context rides a much smaller inline
+# window than tool results. Measured 2026-10-08 with a mock model
+# (devdocs evidence 2026-10-08-client-limits):
+#   Claude Code 2.1.294 keeps 10,000 UTF-16 units inline, then saves the
+#     context to a file and shows a ~2K preview.
+#   Codex 0.160.0 keeps 2,500 "tokens" = 10,000 UTF-8 bytes, then cuts the
+#     middle out.
+#   Antigravity queues hook context in packets of up to 40,000 bytes.
+# Counting Python characters instead let non-ASCII gists overflow: emoji in
+# Claude Code, most non-Latin scripts in Codex. The bootstrap ladder degrades
+# to fit: archived anchors first, then edge citations, then lowest-scored
+# active gists (kg_read renders whatever the preload dropped).
+CLAUDE_PRELOAD_LIMIT = 9500
+CODEX_PRELOAD_LIMIT = 9000
+ANTIGRAVITY_PRELOAD_LIMIT = 10000
 COMPACTION_TARGET_RATIO = 0.8
 # ---------------------------------------------------------------------------
 # Ambient memory (v0.9.24): per-event hook endpoints.

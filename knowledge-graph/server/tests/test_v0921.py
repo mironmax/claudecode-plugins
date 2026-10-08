@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.constants import BOOTSTRAP_CHAR_BUDGET
+from core.constants import CLAUDE_PRELOAD_LIMIT
 from core.compactor import Compactor
 from core.estimator import CharEstimator
 from core.scorer import NodeScorer
@@ -79,7 +79,7 @@ def test_bootstrap_header_directive():
     check("old announce-on-scan wording gone", "after scanning both sections" not in ctx)
     check("subagent warning kept", "Subagents never receive this preload" in ctx)
     check("session id present", "dirsess" in ctx)
-    check("fits budget", len(ctx) <= BOOTSTRAP_CHAR_BUDGET, len(ctx))
+    check("fits budget", len(ctx) <= CLAUDE_PRELOAD_LIMIT, len(ctx))
 
 
 # --- 2. session full-read tracking --------------------------------------------

@@ -35,7 +35,7 @@ os.environ["KG_STORAGE_ROOT"] = _TMP_STORAGE
 
 from fastapi.testclient import TestClient
 
-from core.constants import BOOTSTRAP_CHAR_BUDGET, READ_CHAR_BUDGET
+from core.constants import CLAUDE_PRELOAD_LIMIT, READ_CHAR_BUDGET
 from core.debt import (
     MAINTAIN_TASK_ID,
     activity_days,
@@ -150,7 +150,7 @@ def main():
 
         boot = build_bootstrap(graphs, scores, sid, debt=debt)
         check("bootstrap renders DEBT", "DEBT:" in boot["context"])
-        check("bootstrap fits budget", len(boot["context"]) <= BOOTSTRAP_CHAR_BUDGET,
+        check("bootstrap fits budget", len(boot["context"]) <= CLAUDE_PRELOAD_LIMIT,
               len(boot["context"]))
 
         no_debt = build_full_read(graphs, scores, sid)
