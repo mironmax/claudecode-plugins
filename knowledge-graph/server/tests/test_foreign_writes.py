@@ -19,6 +19,8 @@ Covers:
   7. A stoplisted word names no hub
   8. A case added to another session's lesson counts as that session's
      endorsement — once, and not for its own lessons or a gist-only edit
+  9. Only relevant writes are pushed: none from a maintenance session, and
+     user-level ones only from a session in the same project
 
 Uses a temp KG_STORAGE_ROOT and temp projects under ~/.cache.
 """
@@ -55,6 +57,7 @@ def check(name, cond, detail=""):
 
 def main():
     project = tempfile.mkdtemp(prefix="kg-test-project-", dir=str(Path.home() / ".cache"))
+    other = tempfile.mkdtemp(prefix="kg-test-project-", dir=str(Path.home() / ".cache"))
     try:
         session_manager = HTTPSessionManager()
         store = MultiProjectGraphStore(GraphConfig(), session_manager)
@@ -143,8 +146,27 @@ def main():
         res = store.put_node(level="user", node_id="own-lesson-y", gist="Y sharpened", notes=["c1", "c2"],
                              session_id=b)
         check("a gist-only edit is not credited", not res.get("note_credited"))
+
+        print("relevance:")
+        foreign.notice(store, session_manager, b)  # drain
+        elsewhere = session_manager.register(other)["session_id"]
+        store.put_node(level="user", node_id="other-project-lesson", gist="From elsewhere",
+                       session_id=elsewhere)
+        check("a user-level write from another project is not pushed",
+              foreign.notice(store, session_manager, b) is None)
+        chore = session_manager.register(project)["session_id"]
+        store.mark_maintenance(chore)
+        store.put_node(level="project", node_id="tidied-by-chore", gist="Reworded", session_id=chore)
+        store.put_node(level="user", node_id="renamed-by-chore", gist="Reworded", session_id=chore)
+        check("a maintenance session's writes are not pushed",
+              foreign.notice(store, session_manager, b) is None)
+        store.put_node(level="user", node_id="same-project-lesson", gist="From here", session_id=a)
+        text = foreign.notice(store, session_manager, b) or ""
+        check("a user-level write from the same project still is",
+              "same-project-lesson" in text, text)
     finally:
         shutil.rmtree(project, ignore_errors=True)
+        shutil.rmtree(other, ignore_errors=True)
         shutil.rmtree(_TMP_STORAGE, ignore_errors=True)
 
     print(f"\n{_PASS} passed, {_FAIL} failed")

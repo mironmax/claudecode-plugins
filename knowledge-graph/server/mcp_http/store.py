@@ -1681,6 +1681,10 @@ class MultiProjectGraphStore:
         with self.lock:
             self._maintenance_sessions.add(session_id)
 
+    def is_maintenance(self, session_id: str | None) -> bool:
+        """Whether the session is a maintenance pass or chore."""
+        return session_id in self._maintenance_sessions
+
     def _note_maintenance(self, task_id: str, session_id: str | None) -> None:
         """A pass or a chore opens with kg_progress on its own task; from then
         on the session's reads are maintenance, not use (see _record_read)."""
