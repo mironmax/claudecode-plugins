@@ -56,3 +56,15 @@ release against a server from another can break sessions.
    `curl -s https://pypi.org/pypi/kg-memory/json | jq -r .info.version`.
 </content>
 </invoke>
+
+## On the maintainer's machine
+
+1. The memory server you rely on runs a published release (`uv tool install
+   kg-memory`), never a checkout. A restart means upgrading to a release with
+   `kg update`, the same path users take.
+2. The main checkout stays on `main`, clean. Each task works in its own
+   worktree (`git worktree add ../kg-<topic> -b <branch>`), removed after merge.
+3. Experiments and development servers run on another port with their own
+   storage and state (`KG_HTTP_PORT`, `KG_STORAGE_ROOT`); a server on any port
+   but 8765 keeps its state in `port-<N>/`. Port 8765 is only ever a release.
+4. The maintainer restarts the release server, and only onto a release.
