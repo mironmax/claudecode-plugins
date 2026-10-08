@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 #
 # Per-level budget for the compactor: when the rendered level (active gists +
 # live-string edges + archived anchors) exceeds this, the lowest-scored active
-# nodes are archived. Raised 2026-10-08 from 17,500 with the read from 40,000
-# (Maxim), once paged replies made a read above the client limits safe.
+# nodes are archived. Raised 2026-10-08 from 17,500, with the read from 40,000,
+# once paged replies made a read above the client limits safe.
 MAX_CHARS_PER_LEVEL = 22000
 # Hard ceiling for a single kg_read result. Graphs the compactor maintains never
 # reach it; the render-time ladder enforces it for everything else (legacy or
