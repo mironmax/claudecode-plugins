@@ -2,7 +2,9 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [0.14.0] - 2026-10-08
+
+Memory that reaches every client whole, and maintenance that can keep a lesson in view. Long reads arrive in parts instead of being cut, the preload fits each client as that client counts, and a maintenance pass can now prop up a lesson it judges should stay visible; every credit, an endorsement included, counts as recent use.
 
 ### Added
 - **Long kg_read replies arrive in parts instead of being cut.** Claude Code saves a tool reply over 50,000 UTF-16 units to a file and shows the model a short preview; Codex cuts the middle out of one over 40,000 bytes. The server still marked every node in such a reply as seen, so recall never offered them again. Now a reply longer than the client keeps whole goes out in parts (45,000 units in Claude Code, 36,000 bytes in Codex), each ending with how to get the next: `kg_read(session_id, more=true)`. A node counts as seen, read or promoted only when the part showing it goes out; the full read completes with its last part; a new read or a compaction drops undelivered parts. Antigravity keeps its hook queue.
