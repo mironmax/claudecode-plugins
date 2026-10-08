@@ -248,7 +248,7 @@ def test_cap_budget_rank():
     text2 = event(store, sm, proj, "Read", {"file_path": f})
     check("the rest arrive on the next touch", text2 and "big-node-1" in text2 and "big-node-0" in text2, text2)
 
-    # Score wins over recency once nodes are past grace: endorse the oldest.
+    # Score wins over recency among scored nodes: endorse one of them.
     store2, sm2 = fresh()
     proj2 = new_project()
     sid2 = sm2.register(proj2, claude_sid="cs2")["session_id"]
@@ -260,13 +260,15 @@ def test_cap_budget_rank():
         time.sleep(0.01)
     with store2.lock:
         # Same write time for all, so recency cannot decide; the endorsement does.
+        # No fresh tier here, or four tiny nodes would all sit in it unscored.
+        store2.scorer.fresh_chars = 0
         for nid, n in store2.graphs[key2]["nodes"].items():
             n["_created_ts"] = 0
             store2._versions[key2][f"node:{nid}"]["ts"] = 1_000_000
         store2.graphs[key2]["nodes"]["ranked-node-2"]["_useful_ts"] = [time.time()] * 3
     text3 = event(store2, sm2, proj2, "Read", {"file_path": f2}, claude_sid="cs2")
     first = (text3 or "\n\n").splitlines()[1]
-    check("node score ranks first, past grace", "ranked-node-2" in first, text3)
+    check("node score ranks first among scored nodes", "ranked-node-2" in first, text3)
 
     # Budget: long gists trim to fewer lines, never to none.
     store3, sm3 = fresh()

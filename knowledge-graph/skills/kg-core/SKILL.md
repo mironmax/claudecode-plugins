@@ -4,27 +4,28 @@ user-invocable: false
 description: |
   Knowledge Graph — persistent, granular, evolving memory.
 
-  Part of memory initially arrives preloaded: a "KG MEMORY PRELOADED" block carrying the
+  Part of memory arrives preloaded: a "KG MEMORY PRELOADED" block carrying the
   session_id and most important portion of memory.
   Then the full read is on you: kg_read(cwd="<project root>") comes
   before any work, whatever the task. Full read still brings up only most important memories.
 
-  Memory is highly optimised and served in layers.
-  Recall: if needed details are not in preload/read and there is a gist
-  that points in the right direction, recall full node;
-  Capture: at the moment of learning, once the dots connect;
-  Name: the id names the SUBJECT in 3-5 words and the gist makes the claim —
-  ids are load-bearing in search, so a sentence-shaped id is a retrieval cost;
-  Connect rather than duplicate — an edge beats a new node;
-  Search for more — the read/sync shows the top of graph,
-  not all of it. In a rich graph the fact you need is often
-  buried under fresher work; search reaches every tier.
+  Recall: if a gist points in the right direction, read the full node;
+  Search for more — in a rich graph the fact you need is often buried
+  under fresher work; search reaches every tier.
+  Capture: at the moment of learning, once the dots connect.
+  One lesson, one node: the gist states the lesson so it holds beyond
+  the case that taught it; each note tells one case of this lesson — a
+  failure that taught or confirmed it, what happened, where.
+  Before writing, walk back through the session: each point where another
+  choice would have changed the outcome is a lesson — rarely just one.
+  A failure met again sharpens its lesson and adds a note.
+  Name: the id names the SUBJECT in 3-5 words, never a container
+  ("…-lessons", "…-log"); ids are load-bearing in search.
+  Connect rather than duplicate; a new lesson still earns its own node.
   Endorse with kg_useful — the nodes that helped, judged at wrap-up against
   results, and the ones that were MISSING when they should have been there,
-  sent the moment the gap shows. Five is the guidance, not a wall: never leave
-  a real endorsement unsent because a count says so. That credit is the only
-  thing keeping a node alive, and a miss is the only signal that corrects a
-  wrong archival.
+  sent the moment the gap shows. That credit keeps a node alive, and a miss
+  is the only signal that corrects a wrong archival.
 
   Mechanics live in the kg_* tool descriptions; operations in /kg-ops.
 ---

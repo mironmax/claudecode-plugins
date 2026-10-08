@@ -15,7 +15,7 @@ from core import (
     Compactor,
     GraphPersistence,
     Graph,
-    GRACE_PERIOD_DAYS,
+    FRESH_BUDGET_RATIO,
     ORPHAN_GRACE_DAYS,
     MAX_CHARS_PER_LEVEL,
     heal_node_fields,
@@ -46,10 +46,12 @@ from core.search import (
     rank_nodes, connection_paths,
 )
 from core.exceptions import NodeConflictError
+from core import recurrence
 from core.constants import (
     WRITTEN_FIELD, GIST_TS_FIELD, GIST_TS_MAX, IDF_SHARPNESS, NEAR_DUP_MIN_SCORE, NEAR_DUP_RATIO,
     PROGRESS_TRAIL_KEY, PROGRESS_TRAIL_LIST_ITEMS, PROGRESS_TRAIL_MAX,
-    PROGRESS_TRAIL_VALUE_CHARS,
+    PROGRESS_TRAIL_VALUE_CHARS, CHORE_TASK_ID, LIFT_EDGE_REL,
+    USEFUL_LOG_MAX_BYTES, USEFUL_LOG_NAME,
 )
 from core.persistence import (
     append_jsonl, references, rename_would_capture, rename_would_capture_on_disk,
@@ -89,7 +91,6 @@ class GraphConfig:
     """Configuration for knowledge graph."""
     max_chars: int = MAX_CHARS_PER_LEVEL
     orphan_grace_days: int = ORPHAN_GRACE_DAYS
-    grace_period_days: int = GRACE_PERIOD_DAYS
     save_interval: int = 30
     storage_root: Path = field(default_factory=get_storage_root)
     user_path: Path = field(default_factory=user_graph_path)
@@ -115,13 +116,16 @@ class MultiProjectGraphStore:
 
         # Initialize components
         self.estimator = CharEstimator()
-        self.scorer = NodeScorer(config.grace_period_days)
+        self.scorer = NodeScorer(int(config.max_chars * FRESH_BUDGET_RATIO))
         self.compactor = Compactor(self.scorer, self.estimator, config.max_chars)
 
         # Graph storage: key = "user" or "project:<project_root>"
         self.graphs: dict[str, Graph] = {}
         self._versions: dict[str, dict] = {}
         self._progress: dict[str, dict] = {}
+        # Sessions doing maintenance (a pass or a chore): their full reads are
+        # judgement, not use, so they neither stamp recency nor promote.
+        self._maintenance_sessions: set[str] = set()
         self._persistence: dict[str, GraphPersistence] = {}
 
         # Thread safety
@@ -177,6 +181,7 @@ class MultiProjectGraphStore:
             self._clean_orphaned_edges(graph)
             # Heal nodes whose gist swallowed their notes (one-time repair, idempotent)
             healed = self._heal_corrupt_nodes(graph)
+            credited = self._reconcile_recurrence(graph, None, user_key)
 
             self.graphs[user_key] = graph
             self._bump_gen(user_key)
@@ -186,7 +191,8 @@ class MultiProjectGraphStore:
             self.dirty[user_key] = False
 
             # Persist the heal so the repair sticks and the next load is a no-op
-            if healed:
+            if healed or credited:
+                self.dirty[user_key] = True
                 self._write_through(user_key)
 
             logger.info(f"Loaded user graph: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges")
@@ -214,6 +220,8 @@ class MultiProjectGraphStore:
         self._clean_orphaned_edges(graph)
         # Heal nodes whose gist swallowed their notes (one-time repair, idempotent)
         healed = self._heal_corrupt_nodes(graph)
+        user_nodes = self.graphs.get("user", {}).get("nodes")
+        credited = self._reconcile_recurrence(graph, user_nodes, project_key)
 
         self.graphs[project_key] = graph
         self._bump_gen(project_key)
@@ -223,8 +231,12 @@ class MultiProjectGraphStore:
         self.dirty[project_key] = False
 
         # Persist the heal so the repair sticks and the next load is a no-op
-        if healed:
+        if healed or credited:
+            self.dirty[project_key] = True
             self._write_through(project_key)
+        if any(c["cross_level"] for c in credited):
+            self.dirty["user"] = True
+            self._write_through("user")
 
         logger.info(f"Loaded project graph for {project_root}: {len(graph['nodes'])} nodes, {len(graph['edges'])} edges (path: {graph_path})")
 
@@ -297,10 +309,17 @@ class MultiProjectGraphStore:
         return level, graph_key
 
     def _bump_version(self, graph_key: str, key: str, session_id: str | None = None) -> dict:
-        """Increment version for a key and return new version. Caller must hold lock."""
+        """Increment version for a key and return new version. Caller must hold lock.
+
+        ts is when the key last changed (sync and stale-write guards need every
+        change). A maintenance session's change is not use, so it carries the
+        previous activity time forward as used_ts, which recency prefers.
+        """
         ts = time.time()
         current = self._versions[graph_key].get(key, {"v": 0})
         new_ver = {"v": current["v"] + 1, "ts": ts, "session": session_id}
+        if session_id in self._maintenance_sessions:
+            new_ver["used_ts"] = current.get("used_ts", current.get("ts", 0))
         self._versions[graph_key][key] = new_ver
         return new_ver
 
@@ -535,10 +554,10 @@ class MultiProjectGraphStore:
         """Node scores per level for kg_read's degradation ladder.
 
         Returns {"user": {node_id: score}, "project": {node_id: score}} scored
-        with archived nodes included (one comparable pool). Nodes inside the
-        grace period are absent — the ladder treats missing as "keep" for active
-        nodes and can't encounter it for archived ones (archiving only happens
-        past grace).
+        with archived nodes included (one comparable pool). Fresh-tier nodes are
+        absent — the ladder treats missing as "keep" for active nodes, and as
+        0.0 (first to drop) for an archived one, a transient state from before
+        the tier that refill and rebalance restore first.
         """
         with self.lock:
             result = {"user": {}, "project": {}}
@@ -655,6 +674,12 @@ class MultiProjectGraphStore:
             if not is_new and node.get("gist") != gist:
                 stamps = list(node.get(GIST_TS_FIELD) or []) + [time.time()]
                 node[GIST_TS_FIELD] = stamps[-GIST_TS_MAX:]
+            # A case added to a lesson another session wrote is that lesson
+            # recognised again — measured: 44% of such updates carried no
+            # kg_useful, so the recognition went uncounted.
+            note_credit = (not is_new and bool(session_id) and notes is not None
+                           and len(notes) > len(node.get("notes") or [])
+                           and (node.get(WRITTEN_FIELD) or {}).get("by") not in (None, session_id))
             node["gist"] = gist
             if notes is not None:
                 node["notes"] = notes
@@ -699,9 +724,36 @@ class MultiProjectGraphStore:
             )
 
             near_dup = self._near_duplicate(graph_key, node_id, gist) if is_new else None
+            credited = note_credit and self._note_credit(graph_key, node_id, node, level, session_id, now)
 
             logger.debug(f"Put node '{node_id}' in {level} graph")
-            return {"node": node, "level": level, "near_duplicate": near_dup}
+            return {"node": node, "level": level, "near_duplicate": near_dup,
+                    "note_credited": bool(credited)}
+
+    def _note_credit(self, graph_key: str, node_id: str, node: dict, level: str, session_id: str,
+                     now: float) -> bool:
+        """Count a case added to another session's lesson as this session's
+        endorsement of it: one _useful_ts stamp, the node joins the session's
+        likes (one vote per node per session, so a later kg_useful on it is a
+        duplicate), logged to useful.jsonl via "note". Caller holds the lock."""
+        from core.constants import MAX_LIKES_PER_SESSION, USEFUL_LOG_MAX_BYTES, USEFUL_LOG_NAME
+        if session_id in self._maintenance_sessions:
+            return False  # a maintenance pass curating a lesson has not met it again
+        session = self.session_manager.lookup(session_id)
+        if session is None:
+            return False
+        liked = session.setdefault("liked_ids", [])
+        if node_id in liked or len(liked) >= MAX_LIKES_PER_SESSION:
+            return False
+        node.setdefault("_useful_ts", []).append(now)
+        liked.append(node_id)
+        self.dirty[graph_key] = True
+        self._write_through(graph_key)
+        append_jsonl(get_storage_root() / USEFUL_LOG_NAME, {
+            "ts": round(now, 3), "kg_session": session_id, "claude_session": session.get("claude_sid"),
+            "project": session.get("project_path"), "id": node_id, "level": level, "via": "note",
+            "session_likes": len(liked)}, USEFUL_LOG_MAX_BYTES)
+        return True
 
     def _refuse_stale_write(self, level: str, node_id: str, node: dict, session_id: str,
                             notes, touches) -> None:
@@ -814,11 +866,16 @@ class MultiProjectGraphStore:
                      fields: dict, nodes: dict) -> dict | None:
         """The most-smeared entity this new node mentions, with its hub.
 
-        A stem qualifies when it is len ≥5, not a token of the project's own
-        slug (namespace, not entity), held by ≥3 nodes' id+gist, and some
-        undated node id carries it as a token — that node is the suggested
-        edge target. One suggestion max; caller renders it as a nudge.
+        A stem qualifies on the DEBT detector's terms (len ≥5, not stoplisted,
+        not a token of the project's own slug, held by ≥ max(6, 8%) of nodes'
+        id+gist) and is no more common than a quarter of the graph — beyond
+        that it is the graph's domain vocabulary, not an entity ('stone' in a
+        Go graph named an unrelated node on most writes). Some undated node id
+        must carry it as a token — that node is the suggested edge target.
+        One suggestion max; caller renders it as a nudge.
         """
+        from core.debt import _SMEAR_STOP, smear_ceiling, smear_floor
+        floor, ceiling = smear_floor(len(fields)), smear_ceiling(len(fields))
         slug_tokens: set[str] = set()
         if is_project_namespace(graph_key):
             slug_tokens = set(
@@ -827,11 +884,11 @@ class MultiProjectGraphStore:
 
         best = None
         for stem in probe_stems:
-            if len(stem) < 5 or any(stem.startswith(t) or t.startswith(stem)
-                                    for t in slug_tokens):
+            if len(stem) < 5 or stem in _SMEAR_STOP or any(
+                    stem.startswith(t) or t.startswith(stem) for t in slug_tokens):
                 continue
             holders = [nid for nid, f in fields.items() if stem in f[0] or stem in f[1]]
-            if len(holders) < 3:
+            if not floor <= len(holders) <= ceiling:
                 continue
             hubs = [nid for nid in holders
                     if not self._DATED_ID_RE.search(nid)
@@ -864,15 +921,22 @@ class MultiProjectGraphStore:
 
         project_path resolves a project graph directly (visual editor) — see
         _resolve_graph_key.
+
+        An instance-of edge from a node created after its target credits the
+        target once, like an endorsement dated the day the case was written
+        (core.recurrence; graph loads reconcile the same rule over all edges).
         """
         validate_edge_ref(from_ref)
         validate_edge_ref(to_ref)
         validate_rel(rel)
+        credit = None
         with self.lock:
             level, graph_key = self._resolve_graph_key(level, session_id, project_path)
 
             edges = self.graphs[graph_key]["edges"]
             edge_key = (from_ref, to_ref, rel)
+            if rel == LIFT_EDGE_REL:
+                credit = self._recurrence_credit(graph_key, from_ref, to_ref, session_id)
 
             # Create or update edge
             edge = edges.get(edge_key, {"from": from_ref, "to": to_ref, "rel": rel})
@@ -898,7 +962,58 @@ class MultiProjectGraphStore:
             )
 
             logger.debug(f"Put edge {from_ref}->{to_ref}:{rel} in {level} graph")
-            return {"edge": edge, "level": level}
+            result = {"edge": edge, "level": level}
+        if credit:
+            append_jsonl(get_storage_root() / USEFUL_LOG_NAME, credit, USEFUL_LOG_MAX_BYTES)
+        return result
+
+    def _recurrence_credit(self, graph_key: str, from_ref: str, to_ref: str,
+                           session_id: str | None) -> dict | None:
+        """Apply core.recurrence to the edge being written. Caller holds lock.
+
+        Returns the useful.jsonl record to append after the lock, or None.
+        """
+        user_nodes = self.graphs.get("user", {}).get("nodes") if graph_key != "user" else None
+        done = recurrence.credit_edge({"from": from_ref, "to": to_ref, "rel": LIFT_EDGE_REL},
+                                      self.graphs[graph_key]["nodes"], user_nodes)
+        if not done:
+            return None
+        target_key = "user" if done["cross_level"] else graph_key
+        self.dirty[target_key] = True
+        if target_key != graph_key:
+            self._write_through(target_key)
+        session = self.session_manager.lookup(session_id) if session_id else None
+        return self._recurrence_record(done, target_key, session_id,
+                                       (session or {}).get("project_path"), "write")
+
+    def _reconcile_recurrence(self, graph: dict, user_nodes: dict | None, graph_key: str) -> list:
+        """Credit every uncredited recurrence of a graph being loaded and log
+        them: the backfill of history and the catch-up for edges that arrived
+        outside put_edge. Idempotent (core.recurrence)."""
+        credits = recurrence.reconcile(graph["nodes"], graph["edges"], user_nodes)
+        if credits:
+            project = graph_key.split(":", 1)[1] if ":" in graph_key else None
+            for done in credits:
+                target_key = "user" if done["cross_level"] else graph_key
+                append_jsonl(get_storage_root() / USEFUL_LOG_NAME,
+                             self._recurrence_record(done, target_key, None, project, "load"),
+                             USEFUL_LOG_MAX_BYTES)
+            logger.info(f"Recurrence credits on load of {graph_key}: {len(credits)}")
+        return credits
+
+    @staticmethod
+    def _recurrence_record(done: dict, target_key: str, session_id, project, at: str) -> dict:
+        return {
+            "ts": round(time.time(), 3),
+            "kg_session": session_id,
+            "project": project,
+            "id": done["id"],
+            "level": "user" if target_key == "user" else "project",
+            "via": "recurrence",
+            "instance": done["instance"],
+            "case_ts": done["case_ts"],
+            "at": at,
+        }
 
     def delete_node(self, node_id: str, level: str | None = None, session_id: str | None = None,
                     project_path: str | None = None) -> dict:
@@ -1287,6 +1402,9 @@ class MultiProjectGraphStore:
                 "node": dict(node),
                 "level": resolved_level,
                 "was_archived": was_archived,
+                # A maintenance read never promotes (see _record_read); a
+                # deferred read promotes when its delivery is recorded.
+                "promoted": was_archived and session_id not in self._maintenance_sessions,
                 "edges": node_edges,
             }
 
@@ -1300,7 +1418,15 @@ class MultiProjectGraphStore:
 
     def _record_read(self, graph_key: str, resolved_level: str, node_id: str,
                      session_id: str | None) -> None:
-        """Read stamp and promotion of one full node read. Caller holds lock."""
+        """Read stamp and promotion of one full node read. Caller holds lock.
+
+        A maintenance session's read has no effect: recency and promotion say
+        "this was used", and a pass reads dozens of nodes to judge them. Counted,
+        the 10-07 pass lifted every node it inspected into the top of the
+        ranking and promoted nodes ranked 120th into the active tier.
+        """
+        if session_id in self._maintenance_sessions:
+            return
         nodes = self.graphs[graph_key]["nodes"]
         edges = self.graphs[graph_key]["edges"]
         node = nodes[node_id]
@@ -1548,9 +1674,24 @@ class MultiProjectGraphStore:
     # Progress Tracking
     # ========================================================================
 
+    def mark_maintenance(self, session_id: str) -> None:
+        """Flag a session as maintenance before its first read (kg_read's
+        maintenance argument): chores read their targets in the call that
+        opens the session, before any kg_progress could flag it."""
+        with self.lock:
+            self._maintenance_sessions.add(session_id)
+
+    def _note_maintenance(self, task_id: str, session_id: str | None) -> None:
+        """A pass or a chore opens with kg_progress on its own task; from then
+        on the session's reads are maintenance, not use (see _record_read)."""
+        from core.debt import MAINTAIN_TASK_ID
+        if session_id and task_id in (MAINTAIN_TASK_ID, CHORE_TASK_ID):
+            self._maintenance_sessions.add(session_id)
+
     def get_progress(self, task_id: str, level: str = "user", session_id: str | None = None) -> dict:
         """Read persistent progress for a task from _meta.progress."""
         with self.lock:
+            self._note_maintenance(task_id, session_id)
             _lvl, graph_key = self._resolve_graph_key(level, session_id, None)
             return self._progress.get(graph_key, {}).get(task_id, {})
 
@@ -1577,6 +1718,7 @@ class MultiProjectGraphStore:
         by the server clock in both the stamp and its trail copy.
         """
         with self.lock:
+            self._note_maintenance(task_id, session_id)
             # Resolve, don't just name: _resolve_graph_key LOADS a project
             # graph that is not in memory yet. Naming it alone wrote the stamp
             # into a dict the next lazy load overwrote from disk, and
@@ -1663,11 +1805,12 @@ class MultiProjectGraphStore:
     def _maybe_compact(self, graph_key: str):
         """Compact graph if over token limit. Caller must hold lock.
 
-        Passes (at most one of compact/refill acts per call — refill is skipped
-        on any tick that archived):
+        Passes (at most one of compact/refill/rebalance acts per call):
           Pass 1: archive lowest-scored active nodes until active tokens ≤ max_tokens.
           Pass 1r: refill — if active tokens sit under the fill ceiling, promote the
                    highest-scored archived nodes back up to use the headroom.
+          Pass 1b: rebalance — between the fill ceiling and the budget, swap the
+                   best archived node for the worst active one when it clearly wins.
           Pass 2: orphan lowest-scored archived nodes until archived tokens ≤ 30% of max.
         """
         nodes = self.graphs[graph_key]["nodes"]
@@ -1679,9 +1822,10 @@ class MultiProjectGraphStore:
         # ceiling refill fills to, so running both would partially undo the archive
         # in the same call. Skipping keeps "one of compact/refill acts per tick".
         refilled = [] if archived else self.compactor.refill_if_room(nodes, edges, versions)
+        swapped = [] if archived or refilled else self.compactor.rebalance(nodes, edges, versions)
         orphaned = self.compactor.orphan_archived_if_needed(nodes, edges, versions)
 
-        if archived or refilled or orphaned:
+        if archived or refilled or swapped or orphaned:
             self.dirty[graph_key] = True
             self._write_through(graph_key)
 

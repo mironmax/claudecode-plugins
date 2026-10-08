@@ -293,17 +293,26 @@ def main():
         # 5. Hub-mention nudge (entity smearing prevention)
         # ==================================================================
         print("hub-mention nudge:")
-        # proj_d already has 12 distinct nodes; add a hub + two mentioners so
-        # 'zephyr' reaches df=3, then create a chronicle that re-describes it.
+        # The nudge uses the DEBT detector's smear floor, max(6, 8%) holders,
+        # and a ceiling of 25% (above it a term is the graph's domain
+        # vocabulary). proj_d holds 12 distinct nodes; ten unrelated fillers
+        # bring it to 22, then a hub + five mentioners put 'zephyr' at df=6
+        # of 28, and a new chronicle re-describes it.
+        for i, topic in enumerate(["ledger rounding", "font subsetting", "cron drift",
+                                   "locale fallback", "thumbnail cropping", "csv quoting",
+                                   "retry jitter", "favicon caching", "tz parsing",
+                                   "pdf margins"]):
+            store.put_node(level="project", node_id=f"filler-topic-{i}",
+                           gist=f"Unrelated note about {topic}", session_id=sid_d)
         store.put_node(level="project", node_id="zephyr-gateway",
                        gist="Zephyr gateway owns all upstream API traffic shaping",
                        session_id=sid_d)
-        store.put_node(level="project", node_id="perf-audit-2026-06-01",
-                       gist="Perf audit: zephyr added 40ms p95; accepted",
-                       session_id=sid_d)
-        store.put_node(level="project", node_id="oncall-runbook",
-                       gist="Oncall runbook covers zephyr restarts and cache flushes",
-                       session_id=sid_d)
+        for nid, gist in [("perf-audit-2026-06-01", "Perf audit: zephyr added 40ms p95; accepted"),
+                          ("oncall-runbook", "Oncall runbook covers zephyr restarts and cache flushes"),
+                          ("cert-rotation", "Cert rotation touches the zephyr listener twice a year"),
+                          ("staging-parity", "Staging lacks the zephyr rate limiter, so load tests lie"),
+                          ("incident-review-q3", "Q3 incident: zephyr retried a poisoned request")]:
+            store.put_node(level="project", node_id=nid, gist=gist, session_id=sid_d)
         res = store.put_node(level="project", node_id="deploy-2026-07-28-notes",
                              gist="Deploy notes: bumped the zephyr sidecar and rotated its API token",
                              session_id=sid_d)
@@ -311,6 +320,12 @@ def main():
         check("chronicle mentioning a named entity gets the edge nudge",
               m is not None and m.get("kind") == "mention"
               and m.get("id") == "zephyr-gateway" and m.get("term", "").startswith("zephyr"), m)
+        res = store.put_node(level="project", node_id="zephyr-header-trim",
+                             gist="Before the cutover, trim headers ahead of the zephyr hop",
+                             session_id=sid_d)
+        m = res.get("near_duplicate")
+        check("a second smeared mention still names the real entity",
+              m is not None and m.get("term", "").startswith("zephyr"), m)
         res = store.put_node(level="project", node_id="wholly-unrelated-topic",
                              gist="Quarterly billing export format switched to parquet",
                              session_id=sid_d)
@@ -327,11 +342,16 @@ def main():
         ]
         for i in range(8):
             smear_nodes.append({"id": f"log-2026-0{(i % 6) + 1}-1{i} ", "gist": f"Session {i}: touched zephyr config again"})
-        for i in range(4):
+        # 'zephyr' in 9 of 38 nodes: an entity. 'standalone' in 29 of 38, with
+        # a hub: above a quarter of the graph it is domain vocabulary.
+        for i in range(28):
             smear_nodes.append({"id": f"other-{i}", "gist": f"Standalone area {i}"})
+        smear_nodes.append({"id": "standalone-hub", "gist": "Standalone areas overview"})
         sm = smeared_terms(smear_nodes, [], slug="acme-shop")
         check("smeared term detected with its hub",
               any(s["term"].startswith("zephyr") and s["hub"] == "zephyr-gateway" for s in sm), sm)
+        check("a term held by over a quarter of the graph is domain vocabulary, not smear",
+              not any(s["term"].startswith("standalone") for s in sm), sm)
         sm2 = smeared_terms(smear_nodes, [], slug="zephyr-shop")
         check("project slug tokens are not smeared entities",
               not any(s["term"].startswith("zephyr") for s in sm2), sm2)

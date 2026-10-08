@@ -392,11 +392,21 @@ _KIND_INSTRUCTIONS = {
     ),
     "lift": (
         "The targets are episodes: instance-level records the server grouped "
-        "for the reasons above. Read them and ask what holds OUTSIDE them — "
-        "the claim that would still be true next month, in a different "
-        "session. kg_search for it first: if a node already states it, use "
-        "that node as the principle instead of writing a new one. Otherwise "
-        "write ONE principle node: kg_put_node(session_id, level=\"{level}\", "
+        "for the reasons above — shared files, edges and words, which is not "
+        "yet a shared lesson. Read them and name WHAT connects them: the "
+        "mechanism or decision they have in common. The lesson is the claim "
+        "that follows from that connection and would still be true next "
+        "month, in a different session. Episodes that only share vocabulary "
+        "have nothing to lift. Keep the claim actionable: name the check or "
+        "choice and the conditions where it applies — 'be careful' or "
+        "'verify first' is not a lesson. kg_search for it first. If a node "
+        "already states it and the episodes are simply more evidence, use "
+        "that node as the principle instead of writing a new one. If a node "
+        "already states it and these episodes are the same mistake happening "
+        "anyway, that lesson is missing something: write the new principle "
+        "with a gist starting 'HYPOTHESIS:' that says what the old one did "
+        "not cover, and edge it to the old node with rel=\"reframes\". "
+        "Otherwise write ONE principle node: kg_put_node(session_id, level=\"{level}\", "
         "id=<3-5 kebab words naming the principle, no date>, gist=<the claim>, "
         "notes=[\"when it matters: ...\", \"what goes wrong without it: ...\"], "
         "touches=<the evidence documents, copied from the members' touches "
@@ -492,7 +502,7 @@ def build_chore_prompt(chore: Chore, cwd: str, lessons=(), lessons_budget: int =
         "",
         "Do exactly this:",
         "",
-        f'1. kg_read(cwd="{cwd}", ids=[{", ".join(repr(t) for t in chore.targets)}])',
+        f'1. kg_read(cwd="{cwd}", ids=[{", ".join(repr(t) for t in chore.targets)}], maintenance=true)',
         "   — it returns your session_id and the targets in full. Do NOT read the",
         "   whole graph: you have been told what to work on, and the orientation",
         "   pass is the cost a chore exists to avoid.",
@@ -583,7 +593,7 @@ def build_pass_prompt(level: str, cwd: str, debt: dict, lessons=(),
         ]
     parts += [
         "",
-        f'1. kg_read(cwd="{cwd}") — returns your session_id and both graphs with',
+        f'1. kg_read(cwd="{cwd}", maintenance=true) — returns your session_id and both graphs with',
         f"   their DEBT lines. Work the {level} graph.",
         "",
         f'2. kg_progress(session_id, task_id="maintain", level="{level}") — the',

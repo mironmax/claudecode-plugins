@@ -279,19 +279,30 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
     # ========================================================================
 
     def _with_budget(text: str | None, payload: dict) -> str | None:
-        """Append a quota notice the session has not heard yet."""
-        from . import budget
+        """Append what the session has not heard yet: a quota notice, and
+        nodes other sessions wrote meanwhile."""
+        from . import budget, foreign
         from .harness import from_transcript
         try:
             hit = session_manager.resolve_hook_session(
                 payload.get("session_id"), payload.get("cwd"), payload.get("transcript_path"))
-            note = budget.notice(session_manager, hit[0] if hit else None,
+        except Exception:
+            logger.debug("hook session not resolved", exc_info=True)
+            hit = None
+        sid = hit[0] if hit else None
+        try:
+            note = budget.notice(session_manager, sid,
                                  from_transcript(payload.get("transcript_path")),
                                  payload.get("transcript_path"))
         except Exception:
             logger.debug("budget notice failed", exc_info=True)
             note = None
-        return "\n\n".join(t for t in (text, note) if t) or None
+        try:
+            pushed = foreign.notice(store, session_manager, sid)
+        except Exception:
+            logger.debug("foreign writes notice failed", exc_info=True)
+            pushed = None
+        return "\n\n".join(t for t in (text, note, pushed) if t) or None
 
     @rest_api.post("/api/prompt_context")
     async def rest_prompt_context(payload: dict):

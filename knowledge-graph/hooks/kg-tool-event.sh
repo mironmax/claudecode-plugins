@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PostToolUse hook (file tools, Bash, WebFetch, WebSearch): report the tool
+# PostToolUse hook (every tool): report the tool
 # event to the KG server; relay what it decides — the memory covering the file
 # just touched (file recall), or a capture nudge for an uncovered target that
 # has proven itself worth remembering (re-derived across sessions, throttled).

@@ -108,10 +108,8 @@ def test_mark_useful():
 def test_scorer():
     print("scorer:")
     from core.scorer import NodeScorer
-    from core.constants import GRACE_PERIOD_DAYS
-
-    old = time.time() - (GRACE_PERIOD_DAYS + 1) * 24 * 3600
-    sc = NodeScorer(GRACE_PERIOD_DAYS)
+    old = time.time() - 30 * 24 * 3600
+    sc = NodeScorer(0)  # no fresh tier: every node is scored
 
     # identical twins, one liked recently — liked one must outrank
     nodes = {

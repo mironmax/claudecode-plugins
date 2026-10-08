@@ -30,8 +30,10 @@ session loses nothing. The DEBT line is both the trigger and the scoreboard:
 
 ## 0 — Orient
 
-`kg_read(session_id)` (dispatched subagent with no preload: `kg_read(cwd)`
-first — the result carries your session_id). Read both DEBT lines; target the
+`kg_read(session_id, maintenance=true)` (dispatched subagent with no preload:
+`kg_read(cwd, maintenance=true)` first — the result carries your session_id).
+`maintenance=true` keeps the pass's reads and writes from counting as use of
+the nodes it judges. Read both DEBT lines; target the
 higher-debt level unless the dispatch said otherwise. Announce:
 "Maintenance pass: <level> graph, debt <score> — <factors>."
 
@@ -95,6 +97,34 @@ Work in this order — each category caps, so a pass ends instead of sprawling:
    above). Notes that read as a changelog ("actually…", contradictions,
    repeats of the gist) → rewrite to current truth only: clean standalone
    bullets, history discarded, conclusions kept.
+7. **Recurring principles — at most ONE.** A principle that keeps gaining
+   `instance-of` members after it was written is not a success: each new
+   member can be the same mistake happening despite the lesson, which means
+   the lesson is missing something. Candidates: principles whose members
+   were created after them (a principle with no creation stamp predates
+   stamps; treat it as oldest), and lessons whose notes keep adding cases
+   after the lesson was written — above all notes that say the lesson was
+   in reach and still failed. In that shape the notes are the members:
+   classify them the same way, and when the content is shallow, sharpen the
+   gist to name the moment the cases share — the trigger the lesson should
+   have fired on — keeping the cases as notes. Then judge, in this order:
+   - *Classify the members.* Failures (a correction, a repeat of the
+     mistake) count; applications (the principle used in a new place) and
+     findings (a fact discovered by following it) do not. Mostly
+     applications or findings → decline and say so.
+   - *Placement or content.* Was the principle archived or out of reach
+     when the failures happened? Then the recurrence is a retrieval
+     failure, and an edge into live work may be the fix. If it was in
+     reach and still failed, the content is shallow.
+   - *Find the connection.* Read the failures without the principle's
+     framing and name what they actually share. Often a real step was
+     taken and its result stretched past what it covered.
+   - *Write it.* A new shape → a new node whose gist starts
+     `HYPOTHESIS:`, edged `reframes` to the old principle, whose gist is
+     sharpened to point at it. A refinement → sharpen the old principle in
+     place. Then re-read the old principle's closest siblings in the new
+     light. Never drop `HYPOTHESIS:` in a pass: that happens when the
+     lesson catches a mistake in real work.
 
 Rules that bound every action:
 - Never invent facts — when unsure, tighten wording, not meaning.
@@ -137,12 +167,13 @@ When a session sees DEBT HIGH but is mid-task, spawn a subagent instead of
 context-switching. Subagents get NO preload — the prompt must carry:
 
     Run a knowledge-graph maintenance pass in <cwd>.
-    First call kg_read(cwd="<cwd>") — the result includes your session_id
+    First call kg_read(cwd="<cwd>", maintenance=true) — the result includes your session_id
     and both graphs with DEBT lines. Then follow the /kg-maintain skill's
     "Maintenance Pass" runbook against the <level> graph: entity
     consolidation (ONE smeared term, if the DEBT line lists any), oversized
     gists (≤8), id refinement via kg_rename_node (≤5), unconnected nodes
-    (≤5), duplicate merges (≤3), notes hygiene (≤3), then verify, STAMP
+    (≤5), duplicate merges (≤3), notes hygiene (≤3), recurring principles
+    (≤1), then verify, STAMP
     kg_progress task "maintain" — counts plus a `declined` list of what you
     considered and refused — and report counts.
     Do not invent facts; sharpen wording, not meaning. ~25 kg_* calls max.
@@ -204,10 +235,14 @@ Two kinds exist only as chores, because the server has to prepare them:
   and edges each supporting member to it with `instance-of`. It never edits
   or deletes the members; once the principle carries the lesson, archiving
   them is the scorer's job. One episode is not a principle: fewer than two
-  supporting members means nothing is written.
+  supporting members means nothing is written. The lesson is what CONNECTS
+  the episodes, not the words they share; if an existing principle already
+  says it and the episodes are that mistake happening anyway, the chore
+  writes a `HYPOTHESIS:` node that `reframes` it instead of reusing it.
 
-Chores never do the two judgement-heavy categories: entity consolidation and
-duplicate merges stay in the full pass, where there is context to weigh them.
+Chores never do the three judgement-heavy categories: entity consolidation,
+duplicate merges and recurring principles stay in the full pass, where there
+is context to weigh them.
 
 # When the full pass happens
 

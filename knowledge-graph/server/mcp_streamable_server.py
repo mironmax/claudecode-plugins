@@ -184,6 +184,10 @@ def create_mcp_server() -> Server:
                             "type": "string",
                             "enum": ["user", "project", "maintain"],
                             "description": "Which graph. Omitted: searches user and project. Pass 'maintain' with no id/ids to render the maintenance memory instead of the graphs. " + MAINTAIN_LEVEL_DOC
+                        },
+                        "maintenance": {
+                            "type": "boolean",
+                            "description": "Only for a maintenance pass or chore: from this call on, the session's reads and writes do not count as use of the nodes (no recency, no promotion)."
                         }
                     },
                     "required": []
@@ -209,7 +213,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_put_node",
-                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, omitted fields stay unchanged, but notes and touches you send REPLACE the stored lists: to add a note to an existing node, read it (kg_read ids=[...]) and send the full list. A write built on a stale or partial view — the node changed since you last saw it, or you would replace notes you never read — is refused with the node as it stands; merge and call again. Search before creating to avoid duplicates. Connect with kg_put_edge after — unconnected nodes risk archival.",
+                description="Create or update a node. level determines storage: 'user' for cross-project wisdom, 'project' for codebase-specific knowledge. If node ID exists, omitted fields stay unchanged, but notes and touches you send REPLACE the stored lists: to add a note to an existing node, read it (kg_read ids=[...]) and send the full list. A write built on a stale or partial view — the node changed since you last saw it, or you would replace notes you never read — is refused with the node as it stands; merge and call again. One node holds one lesson. Before writing, walk back through what happened: each point where a different choice would have changed the outcome — or where a choice clearly worked — is a lesson, and a session rarely teaches just one. Each gets its own node, connected to the others; a lesson met again is sharpened in place, its new case added as a note. Search before creating to avoid duplicates. Connect related nodes with kg_put_edge.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -224,16 +228,16 @@ def create_mcp_server() -> Server:
                         },
                         "id": {
                             "type": "string",
-                            "description": "Node ID: kebab-case, 3-5 words NAMING THE SUBJECT. The claim about the subject goes in the gist, never in the id — 7+ words is refused. No dates: a date is a reference, not a meaning, and ages into noise. Ids are load-bearing: search weights them x3."
+                            "description": "Node ID: kebab-case, 3-5 words NAMING THE SUBJECT of its one lesson — never a container such as '…-lessons' or '…-log'. The claim about the subject goes in the gist, never in the id — 7+ words is refused. No dates: a date is a reference, not a meaning, and ages into noise. Ids are load-bearing: search weights them x3."
                         },
                         "gist": {
                             "type": "string",
-                            "description": "Compressed headline — the CLAIM this node makes about its subject. Scans best ≤300 chars; detail belongs in notes"
+                            "description": "The LESSON — the one claim this node makes about its subject, stated so it holds beyond the case that taught it. Scans best ≤300 chars; cases and detail belong in notes"
                         },
                         "notes": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Rationale, constraints, 'why' — recalled on demand. Replaces the stored list; send every entry to keep"
+                            "description": "The failure modes behind the lesson — each note tells one case of THIS lesson, a failure that taught or confirmed it: what happened, where, what went wrong — plus rationale and constraints. Before adding a note, take a second look: if part of it would also teach something in a different situation, that part is a lesson of its own — give it its own node and an edge. Recalled on demand. Replaces the stored list; send every entry to keep"
                         },
                         "touches": {
                             "type": "array",
@@ -246,7 +250,7 @@ def create_mcp_server() -> Server:
             ),
             Tool(
                 name="kg_put_edge",
-                description="Create or update a relationship between two nodes or file paths. Prefer edges over new nodes — relationships are cheaper and reuse existing concepts. Edges protect connected nodes from archival.",
+                description="Create or update a relationship between two nodes or file paths. When a node for the subject already exists, link to it rather than re-describe it. Edges protect connected nodes from archival.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -417,6 +421,16 @@ def create_mcp_server() -> Server:
     # Tool Handlers
     # ========================================================================
 
+    def _foreign(sid: str | None) -> str:
+        """Nodes other sessions wrote meanwhile, as a reply suffix ('' if none)."""
+        from mcp_http import foreign
+        try:
+            text = foreign.notice(store, session_manager, sid)
+        except Exception:
+            logger.debug("foreign writes notice failed", exc_info=True)
+            text = None
+        return f"\n\n{text}" if text else ""
+
     async def call_tool(name: str, arguments: dict,
                         client: str = harness.CLAUDE_CODE, view=None) -> list[TextContent]:
         """Handle tool calls. client: the calling harness (mcp_http.harness)."""
@@ -474,6 +488,9 @@ def create_mcp_server() -> Server:
                     if not result["project_path"]:
                         notice += _user_only_notice(session_id)
 
+                if arguments.get("maintenance"):
+                    store.mark_maintenance(session_id)
+
                 # Single or batch node read — full content, compact text.
                 ids = list(node_ids) if node_ids else ([node_id] if node_id else None)
                 if ids:
@@ -492,7 +509,7 @@ def create_mcp_server() -> Server:
                             read_ok.append(nid)
                             if deferred:
                                 view.record_read(nid, result["level"], session_id=session_id)
-                            if result.get("was_archived"):
+                            if result.get("promoted"):
                                 promoted.append(nid)
                         except NodeNotFoundError:
                             blocks.append(f"▸ {nid}: NOT FOUND (try kg_search — it reaches all tiers)")
@@ -584,7 +601,7 @@ def create_mcp_server() -> Server:
                     )
                     view.mark_seen(sid, shown, via="search", at=viewed_at)
 
-                return [TextContent(type="text", text=text)]
+                return [TextContent(type="text", text=text + _foreign(sid))]
 
             elif name == "kg_put_node":
                 sid = arguments["session_id"]
@@ -616,14 +633,17 @@ def create_mcp_server() -> Server:
                 elif dup and dup.get("kind") == "mention":
                     dup_note = (
                         f"\nGraph already names '{dup['term']}': '{dup['id']}' — "
-                        f"\"{dup['gist']}\". An edge to it beats re-describing; "
+                        f"\"{dup['gist']}\". Link to it rather than re-describe it; "
                         "keep this gist to what is NEW here."
                     )
                 return [TextContent(
                     type="text",
                     text=f"Node '{arguments['id']}' saved to {arguments['level']} graph"
                          + gist_length_warning(arguments["gist"])
-                         + node_id_warning(arguments["id"]) + dup_note,
+                         + node_id_warning(arguments["id"]) + dup_note
+                         + ("\nA case added to a lesson counts as your endorsement of it."
+                            if result.get("note_credited") else "")
+                         + _foreign(sid),
                 )]
 
             elif name == "kg_put_edge":
@@ -813,14 +833,13 @@ async def main():
     # Load configuration
     from core.constants import (
         get_storage_root, user_graph_path,
-        GRACE_PERIOD_DAYS, ORPHAN_GRACE_DAYS,
+        ORPHAN_GRACE_DAYS,
     )
     # The size budget is a fixed invariant (MAX_CHARS_PER_LEVEL), deliberately
     # NOT env-configurable: the inline guarantee's arithmetic depends on it.
     # The old KG_MAX_TOKENS override is gone.
     config = GraphConfig(
         orphan_grace_days=int(os.getenv("KG_ORPHAN_GRACE_DAYS", str(ORPHAN_GRACE_DAYS))),
-        grace_period_days=int(os.getenv("KG_GRACE_PERIOD_DAYS", str(GRACE_PERIOD_DAYS))),
         save_interval=int(os.getenv("KG_SAVE_INTERVAL", "30")),
         storage_root=get_storage_root(),
         user_path=user_graph_path(),

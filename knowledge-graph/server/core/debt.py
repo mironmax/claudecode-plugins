@@ -45,6 +45,7 @@ GIST_OVERSIZE_CHARS = GIST_SCAN_LIMIT
 SMEAR_MIN_TERM_LEN = 5
 SMEAR_MIN_DF = 6          # absolute floor of holders before a term counts
 SMEAR_DF_RATIO = 0.08     # ...or this fraction of the graph, whichever is more
+SMEAR_MAX_DF_RATIO = 0.25  # above this share of nodes a term is domain vocabulary
 _SMEAR_TOKEN_RE = re.compile(r"[a-z][a-z0-9]{4,}")
 _DATED_ID_RE = re.compile(r"20\d\d-\d\d")
 # Chronicle verbs and generic dev vocabulary that would false-flag; entities
@@ -66,6 +67,17 @@ _SMEAR_STOP = frozenset("""
     those three times today under until update updated using value values
     verified version wanted where which while whole without works would wrong
 """.split())
+
+
+def smear_floor(n_nodes: int) -> float:
+    """Holders a term needs before it counts as smeared."""
+    return max(SMEAR_MIN_DF, SMEAR_DF_RATIO * n_nodes)
+
+
+def smear_ceiling(n_nodes: int) -> float:
+    """Holders beyond which a term is the graph's domain vocabulary, not an
+    entity ('stone' in a Go graph, 'claude' in a Claude-tools one)."""
+    return SMEAR_MAX_DF_RATIO * n_nodes
 
 
 def smeared_terms(nodes: list[dict], edges: list[dict], n_top: int = 3,
@@ -102,10 +114,10 @@ def smeared_terms(nodes: list[dict], edges: list[dict], n_top: int = 3,
         for end in (e.get("from", ""), e.get("to", "")):
             degree[end] = degree.get(end, 0) + 1
 
-    floor = max(SMEAR_MIN_DF, SMEAR_DF_RATIO * len(texts))
+    floor = smear_floor(len(texts))
     out = []
     for term, holders in df.items():
-        if len(holders) < floor:
+        if not floor <= len(holders) <= smear_ceiling(len(texts)):
             continue
         hubs = [nid for nid in holders
                 if not _DATED_ID_RE.search(nid)
