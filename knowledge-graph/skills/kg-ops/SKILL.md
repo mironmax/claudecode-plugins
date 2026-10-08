@@ -26,8 +26,8 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
 - Harnesses connect through **`kg mcp`** (stdio): it starts the server when it
   is down and rides out restarts, so the tools stay connected.
 - The plugins (Claude Code, Codex, Antigravity) are thin: hooks, skills, the
-  `kg mcp` entry. They need `kg`; without it their SessionStart hook says how
-  to install it.
+  `kg mcp` entry. They need `kg`; without it their SessionStart hook asks the
+  agent to offer the install (below).
 - Logs and state: `~/.local/state/knowledge-graph/` (`mcp_server.log`,
   `server.pid`, `last_start_error` when a start failed, `backups/` from setup).
 - Data: `~/.knowledge-graph/` (plain JSON — `user.json`,
@@ -45,9 +45,15 @@ kg setup                      # asks before each change; --plan shows them first
 `kg setup` checks every piece and fixes what the user accepts: the `kg`
 command on PATH, the systemd user service (Linux), the server, and for each
 installed harness its plugin, permissions and settings (Claude Code, Codex,
-Antigravity, Claude Desktop). Every changed file is backed up first. Agents
-pass `--yes` only for items the user agreed to in chat, e.g.
-`kg setup --yes --only claude-desktop`. Then `kg doctor` must be all green.
+Antigravity, Claude Desktop). Every changed file is backed up first.
+
+An agent installing it: without `uv`, ask before running the bootstrap, which
+installs uv first (`curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`).
+Show the user `kg setup --plan` (each line has a key in brackets) and pass
+`--yes` only for the items agreed in chat, e.g.
+`kg setup --yes --only claude-desktop`. If the harness refuses to run it, ask
+the user to run `kg setup` in a terminal. Then `kg doctor` must be all green,
+and memory loads from the next session.
 
 Two steps stay with the user: in **Codex**, run `/hooks` and trust the
 knowledge-graph hooks (Codex keeps plugin hooks off until approved; a first

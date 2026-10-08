@@ -14,7 +14,7 @@
 #
 # If the server is down, start it through `kg` first — seconds, since kg is
 # installed with its environment — so even a cold start gets its preload.
-# Without kg there is no server to start: say how to install it.
+# Without kg there is no server to start: ask the agent to offer the install.
 #
 # This hook only ever STARTS the server — never stops or restarts one the
 # user is running.
@@ -39,7 +39,7 @@ if ! healthy; then
     KG_BIN="$(command -v kg 2>/dev/null)"
     [ -z "$KG_BIN" ] && [ -x "$HOME/.local/bin/kg" ] && KG_BIN="$HOME/.local/bin/kg"
     if [ -z "$KG_BIN" ]; then
-        echo "KG memory is not set up on this machine: the knowledge-graph plugin needs the \`kg\` command, which runs the memory server for every harness. Tell the user to install it once, in a terminal: \`uv tool install kg-memory && kg setup\` (uv: https://docs.astral.sh/uv/). Until then the kg_* tools are unavailable; proceed without memory."
+        echo "KG memory is not set up on this machine: the knowledge-graph plugin needs the \`kg\` command, which runs the memory server for every harness. Offer to install it now. If the user agrees, follow the Install section of the kg-ops skill: \`uv tool install kg-memory\`, then \`kg setup --plan\`, applying only the items the user accepts. Memory loads from the next session; until then the kg_* tools are unavailable, so proceed without memory."
         exit 0
     fi
     # A start that failed said why, and fails the same way until fixed:

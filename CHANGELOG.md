@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Changed
+- **The install can finish inside the agent.** When the `kg` command is missing, the SessionStart hook (Claude Code, Codex, Antigravity) no longer only tells the agent to pass an install command to the user: it asks the agent to offer the install and, with the user's yes, follow the kg-ops skill — `uv tool install kg-memory`, `kg setup --plan`, then only the items the user accepts. Memory loads from the next session.
+- **CI runs the test suite on macOS** as well. The job reports without failing the run until it is green.
+
 ## [0.13.0] - 2026-10-08
 
 Memory that learns from repeats. Measured first on a benchmark of parallel agent sessions sharing one graph (`kg-memory-bench`, Go against a fixed opponent), then replayed on copies of real graphs.

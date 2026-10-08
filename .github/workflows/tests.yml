@@ -10,12 +10,18 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    # macOS is new here: it reports what breaks without failing the run, until it is green.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
         # Oldest supported (pyproject requires-python) and the newest stable release.
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.x"]
+        include:
+          - os: macos-latest
+            python-version: "3.x"
     defaults:
       run:
         working-directory: knowledge-graph/server

@@ -34,11 +34,13 @@ def unavailable(event, base):
     except Exception:
         kg = shutil.which("kg") or str(Path.home() / ".local/bin/kg")
         if not os.access(kg, os.X_OK):
-            return output("KG memory is not set up on this machine: the knowledge-graph "
-                          "plugin needs the `kg` command, which runs the memory server for "
-                          "every harness. Tell the user to install it once, in a terminal: "
-                          "`uv tool install kg-memory && kg setup`. Until then the kg_* "
-                          "tools are unavailable; proceed without memory.")
+            return output("KG memory is not set up on this machine: the knowledge-graph plugin "
+                          "needs the `kg` command, which runs the memory server for every "
+                          "harness. Offer to install it now. If the user agrees, follow the "
+                          "Install section of the kg-ops skill: `uv tool install kg-memory`, then "
+                          "`kg setup --plan`, applying only the items the user accepts. Memory "
+                          "loads from the next session; until then the kg_* tools are "
+                          "unavailable, so proceed without memory.")
         state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state")
         breadcrumb = state / "knowledge-graph/last_start_error"
         if breadcrumb.exists():
