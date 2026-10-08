@@ -12,8 +12,8 @@ file:line references are in [FINDINGS.md](FINDINGS.md).
 reload lets disk win, logs what it drops, and the two paths that triggered
 it without anyone asking (the visual editor, cross-site pages) are gone.
 F11 was found later and fixed in v0.10.1; F5 and F8 in v0.10.2.
-F12 (a fork taking an unbound session) was found in roadmap 09 and is fixed
-on current main, unreleased. F6 and F7 remain open.
+F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 and F7
+remain open.
 
 ## Method
 

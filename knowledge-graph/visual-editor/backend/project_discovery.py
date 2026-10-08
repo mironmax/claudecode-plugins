@@ -2,7 +2,7 @@
 Project discovery utilities for visual editor.
 
 The memory server is the single source of "what memory projects exist"
-(roadmap/tasks/08): discover_projects() asks its read-only GET /api/projects
+discover_projects() asks its read-only GET /api/projects
 for every project graph under its storage root, for every harness, honoring
 KG_STORAGE_ROOT. Against a server that lacks the endpoint (older server) or
 cannot be reached, it falls back to the previous approach of scanning

@@ -1,6 +1,6 @@
 """Read-only project listing — one row per stored project graph.
 
-Built for the visual editor's project list (roadmap/tasks/08): the single
+Built for the visual editor's project list: the single
 source of "what memory projects exist" should be the server's storage, not
 a harness's conversation history, so a project used only from Codex, or
 with `KG_STORAGE_ROOT` pointed elsewhere, still shows up.

@@ -322,7 +322,7 @@ html, body {
     color: var(--primary-color);
 }
 
-/* A graph whose _meta has no project_path — listed (roadmap 08 never hides
+/* A graph whose _meta has no project_path — listed (the list never hides
    it), but not openable by path, so it reads as unavailable rather than a
    normal, clickable entry. */
 .project-item-nopath {

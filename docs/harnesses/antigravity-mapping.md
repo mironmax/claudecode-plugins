@@ -131,7 +131,7 @@ by running says so.
 |---|---|---|---|
 | F1 | `kg-scout` has a Codex recipe: rollout inventory, then selective reads (`skills/kg-scout/SKILL.md:39-106`). | `conversation_summaries.db` is the inventory (`workspace_uris`, `title`, `step_count`, `last_modified_time`, `nesting_depth`); `transcript_full.jsonl` is the record. | An Antigravity recipe: list conversations by workspace and recency, skip `nesting_depth` > 0, read `USER_INPUT` bodies as in B5, skip injected `SYSTEM_MESSAGE` steps. Three app-data directories, one per surface. |
 | F2 | The visual editor missed Codex-only projects until the server listed its own graphs (Unreleased). | Already harness-neutral. | Nothing. |
-| F3 | Roadmap 10 parses both transcript formats. | Tool calls are `PLANNER_RESPONSE.tool_calls`; `kg_read` ids sit in `call_mcp_tool`'s `Arguments`. | A third parser when roadmap 10 is built. |
+| F3 | `eval --transcripts` parses both transcript formats. | Tool calls are `PLANNER_RESPONSE.tool_calls`; `kg_read` ids sit in `call_mcp_tool`'s `Arguments`. | A third parser for `eval --transcripts`. |
 | F4 | Codex has its own `memories` feature, off by default; the README says to leave it off. | The CLI's prompt had no memory section. The IDE has knowledge items. | README note for IDE and desktop users only. |
 | F5 | Codex behaviour changed between 0.157 and 0.158 (`shell_context.py:3`). | `agy` updates itself in the background, and payloads already differ from the docs. | Keep the [probe](tools/antigravity-probe/README.md) and run it on a new version before trusting an old observation. The adapter tolerates missing fields. |
 

@@ -1,9 +1,7 @@
 # Harness instrument review
 
 What it would cost to run this plugin in a second coding harness, and where
-the line between core and adapter should fall. Written for roadmap item
-[05](../../roadmap/tasks/05-harness-instrument-review.md). This is a
-historical investigation: it describes the baseline before the port.
+the line between core and adapter should fall. This is a historical investigation: it describes the baseline before the port.
 
 **Current status (2026-10-05):** both ports are on main. Codex CLI: the
 harness profile (`knowledge-graph/server/mcp_http/harness.py`) and a runner per

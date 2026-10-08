@@ -114,7 +114,7 @@ decision including silences (`recall.jsonl`), chore records
 (`chores.jsonl`) and the progress trail with its `declined` lines, and the
 storage root's git history. None of these supplies a stateless
 counterfactual, so none can measure *gain* in CL-Bench's sense. That needs
-the paired with/without benchmark listed under "Later" in the roadmap.
+a paired with/without benchmark, which is still to be built.
 
 | # | Question | Bears on | Data |
 |---|---|---|---|
