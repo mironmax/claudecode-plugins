@@ -76,7 +76,7 @@ def smear_floor(n_nodes: int) -> float:
 
 def smear_ceiling(n_nodes: int) -> float:
     """Holders beyond which a term is the graph's domain vocabulary, not an
-    entity ('stone' in a Go graph, 'claude' in a Claude-tools one)."""
+    entity ('claude' in a graph about Claude tools)."""
     return SMEAR_MAX_DF_RATIO * n_nodes
 
 

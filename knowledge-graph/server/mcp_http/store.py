@@ -917,8 +917,8 @@ class MultiProjectGraphStore:
         A stem qualifies on the DEBT detector's terms (len ≥5, not stoplisted,
         not a token of the project's own slug, held by ≥ max(6, 8%) of nodes'
         id+gist) and is no more common than a quarter of the graph — beyond
-        that it is the graph's domain vocabulary, not an entity ('stone' in a
-        Go graph named an unrelated node on most writes). Some undated node id
+        that it is the graph's domain vocabulary, not an entity (such a word
+        named an unrelated node on most writes). Some undated node id
         must carry it as a token — that node is the suggested edge target.
         One suggestion max; caller renders it as a nudge.
         """

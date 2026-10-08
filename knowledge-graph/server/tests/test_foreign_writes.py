@@ -5,9 +5,9 @@ No pytest dependency — run directly with the project venv:
 
     cd knowledge-graph/server && ./venv/bin/python tests/test_foreign_writes.py
 
-Background (kg-memory-bench, 2026-10-07): five parallel sessions never called
+Background (2026-10-07, parallel sessions on one graph): five sessions never called
 kg_sync and wrote one lesson as four nodes; the write-time hub nudge named an
-unrelated node on most writes ('before', 'stone', 'black').
+unrelated node on most writes (stopwords and the graph's domain vocabulary).
 
 Covers:
   1. Another session's new node is pushed once, with its gist
@@ -99,15 +99,15 @@ def main():
               all(f"burst-{i}" in diff["project"]["nodes"] for i in range(5)))
 
         print("hub nudge ceiling:")
-        # 'stone' in 12 of 24 nodes: domain vocabulary, not an entity.
+        # 'cache' in 12 of 24 nodes: domain vocabulary, not an entity.
         for i in range(12):
-            store.put_node(level="project", node_id=f"stone-shape-{i}" if i == 0 else f"shape-case-{i}",
-                           gist=f"Case {i}: a weak stone shape lost the fight", session_id=a)
+            store.put_node(level="project", node_id=f"cache-layer-{i}" if i == 0 else f"layer-case-{i}",
+                           gist=f"Case {i}: a stale cache served the old page", session_id=a)
         for i in range(7):
             store.put_node(level="project", node_id=f"other-topic-{i}", gist=f"Topic {i} unrelated",
                            session_id=a)
         res = store.put_node(level="project", node_id="new-shape-lesson",
-                             gist="Keep each stone connected when the opponent cuts", session_id=a)
+                             gist="Version each cache key when the deploy changes", session_id=a)
         m = res.get("near_duplicate")
         check("terms in over a quarter of the graph name no hub",
               not (m and m.get("kind") == "mention"), m)
