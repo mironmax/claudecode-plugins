@@ -2,8 +2,7 @@
 
 Notes that read the 2026 agent-memory literature against the conditions this
 plugin actually runs under. The goal is that design decisions cite evidence
-that applies here, not evidence that merely sounds relevant. Written for
-roadmap item [04](../../roadmap/tasks/04-research-cards.md).
+that applies here, not evidence that merely sounds relevant.
 
 Start with the [synthesis](synthesis.md): where the papers conflict, what
 explains each conflict, and which questions this plugin's logs can answer.
@@ -76,4 +75,4 @@ evaluation design (task 02).
   proposes a measurement, it names the log or file that would supply it.
   Subsequent retrieval replay checks exist in `knowledge-graph/server/eval/`;
   they test logged decisions, not the causal benefit of memory on task quality.
-  A controlled with/without benchmark remains a [roadmap item](../../roadmap/README.md#later).
+  A controlled with/without benchmark is still to be built.

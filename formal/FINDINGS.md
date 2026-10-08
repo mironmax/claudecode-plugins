@@ -316,7 +316,7 @@ edge is rarely edited, so it is left for now.
 for any new Claude session, unbound included, since the server cannot tell
 whether the one that registered it is alive. Model with this fix: D and I hold
 with forks and the kg_read start (417 states) and in every other new-rule row.
-Found by the sessions model under the new hook rule (roadmap 09).
+Found by the sessions model under the new hook rule.
 
 **Where:** `mcp_http/rest.py:140`. Transcript recovery clones the recovered
 KG session only when it is bound to another Claude session. A session that

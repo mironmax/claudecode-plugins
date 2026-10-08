@@ -115,7 +115,7 @@ function updateCurrentGraphLabel() {
     }
 }
 
-// Honest counts (roadmap 08): the header names every stored edge, whether
+// Honest counts: the header names every stored edge, whether
 // drawn, hidden by the default view, or dangling (an endpoint missing from
 // this level entirely — a deleted node, or an edge that crossed levels).
 function updateStats({ nodesShown = 0, nodesTotal = 0, edgesDrawn = 0,
@@ -292,7 +292,7 @@ async function loadProjects() {
 
         projects.forEach(project => {
             // No project_path on record (legacy graph, _meta never stamped
-            // it): shown, per roadmap 08, but not openable — there is no
+            // it): shown, but not openable — there is no
             // path to send the server, and a slug is never guessed as one.
             const noPath = !project.project_path;
             const missingFolder = project.project_path && project.path_exists === false;
@@ -483,7 +483,7 @@ function applyLevelFilter(data, graphLevel) {
     return { nodes: filteredNodes, links: filteredLinks };
 }
 
-// Default readable view (roadmap 08): active nodes plus their one-hop
+// Default readable view: active nodes plus their one-hop
 // neighbours; archived neighbours are kept (dimmed by CSS). Orphaned nodes
 // are hidden, even as neighbours, unless showOrphaned is on — then every
 // orphan is added, not only those adjacent to an active node (most orphans

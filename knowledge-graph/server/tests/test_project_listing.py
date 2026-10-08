@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-contained regression tests for GET /api/projects (roadmap/tasks/08).
+"""Self-contained regression tests for GET /api/projects.
 
 No pytest dependency — run directly with the project venv:
 
@@ -61,7 +61,7 @@ def _write_graph(pdir: Path, nodes: dict, edges: dict | None = None, meta: dict 
 
 
 def main():
-    print("=== project listing tests (roadmap 08) ===")
+    print("=== project listing tests ===")
 
     storage = Path(_TMP_STORAGE)
     real_project = Path(tempfile.mkdtemp(prefix="kg-test-real-", dir=str(Path.home() / ".cache")))
