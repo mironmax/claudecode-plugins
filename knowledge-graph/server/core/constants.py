@@ -47,6 +47,13 @@ SEARCH_CHAR_BUDGET = 10000
 CLAUDE_PRELOAD_LIMIT = 9500
 CODEX_PRELOAD_LIMIT = 9000
 ANTIGRAVITY_PRELOAD_LIMIT = 10000
+# Largest kg_read reply part, same units. Measured the same day: Claude Code
+# keeps a 50,000-unit tool reply whole, then saves it to a file with a ~2K
+# preview; Codex keeps 40,000 bytes (its tool_output_token_limit default of
+# 10,000 tokens at bytes/4), then cuts the middle out. A longer reply goes out
+# in parts (mcp_http.paging), each marking only what it showed as seen.
+CLAUDE_TOOL_PART_LIMIT = 45000
+CODEX_TOOL_PART_LIMIT = 36000
 COMPACTION_TARGET_RATIO = 0.8
 # ---------------------------------------------------------------------------
 # Ambient memory (v0.9.24): per-event hook endpoints.

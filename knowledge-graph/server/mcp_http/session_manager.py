@@ -210,7 +210,7 @@ class HTTPSessionManager:
         clone.pop("claude_sid", None)
         # Pending output belongs to its original conversation, not a fork.
         for key in ("agy_pending", "agy_delivery", "agy_hooks_seen", "agy_prompt_key",
-                    "agy_scan_pos", "agy_checkpoint"):
+                    "agy_scan_pos", "agy_checkpoint", "pages"):
             clone.pop(key, None)
         session_id = uuid.uuid4().hex[:SESSION_ID_LENGTH]
         self._sessions[session_id] = clone
@@ -483,7 +483,7 @@ class HTTPSessionManager:
         session = self._sessions.get(session_id)
         if session is None:
             return
-        for key in ("seen_ids", "preloaded_ids", "full_read_ts"):
+        for key in ("seen_ids", "preloaded_ids", "full_read_ts", "pages"):
             session.pop(key, None)
         restart(session)
         session["context_resets"] = session.get("context_resets", 0) + 1
@@ -568,6 +568,33 @@ class HTTPSessionManager:
             return False
         self.save_sessions()
         return True
+
+    @_locked
+    def set_pages(self, session_id: str, parts: list[str], effects: list[list]) -> None:
+        """The undelivered parts of a paged kg_read, replacing any earlier ones."""
+        data = self._sessions.get(session_id)
+        if data is None:
+            return
+        if parts:
+            data["pages"] = {"parts": parts, "effects": effects,
+                             "total": len(parts) + 1, "next": 2}
+        elif data.pop("pages", None) is None:
+            return
+        self.save_sessions()
+
+    @_locked
+    def take_page(self, session_id: str) -> tuple[str, list, int, int] | None:
+        """The next pending part: (text, effects, part number, total)."""
+        pages = (self._sessions.get(session_id) or {}).get("pages")
+        if not pages:
+            return None
+        text, effects = pages["parts"].pop(0), pages["effects"].pop(0)
+        number = pages["next"]
+        pages["next"] += 1
+        if not pages["parts"]:
+            self._sessions[session_id].pop("pages")
+        self.save_sessions()
+        return text, effects, number, pages["total"]
 
     @_locked
     def has_pending_context(self, session_id: str, kind: str | None = None) -> bool:

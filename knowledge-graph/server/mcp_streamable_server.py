@@ -159,7 +159,7 @@ def create_mcp_server() -> Server:
         return [
             Tool(
                 name="kg_read",
-                description="Read the knowledge graph. First call: pass cwd to initialize the session (no cwd: user memory only) — the result includes session_id; pass that session_id on every later call (cwd then optional). Without id/ids: full graph — active nodes (gist), archived anchors (id only), live edges — normally within the render budget, but oversized active gists can exceed it; delivery depends on the client. With id or ids: full node content (gist + notes + touches + the node's edges); archived nodes get promoted to active. Reading several related nodes via ids in ONE call is cheaper than sequential single reads.",
+                description="Read the knowledge graph. First call: pass cwd to initialize the session (no cwd: user memory only) — the result includes session_id; pass that session_id on every later call (cwd then optional). Without id/ids: full graph — active nodes (gist), archived anchors (id only), live edges — normally within the render budget, but oversized active gists can exceed it. A reply longer than the client keeps whole arrives in parts: each part says so, and kg_read(session_id, more=true) returns the next. With id or ids: full node content (gist + notes + touches + the node's edges); archived nodes get promoted to active. Reading several related nodes via ids in ONE call is cheaper than sequential single reads.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -188,6 +188,10 @@ def create_mcp_server() -> Server:
                         "maintenance": {
                             "type": "boolean",
                             "description": "Only for a maintenance pass or chore: from this call on, the session's reads and writes do not count as use of the nodes (no recency, no promotion)."
+                        },
+                        "more": {
+                            "type": "boolean",
+                            "description": "true: the next part of a kg_read reply that said it continues. Pass session_id only."
                         }
                     },
                     "required": []
@@ -820,6 +824,10 @@ def create_mcp_server() -> Server:
             return await call_with_delivery(store, session_manager, call_tool,
                                              params.name, arguments, conversation_id)
         client = harness.from_user_agent(headers.get("user-agent"))
+        if params.name == "kg_read" and harness.profile(client).tool_part_limit:
+            from mcp_http.paging import call_paged
+            return CallToolResult(content=await call_paged(store, session_manager, call_tool,
+                                                           arguments, client))
         return CallToolResult(content=await call_tool(params.name, arguments, client))
 
     return Server("knowledge-graph-mcp", version=__version__,
