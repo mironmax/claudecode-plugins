@@ -491,9 +491,9 @@ def test_never_raises():
 
     hooks = json.loads((Path(SERVER).parent / "hooks" / "hooks.json").read_text())
     matcher = hooks["hooks"]["PostToolUse"][0]["matcher"].split("|")
-    check("hook matcher widened, Codex's apply_patch included",
-          {"Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash",
-           "WebFetch", "WebSearch", "apply_patch"} == set(matcher), matcher)
+    # Every tool: file recall needs the file tools and Codex's apply_patch; the
+    # foreign-writes push needs whatever tools a session's work runs through.
+    check("hook matcher covers every tool", matcher == ["*"], matcher)
 
 
 def run_cli(*args):
