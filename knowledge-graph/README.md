@@ -151,7 +151,7 @@ The server reads tunables from environment variables. Set them in your shell rc 
 
 > Don't edit the plugin's bundled `.mcp.json` — that file just declares the HTTP endpoint the harness connects to (`http://127.0.0.1:8765/`), and it gets overwritten on every plugin update.
 
-> **The size budget is fixed by design.** Budgets are exact rendered characters: 17,500 per level, 40,000 for the combined full-graph render, and 10,000 for preload (8,000 in Codex). They were sized for the measured Claude Code/Codex clients; arbitrary batches of full-node notes and other clients have separate delivery limits. Oversized full graphs hide the lowest-scored archived anchors and edges with counts and a search pointer.
+> **The size budget is fixed by design.** Budgets are exact rendered characters: 17,500 per level and 40,000 for the combined full-graph render. The preload fits each client's hook limit as that client counts (9,500 UTF-16 units in Claude Code, 9,000 bytes in Codex). A reply longer than the client keeps whole arrives in parts, and only what a part showed counts as seen. Oversized full graphs hide the lowest-scored archived anchors and edges with counts and a search pointer.
 
 > The full-graph figure is a target: active gists are preserved even if they
 > alone exceed it. The newest nodes (the fresh tier, up to 30% of a level's

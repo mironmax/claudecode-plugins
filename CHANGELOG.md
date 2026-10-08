@@ -4,6 +4,9 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+- **Long kg_read replies arrive in parts instead of being cut.** Claude Code saves a tool reply over 50,000 UTF-16 units to a file and shows the model a short preview; Codex cuts the middle out of one over 40,000 bytes. The server still marked every node in such a reply as seen, so recall never offered them again. Now a reply longer than the client keeps whole goes out in parts (45,000 units in Claude Code, 36,000 bytes in Codex), each ending with how to get the next: `kg_read(session_id, more=true)`. A node counts as seen, read or promoted only when the part showing it goes out; the full read completes with its last part; a new read or a compaction drops undelivered parts. Antigravity keeps its hook queue.
+
 ### Changed
 - **The install can finish inside the agent.** When the `kg` command is missing, the SessionStart hook (Claude Code, Codex, Antigravity) no longer only tells the agent to pass an install command to the user: it asks the agent to offer the install and, with the user's yes, follow the kg-ops skill — `uv tool install kg-memory`, `kg setup --plan`, then only the items the user accepts. Memory loads from the next session.
 - **CI runs the test suite on macOS** as well (Python 3.x). It reports without failing the run until an intermittent failure there is understood.

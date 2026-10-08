@@ -17,7 +17,8 @@ from dataclasses import dataclass
 from typing import Callable
 
 from core.constants import (ANTIGRAVITY_PRELOAD_LIMIT, CLAUDE_PRELOAD_LIMIT,
-                            CODEX_PRELOAD_LIMIT)
+                            CLAUDE_TOOL_PART_LIMIT, CODEX_PRELOAD_LIMIT,
+                            CODEX_TOOL_PART_LIMIT)
 
 CLAUDE_CODE = "claude-code"
 CODEX = "codex"
@@ -40,6 +41,9 @@ class Profile:
     # context ceiling for the session-start preload in that unit.
     measure: Callable[[str], int]
     preload_limit: int
+    # Largest kg_read reply part the client keeps whole (None: not paged here;
+    # Antigravity queues large replies through its hooks instead).
+    tool_part_limit: int | None
     # Reads arrive only through the shell (no Read tool), so shell reads
     # stand in for reads when counting what is worth a capture nudge.
     shell_reads_count: bool
@@ -53,9 +57,10 @@ class Profile:
 
 
 PROFILES = {
-    CLAUDE_CODE: Profile(CLAUDE_CODE, utf16_units, CLAUDE_PRELOAD_LIMIT, False, True, None),
+    CLAUDE_CODE: Profile(CLAUDE_CODE, utf16_units, CLAUDE_PRELOAD_LIMIT, CLAUDE_TOOL_PART_LIMIT,
+                         False, True, None),
     CODEX: Profile(
-        CODEX, utf8_bytes, CODEX_PRELOAD_LIMIT, True, False,
+        CODEX, utf8_bytes, CODEX_PRELOAD_LIMIT, CODEX_TOOL_PART_LIMIT, True, False,
         "No Codex memory hooks have been observed for this project. "
         "The plugin's hooks may need trust: Codex keeps them off until "
         "the user approves them — ask the user to run /hooks, trust the "
@@ -63,7 +68,7 @@ PROFILES = {
         "preload, per-prompt recall or file recall; the kg_* tools work as usual.",
     ),
     ANTIGRAVITY: Profile(
-        ANTIGRAVITY, utf8_bytes, ANTIGRAVITY_PRELOAD_LIMIT, False, False,
+        ANTIGRAVITY, utf8_bytes, ANTIGRAVITY_PRELOAD_LIMIT, None, False, False,
         "No Antigravity memory hook has been observed for this conversation. "
         "Install the native knowledge-graph plugin, check agy -p /hooks and "
         "start a new conversation. Large KG replies require PreInvocation; "
