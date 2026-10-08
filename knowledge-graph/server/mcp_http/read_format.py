@@ -264,7 +264,8 @@ def build_bootstrap(graphs: dict, scores: dict, session_id: str, debt: dict | No
         "KG MEMORY PRELOADED — compact core ONLY: a PARTIAL view holding the top-scored "
         "nodes of both graphs ('…N more not shown' lines below count what was dropped). "
         f"session_id: {session_id} (pass it to every kg_* call). "
-        "REQUIRED before any substantive work: call kg_read(session_id) ONCE — it renders "
+        "REQUIRED before any substantive work: call kg_read(session_id) ONCE, following its parts "
+        "with more=true if it says it continues — it renders "
         "everything this preload dropped without repeating what is shown here, and only "
         'AFTER that full read announce "I have recalled KG Memories". '
         "kg_read(session_id, ids=[...]) reads nodes in depth; kg_search looks anything up. "

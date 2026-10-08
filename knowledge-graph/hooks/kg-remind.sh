@@ -44,7 +44,7 @@ if [ -z "$RESP" ]; then
         if printf '%s' "$STATE" | grep -q '"found":[[:space:]]*true' && \
            printf '%s' "$STATE" | grep -q '"full_read_done":[[:space:]]*false'; then
             printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"%s"}}' \
-                "KG preload is a PARTIAL view — the full graph is NOT in context yet. Call kg_read(session_id) once before substantive work; it renders everything the preload dropped without repeating it."
+                "KG preload is a PARTIAL view — the full graph is NOT in context yet. Call kg_read(session_id) once before substantive work, following its parts with more=true if it says it continues; it renders everything the preload dropped without repeating it."
             exit 0
         fi
     fi

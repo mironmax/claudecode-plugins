@@ -10,24 +10,23 @@ logger = logging.getLogger(__name__)
 
 # Size budgets — exact rendered characters, fixed by design (no env overrides).
 # The estimator measures the exact strings kg_read renders (core.render), so
-# these budgets are invariants, not tuning knobs. The arithmetic that makes the
-# inline guarantee hold:
+# these budgets are invariants, not tuning knobs. They set how much memory a
+# session gets; how it arrives is the client's business (mcp_http.paging cuts
+# a reply into parts the client keeps whole), so neither shrinks the other:
 #
 #   MAX_CHARS_PER_LEVEL × 2 levels + section headers/health/session lines
 #     < READ_CHAR_BUDGET (the render-time degradation ladder's hard ceiling)
-#     < the MCP client's tool-result persistence threshold (~50K chars in
-#       Claude Code — beyond it the result lands in a file, not in context)
 #
 # Per-level budget for the compactor: when the rendered level (active gists +
 # live-string edges + archived anchors) exceeds this, the lowest-scored active
-# nodes are archived. 17,500 chars ≈ the old 5,000-token budget, tightened
-# slightly so two full levels plus wrapper text stay under READ_CHAR_BUDGET.
-MAX_CHARS_PER_LEVEL = 17500
+# nodes are archived. Raised 2026-10-08 from 17,500 with the read from 40,000
+# (Maxim), once paged replies made a read above the client limits safe.
+MAX_CHARS_PER_LEVEL = 22000
 # Hard ceiling for a single kg_read result. Graphs the compactor maintains never
 # reach it; the render-time ladder enforces it for everything else (legacy or
 # externally-edited graphs) by dropping lowest-scored archived anchors, then
 # lowest-value live edges — never active gists.
-READ_CHAR_BUDGET = 40000
+READ_CHAR_BUDGET = 50000
 # kg_search output ceiling — same inline philosophy as READ_CHAR_BUDGET, sized
 # for a focused answer: top hits with notes, connections, a page of one-liners.
 SEARCH_CHAR_BUDGET = 10000
