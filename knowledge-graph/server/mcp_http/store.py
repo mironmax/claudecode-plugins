@@ -474,12 +474,14 @@ class MultiProjectGraphStore:
         A maintenance session credits instead of endorsing: `credits` (1 to
         MAINTENANCE_CREDIT_MAX_PER_NODE) stamps per node, within
         MAINTENANCE_CREDITS_PER_PASS for the pass, logged as via "maintenance"
-        and recorded on the node's _credited_ts. Other sessions cast one vote.
+        and recorded on the node's _credited_ts; an orphaned node returns to
+        the archive, where its score decides. Other sessions cast one vote.
 
         Returns {"accepted": [ids], "rejected": {id: reason},
                  "remaining": endorsements (or a pass's credits) left,
                  "over_guidance": how far past the guidance this session is,
-                 "credits": stamps per accepted id}.
+                 "credits": stamps per accepted id,
+                 "unorphaned": credited ids returned from orphaned to archived}.
         """
         from core.constants import (CREDITED_FIELD, LIKES_GUIDANCE_PER_SESSION,
                                     MAINTENANCE_CREDIT_MAX_PER_NODE, MAINTENANCE_CREDITS_PER_PASS,
@@ -500,6 +502,7 @@ class MultiProjectGraphStore:
             accepted: list = []
             rejected: dict = {}
             records: list = []
+            unorphaned: list = []
             now = time.time()
 
             def record(node_id, refused=None, level=None, node=None):
@@ -568,6 +571,11 @@ class MultiProjectGraphStore:
                 if maintenance:
                     node.setdefault(CREDITED_FIELD, []).append(now)
                     credited += credits
+                    # Orphans never refill: back to archived, where the score
+                    # (credit included) decides whether it returns to view.
+                    if node.pop("_orphaned_ts", None) is not None:
+                        node["_archived"] = True
+                        unorphaned.append(node_id)
                 liked.append(node_id)
                 accepted.append(node_id)
                 record(node_id, level=level, node=node)
@@ -587,6 +595,7 @@ class MultiProjectGraphStore:
                           else max(0, MAX_LIKES_PER_SESSION - len(liked))),
             "over_guidance": 0 if maintenance else max(0, len(liked) - LIKES_GUIDANCE_PER_SESSION),
             "credits": credits if maintenance else 1,
+            "unorphaned": unorphaned,
         }
 
     def scores_for_read(self, session_id: str | None = None) -> dict:

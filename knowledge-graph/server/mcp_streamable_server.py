@@ -685,6 +685,8 @@ def create_mcp_server() -> Server:
                 parts.extend(f"Skipped {nid}: {why}" for nid, why in result["rejected"].items())
                 over = result.get("over_guidance", 0)
                 if maintenance:
+                    if result.get("unorphaned"):
+                        parts.append("Back from orphaned to the archive: " + ", ".join(result["unorphaned"]))
                     parts.append(f"{result['remaining']} credit(s) left this pass.")
                 elif over:
                     parts.append(

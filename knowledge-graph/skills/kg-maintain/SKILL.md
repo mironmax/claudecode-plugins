@@ -38,7 +38,8 @@ judge a lesson should stay in view (a standing rule that keeps sinking, a
 lesson the work keeps needing), credit it: `kg_useful(ids, credits=1-3)` by
 conviction, 15 per pass. A credit counts as an endorsement and as recent
 use, and both fade: it props the lesson up, and the lesson stays only if
-sessions go on to find it useful. A node
+sessions go on to find it useful. A credited orphan returns to the archive,
+where its score decides. A node
 credited before that sank again is a signal to record, not to re-prop
 silently. Read both DEBT lines; target the
 higher-debt level unless the dispatch said otherwise. Announce:

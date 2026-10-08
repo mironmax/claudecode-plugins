@@ -19,6 +19,7 @@ Covers:
   6. The evaluator drops maintenance and recurrence records, keeps endorsements
   7. A full node read shows when maintenance credited it
   8. Any credit, an endorsement included, counts as recent use
+  9. A credited orphan returns to the archive
 
 Uses a temp KG_STORAGE_ROOT and a temp project under ~/.cache.
 """
@@ -116,6 +117,15 @@ def main():
         check("a maintenance credit counts as recent use", recency("rule-0") == nodes["rule-0"]["_useful_ts"][-1])
         check("so does an endorsement", recency("rule-1") == nodes["rule-1"]["_useful_ts"][-1])
         check("a node with neither keeps its old recency", recency("rule-7") == 1000.0)
+
+        print("orphan:")
+        nodes["rule-7"]["_archived"] = True
+        nodes["rule-7"]["_orphaned_ts"] = 1000.0
+        pass2 = session_manager.register(project)["session_id"]
+        store.mark_maintenance(pass2)
+        res = store.mark_useful(["rule-7"], pass2, credits=1)
+        check("a credited orphan returns to the archive", res["unorphaned"] == ["rule-7"]
+              and nodes["rule-7"].get("_archived") and "_orphaned_ts" not in nodes["rule-7"], res)
 
         print("evaluator:")
         with open(Path(_TMP_STORAGE) / USEFUL_LOG_NAME, "a") as f:
