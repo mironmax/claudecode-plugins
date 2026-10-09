@@ -1,0 +1,800 @@
+$ lean --run lifecycle/lean/Lifecycle.lean
+===== fixed=false (bounds: 3 pids, ≤4 spawns, ≤1 crash)
+--- cold: shim + hook + the user's kg start: svc=false lsof=true fixed=false
+✓ L1 at most one server holds the storage: no counterexample (3263 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (3263 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (3263 states, exhaustive)
+✗ L4 a breadcrumb only while the latest start attempt failed: COUNTEREXAMPLE (495 states)
+    shim: server down, runs kg start
+    shim: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    shim: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health
+    user: server down, runs kg start
+    user: kg start: already running (pid 0)
+✓ L5 a start that reported success leaves a server answering: no counterexample (3263 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (862 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (3263 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (861 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- cold: shim + hook + the user's kg start: svc=false lsof=false fixed=false
+✓ L1 at most one server holds the storage: no counterexample (3203 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (3203 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (3203 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (3203 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (3203 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (853 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+✗ L7 settled: kg can find (and stop) every server on its port: COUNTEREXAMPLE (853 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (852 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: crash, a server on another port, kg stop, hook, kg start: svc=false lsof=true fixed=false
+✓ L1 at most one server holds the storage: no counterexample (18947 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (18947 states, exhaustive)
+✗ L3 kg stop never signals another port's server: COUNTEREXAMPLE (46 states)
+    server 0 crashes
+    a server on another port starts with pid 0
+    kg stop: SIGTERM pids [0]
+✗ L4 a breadcrumb only while the latest start attempt failed: COUNTEREXAMPLE (2524 states)
+    server 0 crashes
+    hook: server down, runs kg start
+    hook: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    hook: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health
+    user: server down, runs kg start
+    user: kg start: already running (pid 0)
+✗ L5 a start that reported success leaves a server answering: COUNTEREXAMPLE (446 states)
+    hook: server answers, nothing to start
+    user: server down, runs kg start
+    kg stop: SIGTERM pids [0]
+    user: kg start: already running (pid 0)
+    kg stop: 6 s pass, SIGKILL, pid file removed
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (3211 states)
+    server 0 crashes
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    hook: down + breadcrumb: reports it, does not start
+    kg stop: nothing running, pid file removed
+    server 0 binds the port, answers /health
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (18947 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (3266 states)
+    server 0 crashes
+    user: server down, runs kg start
+    kg stop: nothing running, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: kg update while a shim starts the server: svc=false lsof=true fixed=false
+✓ L1 at most one server holds the storage: no counterexample (401 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (401 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (401 states, exhaustive)
+✗ L4 a breadcrumb only while the latest start attempt failed: COUNTEREXAMPLE (203 states)
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    shim: server down, runs kg start
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    shim: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    shim: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health
+    user: kg start: already running (pid 0)
+✓ L5 a start that reported success leaves a server answering: no counterexample (401 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (124 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (401 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (401 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (123 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    user: /health answers and its process runs: started
+--- systemd, cold: shim + hook, a crash, Restart=on-failure: svc=true lsof=true fixed=false
+✓ L1 at most one server holds the storage: no counterexample (1093 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (1093 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (1093 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (1093 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (1093 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (109 states)
+    shim: server down, runs kg start
+    shim: systemctl start -> unit spawns server 0
+    server 0 locks the storage
+    shim: 20 s without /health -> breadcrumb
+    server 0 binds the port, answers /health
+    hook: server answers, nothing to start
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (1093 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (107 states)
+    shim: server down, runs kg start
+    shim: systemctl start -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    shim: /health answers -> breadcrumb cleared
+    hook: server answers, nothing to start
+--- systemd, warm: kg update while a shim starts the server: svc=true lsof=true fixed=false
+✓ L1 at most one server holds the storage: no counterexample (116 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (116 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (116 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (116 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (116 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (67 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: systemctl restart -> unit spawns server 0
+    server 0 locks the storage
+    user: 20 s without /health -> breadcrumb
+    server 0 binds the port, answers /health
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (116 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (116 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (66 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: systemctl restart -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    user: /health answers -> breadcrumb cleared
+===== fixed=true (bounds: 3 pids, ≤4 spawns, ≤1 crash)
+--- cold: shim + hook + the user's kg start: svc=false lsof=true fixed=true
+✓ L1 at most one server holds the storage: no counterexample (551 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (551 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (551 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (551 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (551 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (551 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (551 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (480 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- cold: shim + hook + the user's kg start: svc=false lsof=false fixed=true
+✓ L1 at most one server holds the storage: no counterexample (551 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (551 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (551 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (551 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (551 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (551 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (551 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (480 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: crash, a server on another port, kg stop, hook, kg start: svc=false lsof=true fixed=true
+✓ L1 at most one server holds the storage: no counterexample (5666 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (5666 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (5666 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (5666 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (5666 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (5666 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (5666 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (2005 states)
+    server 0 crashes
+    user: server down, runs kg start
+    kg stop: nothing running, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: kg update while a shim starts the server: svc=false lsof=true fixed=true
+✓ L1 at most one server holds the storage: no counterexample (86 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (86 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (86 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (86 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (86 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (86 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (86 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (86 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (66 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    user: /health answers and its process runs: started
+--- systemd, cold: shim + hook, a crash, Restart=on-failure: svc=true lsof=true fixed=true
+✓ L1 at most one server holds the storage: no counterexample (1282 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (1282 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (1282 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (1282 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (1282 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (1282 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (1282 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (107 states)
+    shim: server down, runs kg start
+    shim: systemctl start -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: /health answers -> breadcrumb cleared
+    hook: server answers, nothing to start
+--- systemd, warm: kg update while a shim starts the server: svc=true lsof=true fixed=true
+✓ L1 at most one server holds the storage: no counterexample (92 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (92 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (92 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (92 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (92 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (92 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (92 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (92 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (57 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: systemctl restart -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    user: /health answers -> breadcrumb cleared
+===== fixed=true without fix 1 (bounds: 3 pids, ≤4 spawns, ≤1 crash)
+--- cold: shim + hook + the user's kg start: svc=false lsof=true fixed=true without fix 1
+✓ L1 at most one server holds the storage: no counterexample (551 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (551 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (551 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (551 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (551 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (481 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb (server still starting: pid file kept)
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (551 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (480 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- cold: shim + hook + the user's kg start: svc=false lsof=false fixed=true without fix 1
+✓ L1 at most one server holds the storage: no counterexample (551 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (551 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (551 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (551 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (551 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (481 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb (server still starting: pid file kept)
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (551 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (480 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: crash, a server on another port, kg stop, hook, kg start: svc=false lsof=true fixed=true without fix 1
+✓ L1 at most one server holds the storage: no counterexample (5184 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (5184 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (5184 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (5184 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (5184 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (1998 states)
+    server 0 crashes
+    user: server down, runs kg start
+    kg stop: nothing running, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb (server still starting: pid file kept)
+    server 0 binds the port, answers /health
+    hook: server answers, nothing to start
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (5184 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (1993 states)
+    server 0 crashes
+    user: server down, runs kg start
+    kg stop: nothing running, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: kg update while a shim starts the server: svc=false lsof=true fixed=true without fix 1
+✓ L1 at most one server holds the storage: no counterexample (86 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (86 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (86 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (86 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (86 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (67 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb (server still starting: pid file kept)
+    server 0 binds the port, answers /health
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (86 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (86 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (66 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    user: /health answers and its process runs: started
+--- systemd, cold: shim + hook, a crash, Restart=on-failure: svc=true lsof=true fixed=true without fix 1
+✓ L1 at most one server holds the storage: no counterexample (1093 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (1093 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (1093 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (1093 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (1093 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (109 states)
+    shim: server down, runs kg start
+    shim: systemctl start -> unit spawns server 0
+    server 0 locks the storage
+    shim: 20 s without /health -> breadcrumb
+    server 0 binds the port, answers /health
+    hook: server answers, nothing to start
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (1093 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (107 states)
+    shim: server down, runs kg start
+    shim: systemctl start -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    shim: /health answers -> breadcrumb cleared
+    hook: server answers, nothing to start
+--- systemd, warm: kg update while a shim starts the server: svc=true lsof=true fixed=true without fix 1
+✓ L1 at most one server holds the storage: no counterexample (92 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (92 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (92 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (92 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (92 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (58 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: systemctl restart -> unit spawns server 0
+    server 0 locks the storage
+    user: 20 s without /health -> breadcrumb
+    server 0 binds the port, answers /health
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (92 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (92 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (57 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: systemctl restart -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health
+    user: /health answers -> breadcrumb cleared
+===== fixed=true without fix 2 (bounds: 3 pids, ≤4 spawns, ≤1 crash)
+--- cold: shim + hook + the user's kg start: svc=false lsof=true fixed=true without fix 2
+✓ L1 at most one server holds the storage: no counterexample (3365 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (3365 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (3365 states, exhaustive)
+✗ L4 a breadcrumb only while the latest start attempt failed: COUNTEREXAMPLE (2454 states)
+    shim: server down, runs kg start
+    shim: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    hook: server down, runs kg start
+    shim: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    hook: kg start spawns server 1, writes the pid file
+    server 0 binds the port, answers /health, removes the breadcrumb
+    server 1 exits: another memory server already uses the storage
+    hook: its server exited -> breadcrumb, pid file removed
+    user: server down, runs kg start
+    user: kg start: already running (pid 0)
+✓ L5 a start that reported success leaves a server answering: no counterexample (3365 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (1956 states)
+    shim: server down, runs kg start
+    shim: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    shim: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    hook: down + breadcrumb: reports it, does not start
+    user: server down, runs kg start
+    user: kg start spawns server 1, writes the pid file
+    server 0 binds the port, answers /health, removes the breadcrumb
+    server 1 exits: another memory server already uses the storage
+    user: its server exited -> breadcrumb, pid file removed
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (3365 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (861 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- cold: shim + hook + the user's kg start: svc=false lsof=false fixed=true without fix 2
+✓ L1 at most one server holds the storage: no counterexample (3287 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (3287 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (3287 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (3287 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (3287 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (859 states)
+    shim: server down, runs kg start
+    shim: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    shim: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health, removes the breadcrumb
+    hook: server answers, nothing to start
+    user: server down, runs kg start
+    user: kg start: port held -> breadcrumb
+✗ L7 settled: kg can find (and stop) every server on its port: COUNTEREXAMPLE (853 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (852 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: crash, a server on another port, kg stop, hook, kg start: svc=false lsof=true fixed=true without fix 2
+✓ L1 at most one server holds the storage: no counterexample (10500 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (10500 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (10500 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (10500 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (10500 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (5272 states)
+    server 0 crashes
+    hook: server down, runs kg start
+    hook: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    hook: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    user: server down, runs kg start
+    kg stop: nothing running, pid file removed
+    user: kg start spawns server 1, writes the pid file
+    server 0 binds the port, answers /health, removes the breadcrumb
+    server 1 exits: another memory server already uses the storage
+    user: its server exited -> breadcrumb, pid file removed
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (10500 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (1984 states)
+    server 0 crashes
+    user: server down, runs kg start
+    kg stop: nothing running, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: kg update while a shim starts the server: svc=false lsof=true fixed=true without fix 2
+✓ L1 at most one server holds the storage: no counterexample (218 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (218 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (218 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (218 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (218 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (189 states)
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    shim: server down, runs kg start
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    user: 15 s without /health -> breadcrumb, pid file removed; its server keeps running
+    shim: kg start spawns server 1, writes the pid file
+    server 0 binds the port, answers /health, removes the breadcrumb
+    server 1 exits: another memory server already uses the storage
+    shim: its server exited -> breadcrumb, pid file removed
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (218 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (218 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (69 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    user: /health answers and its process runs: started
+--- systemd, cold: shim + hook, a crash, Restart=on-failure: svc=true lsof=true fixed=true without fix 2
+✓ L1 at most one server holds the storage: no counterexample (1282 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (1282 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (1282 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (1282 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (1282 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (1282 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (1282 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (107 states)
+    shim: server down, runs kg start
+    shim: systemctl start -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: /health answers -> breadcrumb cleared
+    hook: server answers, nothing to start
+--- systemd, warm: kg update while a shim starts the server: svc=true lsof=true fixed=true without fix 2
+✓ L1 at most one server holds the storage: no counterexample (92 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (92 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (92 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (92 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (92 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (92 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (92 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (92 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (57 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: systemctl restart -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    user: /health answers -> breadcrumb cleared
+===== fixed=true without fix 3 (bounds: 3 pids, ≤4 spawns, ≤1 crash)
+--- cold: shim + hook + the user's kg start: svc=false lsof=true fixed=true without fix 3
+✓ L1 at most one server holds the storage: no counterexample (551 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (551 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (551 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (551 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (551 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (551 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (551 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (480 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- cold: shim + hook + the user's kg start: svc=false lsof=false fixed=true without fix 3
+✓ L1 at most one server holds the storage: no counterexample (551 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (551 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (551 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (551 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (551 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (551 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (551 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (480 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: crash, a server on another port, kg stop, hook, kg start: svc=false lsof=true fixed=true without fix 3
+✓ L1 at most one server holds the storage: no counterexample (5675 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (5675 states, exhaustive)
+✗ L3 kg stop never signals another port's server: COUNTEREXAMPLE (46 states)
+    server 0 crashes
+    a server on another port starts with pid 0
+    kg stop: SIGTERM pids [0]
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (5675 states, exhaustive)
+✗ L5 a start that reported success leaves a server answering: COUNTEREXAMPLE (4525 states)
+    user: server down, runs kg start
+    kg stop: SIGTERM pids [0]
+    hook: server down, runs kg start
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    hook: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    hook: /health answers and its process runs: started
+    server 0 crashes
+    a server on another port starts with pid 0
+    user: kg start: already running (pid 0), breadcrumb removed
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (5675 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (5675 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (1980 states)
+    server 0 crashes
+    user: server down, runs kg start
+    kg stop: nothing running, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: kg update while a shim starts the server: svc=false lsof=true fixed=true without fix 3
+✓ L1 at most one server holds the storage: no counterexample (86 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (86 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (86 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (86 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (86 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (86 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (86 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (86 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (66 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    user: /health answers and its process runs: started
+--- systemd, cold: shim + hook, a crash, Restart=on-failure: svc=true lsof=true fixed=true without fix 3
+✓ L1 at most one server holds the storage: no counterexample (1282 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (1282 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (1282 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (1282 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (1282 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (1282 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (1282 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (107 states)
+    shim: server down, runs kg start
+    shim: systemctl start -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: /health answers -> breadcrumb cleared
+    hook: server answers, nothing to start
+--- systemd, warm: kg update while a shim starts the server: svc=true lsof=true fixed=true without fix 3
+✓ L1 at most one server holds the storage: no counterexample (92 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (92 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (92 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (92 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (92 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (92 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (92 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (92 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (57 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: systemctl restart -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    user: /health answers -> breadcrumb cleared
+===== fixed=true without fix 4 (bounds: 3 pids, ≤4 spawns, ≤1 crash)
+--- cold: shim + hook + the user's kg start: svc=false lsof=true fixed=true without fix 4
+✓ L1 at most one server holds the storage: no counterexample (551 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (551 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (551 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (551 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (551 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (551 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (551 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (480 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- cold: shim + hook + the user's kg start: svc=false lsof=false fixed=true without fix 4
+✓ L1 at most one server holds the storage: no counterexample (551 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (551 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (551 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (551 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (551 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (551 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (551 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (480 states)
+    user: server down, runs kg start
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: server answers, nothing to start
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: crash, a server on another port, kg stop, hook, kg start: svc=false lsof=true fixed=true without fix 4
+✓ L1 at most one server holds the storage: no counterexample (16082 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (16082 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (16082 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (16082 states, exhaustive)
+✗ L5 a start that reported success leaves a server answering: COUNTEREXAMPLE (455 states)
+    hook: server answers, nothing to start
+    user: server down, runs kg start
+    kg stop: SIGTERM pids [0]
+    user: kg start: already running (pid 0), breadcrumb removed
+    kg stop: 6 s pass, SIGKILL, pid file removed
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (11619 states)
+    user: server down, runs kg start
+    kg stop: SIGTERM pids [0]
+    server 0 finishes its shutdown
+    hook: server down, runs kg start
+    hook: kg start spawns server 1, writes the pid file
+    server 1 locks the storage
+    hook: 15 s without /health -> breadcrumb (server still starting: pid file kept)
+    kg stop: all exited, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 exits: another memory server already uses the storage
+    server 1 binds the port, answers /health, removes the breadcrumb
+    user: its server exited -> breadcrumb, pid file removed
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (16082 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (3258 states)
+    server 0 crashes
+    user: server down, runs kg start
+    kg stop: nothing running, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    hook: server answers, nothing to start
+    user: /health answers and its process runs: started
+--- warm: kg update while a shim starts the server: svc=false lsof=true fixed=true without fix 4
+✓ L1 at most one server holds the storage: no counterexample (328 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (328 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (328 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (328 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (328 states, exhaustive)
+✗ L6 settled: no breadcrumb while the server answers: COUNTEREXAMPLE (299 states)
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    server 0 finishes its shutdown
+    shim: server down, runs kg start
+    shim: kg start spawns server 1, writes the pid file
+    server 1 locks the storage
+    shim: 15 s without /health -> breadcrumb (server still starting: pid file kept)
+    kg stop: all exited, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 exits: another memory server already uses the storage
+    server 1 binds the port, answers /health, removes the breadcrumb
+    user: its server exited -> breadcrumb, pid file removed
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (328 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (328 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (119 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: SIGTERM pids [0]
+    kg stop: 6 s pass, SIGKILL, pid file removed
+    user: kg start spawns server 0, writes the pid file
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    user: /health answers and its process runs: started
+--- systemd, cold: shim + hook, a crash, Restart=on-failure: svc=true lsof=true fixed=true without fix 4
+✓ L1 at most one server holds the storage: no counterexample (1282 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (1282 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (1282 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (1282 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (1282 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (1282 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (1282 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (107 states)
+    shim: server down, runs kg start
+    shim: systemctl start -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    shim: /health answers -> breadcrumb cleared
+    hook: server answers, nothing to start
+--- systemd, warm: kg update while a shim starts the server: svc=true lsof=true fixed=true without fix 4
+✓ L1 at most one server holds the storage: no counterexample (116 states, exhaustive)
+✓ L2 at most one server on the port: no counterexample (116 states, exhaustive)
+✓ L3 kg stop never signals another port's server: no counterexample (116 states, exhaustive)
+✓ L4 a breadcrumb only while the latest start attempt failed: no counterexample (116 states, exhaustive)
+✓ L5 a start that reported success leaves a server answering: no counterexample (116 states, exhaustive)
+✓ L6 settled: no breadcrumb while the server answers: no counterexample (116 states, exhaustive)
+✓ L7 settled: kg can find (and stop) every server on its port: no counterexample (116 states, exhaustive)
+✓ L8 kg update reported success: only the new version serves: no counterexample (116 states, exhaustive)
+✗ sanity (expect ✗): settled and served, no start failed: COUNTEREXAMPLE (66 states)
+    shim: server answers, nothing to start
+    kg update: new version on disk; restart: systemctl restart -> unit spawns server 0
+    server 0 locks the storage
+    server 0 binds the port, answers /health, removes the breadcrumb
+    user: /health answers -> breadcrumb cleared

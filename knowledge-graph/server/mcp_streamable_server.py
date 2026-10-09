@@ -146,6 +146,12 @@ def _claim_storage(root: Path) -> int | None:
     return fd
 
 
+def _start_error_file(port: int) -> Path:
+    """kg's breadcrumb for this port: the path cli/kg.py and the hooks use."""
+    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "knowledge-graph"
+    return (state if port == 8765 else state / f"port-{port}") / "last_start_error"
+
+
 def create_mcp_server() -> Server:
     """Create and configure MCP server with all tools."""
     _preflight_mcp_surface()
@@ -1003,7 +1009,21 @@ async def main():
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
 
-    await server_uvi.serve()
+    # kg's last_start_error tells the hooks "down, and the last start failed",
+    # so they report it instead of starting a server. Once this one serves, that
+    # is untrue, whoever started it: kg start after its wait ran out, the systemd
+    # unit retrying, a login. uvicorn sets `started` after it binds the port.
+    async def clear_start_error():
+        while not server_uvi.started:
+            await asyncio.sleep(0.05)
+        with contextlib.suppress(OSError):
+            _start_error_file(port).unlink(missing_ok=True)
+
+    clearing = asyncio.create_task(clear_start_error())
+    try:
+        await server_uvi.serve()
+    finally:
+        clearing.cancel()
 
     # After uvicorn exits, flush store + final commit (no-op if lifespan already did)
     if store:

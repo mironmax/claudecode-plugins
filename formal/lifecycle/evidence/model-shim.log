@@ -1,0 +1,119 @@
+$ lean --run lifecycle/lean/Shim.lean
+--- retryAll=false harnessRetry=false crashes≤0 restarts≤2
+✓ M1 a write is applied at most once: no counterexample (80 states, exhaustive)
+✓ M2 an error reply means the write was not applied: no counterexample (80 states, exhaustive)
+✗ sanity (expect ✗): refused during a restart, the retry lands the write: COUNTEREXAMPLE (50 states)
+    SIGTERM: listener closes (graceful)
+    connection refused: ensure_server waits for /health, or starts it
+    graceful stop completes
+    server (re)starts
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    reply reaches the harness
+✗ M3 (expect ✗) a restart alone never costs an error reply: COUNTEREXAMPLE (10 states)
+    shim connects and sends the POST
+    SIGTERM: listener closes (graceful)
+    listener closed with the connection in its backlog: reset: shim answers with an error
+--- retryAll=false harnessRetry=false crashes≤1 restarts≤2
+✓ M1 a write is applied at most once: no counterexample (158 states, exhaustive)
+✗ M2 an error reply means the write was not applied: COUNTEREXAMPLE (24 states)
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    server crashes mid-request: reset: shim answers with an error
+✗ sanity (expect ✗): refused during a restart, the retry lands the write: COUNTEREXAMPLE (92 states)
+    server crashes
+    connection refused: ensure_server waits for /health, or starts it
+    server (re)starts
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    reply reaches the harness
+✗ M3 (expect ✗) a restart alone never costs an error reply: COUNTEREXAMPLE (14 states)
+    shim connects and sends the POST
+    SIGTERM: listener closes (graceful)
+    listener closed with the connection in its backlog: reset: shim answers with an error
+--- retryAll=false harnessRetry=true crashes≤1 restarts≤2
+✗ M1 a write is applied at most once: COUNTEREXAMPLE (174 states)
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    server crashes mid-request: reset: shim answers with an error
+    agent calls the tool again
+    server (re)starts
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+✗ M2 an error reply means the write was not applied: COUNTEREXAMPLE (25 states)
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    server crashes mid-request: reset: shim answers with an error
+✗ sanity (expect ✗): refused during a restart, the retry lands the write: COUNTEREXAMPLE (125 states)
+    server crashes
+    connection refused: ensure_server waits for /health, or starts it
+    server (re)starts
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    reply reaches the harness
+✗ M3 (expect ✗) a restart alone never costs an error reply: COUNTEREXAMPLE (14 states)
+    shim connects and sends the POST
+    SIGTERM: listener closes (graceful)
+    listener closed with the connection in its backlog: reset: shim answers with an error
+--- retryAll=true harnessRetry=false crashes≤0 restarts≤2
+✓ M1 a write is applied at most once: no counterexample (72 states, exhaustive)
+✓ M2 an error reply means the write was not applied: no counterexample (72 states, exhaustive)
+✗ sanity (expect ✗): refused during a restart, the retry lands the write: COUNTEREXAMPLE (44 states)
+    SIGTERM: listener closes (graceful)
+    connection refused: ensure_server waits for /health, or starts it
+    graceful stop completes
+    server (re)starts
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    reply reaches the harness
+✗ M3 (expect ✗) a restart alone never costs an error reply: COUNTEREXAMPLE (37 states)
+    SIGTERM: listener closes (graceful)
+    connection refused: ensure_server waits for /health, or starts it
+    graceful stop completes
+    server (re)starts
+    shim connects and sends the POST
+    SIGTERM: listener closes (graceful)
+    listener closed with the connection in its backlog: reset: shim answers with an error
+--- retryAll=true harnessRetry=false crashes≤1 restarts≤2
+✗ M1 a write is applied at most once: COUNTEREXAMPLE (88 states)
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    server crashes mid-request: reset: shim retries
+    server (re)starts
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+✗ M2 an error reply means the write was not applied: COUNTEREXAMPLE (90 states)
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    server crashes mid-request: reset: shim retries
+    server (re)starts
+    shim connects and sends the POST
+    SIGTERM: listener closes (graceful)
+    listener closed with the connection in its backlog: reset: shim answers with an error
+✗ sanity (expect ✗): refused during a restart, the retry lands the write: COUNTEREXAMPLE (74 states)
+    shim connects and sends the POST
+    server crashes mid-request: reset: shim retries
+    server (re)starts
+    shim connects and sends the POST
+    server accepts and reads the request
+    handler applies the write
+    reply reaches the harness
+✗ M3 (expect ✗) a restart alone never costs an error reply: COUNTEREXAMPLE (78 states)
+    SIGTERM: listener closes (graceful)
+    connection refused: ensure_server waits for /health, or starts it
+    graceful stop completes
+    server (re)starts
+    shim connects and sends the POST
+    SIGTERM: listener closes (graceful)
+    listener closed with the connection in its backlog: reset: shim answers with an error

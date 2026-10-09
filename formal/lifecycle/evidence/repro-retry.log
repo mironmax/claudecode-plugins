@@ -1,0 +1,17 @@
+$ python3 lifecycle/repro/repro_retry.py
+put_node     first: ok    again: ok
+             state unchanged by the repeat
+put_edge     first: ok    again: ok
+             state unchanged by the repeat
+kg_useful    first: ok    again: ok
+             state unchanged by the repeat
+kg_progress  first: ok    again: ok
+             the repeat changed the state
+rename       first: ok    again: refused (NodeNotFoundError: Node 'c' not found in both graph)
+             state unchanged by the repeat
+delete_edge  first: ok    again: ok
+             state unchanged by the repeat
+delete_node  first: ok    again: refused (NodeNotFoundError: Node 'c2' not found in both graph)
+             state unchanged by the repeat
+(endorsements on b: 1; kg_progress trail entries: 2)
+changed by a repeat: ['kg_progress']

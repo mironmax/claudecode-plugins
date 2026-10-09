@@ -1,0 +1,32 @@
+$ python3 lifecycle/repro/repro_lifecycle.py  # before the fix
+== timeout: a start that gives up after its window (X1)
+   slow kg start: rc=1: Failed to start the server: server did not answer /health within 15s
+   pid file kept: False; breadcrumb: True
+   its server answers /health afterwards (pids [29631])
+   BUG: the server serves under a breadcrumb that says its start failed
+   kg start again: rc=0: Server already running (PID 29631).
+   BUG: kg start reported success; the failure breadcrumb stays
+   after a crash, the SessionStart hook gives: KG memory server is DOWN and its last start attempt FAILED (2026-10-09 21:09:48): server did not answer /healt...
+   BUG: the hook reports the stale failure, starts nothing, skips the preload
+== timeout-nolsof: the same without lsof/fuser on PATH (X1)
+   slow kg start: rc=1
+   its server answers /health: True
+   kg stop: Server is not running.
+   BUG: kg stop does not see the server it started; it still serves
+   kg start: rc=1: Cannot start the server: port 35657 is held by another program (set KG_HTTP_PORT to use another).
+   BUG: kg start blames another program for its own server
+== unit-timeout: the systemd unit's server comes up after kg stopped waiting (X1)
+   slow kg start (unit): rc=1: kg-memory.service is started but the server does not answer: journalctl --user -u kg-memory.service
+   the unit's server answers /health: True; breadcrumb: True
+   BUG: the unit's server serves under a breadcrumb that says its start failed
+== pid-reuse: a stale pid file naming a server on another port (X2)
+   port 53249's server runs as pid 29857 (the kernel reused the pid); port 41289's pid file says 29857
+   kg start (port 41289): rc=0: Server already running (PID 29857).
+   BUG: kg start reported success and nothing serves port 41289
+   kg stop (port 41289): Stopping server (PID 29857)... / Server stopped.
+   BUG: kg stop on port 41289 killed port 53249's server
+== stop-race: kg start while kg stop waits for the server to exit (X3)
+   kg start during the stop: rc=0 after 0.2s: Server already running (PID 30236).
+   kg stop (6.3s, SIGKILL after 6 s): Stopping server (PID 30236)... / Server stopped.
+   BUG: kg start reported success; once the stop ended nothing serves
+RESULT: FAIL
