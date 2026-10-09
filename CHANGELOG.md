@@ -823,4 +823,4 @@ Two readability tweaks from first-person reading experience of the node-centric 
 
 ## Earlier versions
 
-Versions before 0.5.13 predate this changelog. The earliest commit in the current history is the initial Streamable HTTP transport work; older code is no longer in git history (an early force-push removed sensitive data that had leaked into commits). See [`ARCHITECTURE.md`](knowledge-graph/ARCHITECTURE.md) "Origin & Evolution" for the pre-history of the design (ByteRover Cipher → TypeScript MCP with Steiner trees → current compression-first architecture).
+Versions before 0.5.13 predate this changelog. The public git history starts at the 0.10.0 import, so the entries above it are the record of everything earlier (an early force-push had already removed older code, after sensitive data leaked into commits). The design's pre-history, in brief: ByteRover Cipher, then a TypeScript MCP server with Steiner-tree retrieval, then the current compression-first architecture described in [`ARCHITECTURE.md`](knowledge-graph/ARCHITECTURE.md).
