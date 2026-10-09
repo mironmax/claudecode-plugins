@@ -317,6 +317,15 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(box.kg("setup", "--yes", "--only", "upkeep").returncode, 0)
         self.assertTrue(json.loads((box.home / ".knowledge-graph/chores.json").read_text())["enabled"])
 
+    def test_the_unit_keeps_the_state_directory(self):
+        # The unit's server clears the start record where kg writes it.
+        code = (f"import sys; sys.path.insert(0, {str(KG.parent)!r}); import steps\n"
+                "print(steps.unit_text('/bin/kg'))\n")
+        box = Sandbox(self)
+        out = subprocess.run([sys.executable, "-c", code], env=box.env,
+                             capture_output=True, text=True, timeout=30)
+        self.assertIn(f'Environment="XDG_STATE_HOME={box.home / ".local/state"}"', out.stdout, out.stderr)
+
     def test_desktop_and_old_commands_move_to_kg(self):
         box = Sandbox(self)
         rel = ("Library/Application Support/Claude" if sys.platform == "darwin"
