@@ -108,7 +108,7 @@ class LifecycleRaceTests(unittest.TestCase):
         pids = box.home / "unit.pid"
         units = {"systemctl": ('case "$2" in is-enabled) echo enabled;; '
                                f'show) cat "{pids}" 2>/dev/null;; '
-                               f'start) setsid {sys.executable} {KG} serve >/dev/null 2>&1 & echo $! > "{pids}";; '
+                               f'start) {sys.executable} {KG} serve >/dev/null 2>&1 & echo $! > "{pids}";; '
                                f'stop) kill "$(cat "{pids}")";; esac'),
                  "journalctl": "echo journal"}
         for name, body in units.items():
