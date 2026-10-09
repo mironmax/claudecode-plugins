@@ -16,7 +16,7 @@ F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 is fixed on
 the development branch (project-bound editor subscriptions, modelled first).
 F13–F16, found by a second pass on delivery (paged reads and Antigravity's
 queue), and F17–F23, from the dispatcher's pass tier, runners and budget
-notices, are fixed there too. F7 remains open.
+notices, and F24–F26, from the server lifecycle, are fixed there too. F7 remains open.
 
 ## Open work
 
@@ -29,9 +29,6 @@ to be modelled and reproduced, each in its own directory:
 - `cross-session/`: the push of other sessions' writes and `kg_sync`
   (each change pushed once, never to its writer, nothing falling between the
   push window and the sync watermark);
-- `lifecycle/`: `kg start` serialisation, one server per storage directory,
-  the start-error record, and the `kg mcp` rule that only a refused
-  connection is retried;
 - `credits/`: one vote per node per session, credit caps, idempotent
   reconciliation of repeat credits on load, maintenance sessions;
 
@@ -88,6 +85,9 @@ randomized search over the real compactor instead of a model.
 | F21 | A runner command that raises wedges dispatch until restart | Lean BFS + reproduction | fixed, unreleased | low |
 | F22 | The dispatch lock re-decides on stale config and clock | Lean BFS + reproduction | fixed, unreleased | low |
 | F23 | An Antigravity budget notice describes a window that already reset | Lean BFS + reproduction | fixed, unreleased | low |
+| F24 | A start that runs out of time leaves its server untracked under a start-error record nobody clears | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F25 | A stale pid file is trusted for whatever process now holds the pid | Lean BFS + reproduction | fixed, unreleased | low |
+| F26 | `kg stop`/`restart` don't hold the start lock: a start during a stop leaves nothing serving | Lean BFS + reproduction | fixed, unreleased | low |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.

@@ -33,6 +33,11 @@ run chore-dispatch/evidence/repro-midflight-suspend-after.log $PY chore-dispatch
 run budget-notices/evidence/model.log         lean --run budget-notices/lean/Budget.lean
 run budget-notices/evidence/repro-agy-stale-after.log $PY budget-notices/repro/repro_agy_stale.py
 run budget-notices/evidence/check-budget.log  $PY budget-notices/repro/check_budget.py
+run lifecycle/evidence/model.log             lean --run lifecycle/lean/Lifecycle.lean
+run lifecycle/evidence/model-shim.log        lean --run lifecycle/lean/Shim.lean
+run lifecycle/evidence/repro-after.log       $PY lifecycle/repro/repro_lifecycle.py
+run lifecycle/evidence/repro-shim.log        $PY lifecycle/repro/repro_shim.py
+run lifecycle/evidence/repro-retry.log       $PY lifecycle/repro/repro_retry.py
 run store-persistence/evidence/model.log     lean --run store-persistence/lean/Persist.lean
 run store-persistence/evidence/repro.log     $PY store-persistence/repro/repro_failed_save.py
 run rename/evidence/model.log                lean --run rename/lean/Rename.lean

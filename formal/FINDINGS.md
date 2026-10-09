@@ -587,3 +587,45 @@ the pass is refused (the user graph is a candidate on every prompt); live
 context is protected at dispatch time only, not during a 25-minute pass;
 `state["passes"]` is written but never read; a budget notice is recorded when
 produced, so a lost hook reply loses it.
+
+---
+
+## Server lifecycle and the stdio shim (F24–F26)
+
+Models: `lifecycle/lean/Lifecycle.lean` (the shim, SessionStart hook, user
+`kg start`/`stop`/`update`, the systemd unit, a server on another port, one
+crash, pid reuse; 3 pids, ≤4 spawns, 6 scenarios, exhaustive) and
+`lifecycle/lean/Shim.lean` (one write through `kg mcp`; ≤2 restarts, ≤1 crash).
+Reproductions in `lifecycle/repro/`; tests in `tests/test_lifecycle_races.py`
+(five, all failing on the code before). Line numbers at `94a3c84`.
+
+- **F24 — A start that ran out of time left its server running untracked,
+  under a start-error record nobody cleared** (medium-low; `cli/kg.py:213-221`,
+  `:197-200`, `:163-166`). At the next downtime a session's hook reported the
+  stale failure, started nothing and skipped the preload; without lsof `kg stop`
+  could not find the server. Fix: the server removes its port's record once it
+  has bound; a start that gives up keeps the pid file of a still-running
+  process; "already running" clears the record.
+- **F25 — A stale pid file was trusted for whatever process held that pid**
+  (low; `kg.py:84-93`). Reproduced with real pid reuse: `kg start` said
+  "already running" with nothing serving, and `kg stop` killed another port's
+  server. Fix: trust the pid file only for a process started before the file
+  was written.
+- **F26 — `kg stop` and `kg restart` did not hold the start lock** (low): a
+  start during a stop found the dying server "already running", and then
+  nothing served. Fix: stop and restart take the lifecycle lock.
+
+**Checked and holds:** one server per storage directory and per port (the
+storage lock is taken before the bind); concurrent starts converge; after
+`kg update` only the new version serves, with and without the unit; the shim
+applies a write at most once, and retrying only a refused connection is
+necessary (retrying a reset double-applies after a crash); in a graceful
+restart an applied write never gets an error reply; repeating an applied call
+is harmless for every tool (a repeated rename or node delete says "not
+found"; a repeated `kg_progress` adds a trail entry).
+
+**Residual:** after a crash, or when a request sat in the accept backlog at a
+graceful stop, the shim returns an error it cannot tell apart from a failed
+write; the agent can safely retry. `kg stop`'s SIGKILL after 6 s skips the
+final flush and commit (acknowledged writes are already on disk). "Already
+running" does not check `/health`. The hooks compare `KG_HTTP_PORT` as text.
