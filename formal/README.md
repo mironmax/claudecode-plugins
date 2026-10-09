@@ -17,6 +17,28 @@ the development branch (project-bound editor subscriptions, modelled first).
 F13–F16, found by a second pass on delivery (paged reads and Antigravity's
 queue), are fixed there too. F7 remains open.
 
+## Open work
+
+A second pass started on the parts added since 0.11 that no model covered
+yet. Delivery (F13–F16) and the editor's subscriptions (F6) are done. Still
+to be modelled and reproduced, each in its own directory:
+
+- `compaction/`: a Lean model of the per-tick archive / refill / rebalance /
+  orphan sequence and the root cause of F7's one-tick churn;
+- `cross-session/`: the push of other sessions' writes and `kg_sync`
+  (each change pushed once, never to its writer, nothing falling between the
+  push window and the sync watermark);
+- `lifecycle/`: `kg start` serialisation, one server per storage directory,
+  the start-error record, and the `kg mcp` rule that only a refused
+  connection is retried;
+- `credits/`: one vote per node per session, credit caps, idempotent
+  reconciliation of repeat credits on load, maintenance sessions;
+- `chore-dispatch/` (pass tier, runners) and `budget-notices/` (once per
+  level per window under racing hooks).
+
+The models are not yet run in CI; `run_all.sh` prints results but never
+fails, so a CI job would need expected outcomes per model and reproduction.
+
 ## Method
 
 1. **Model** one risky concern: a state machine, a thread interleaving, or a
