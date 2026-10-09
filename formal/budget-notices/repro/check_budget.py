@@ -5,11 +5,14 @@ save_sessions/_load_sessions (sessions.json), fork, reset_context.
 Stubbed: the gauge (a Codex rollout file written here) and the clock.
 Prints one line per check; exits 1 if any check does not hold.
 """
-import json, os, sys, tempfile, threading
+import atexit, json, os, shutil, sys, tempfile, threading
 from pathlib import Path
 from unittest.mock import patch
 
-os.environ["KG_STORAGE_ROOT"] = tempfile.mkdtemp(prefix="kg-budget-check-")
+# Under home: rollouts are read only from there (or CODEX_HOME).
+(Path.home() / ".cache").mkdir(exist_ok=True)
+os.environ["KG_STORAGE_ROOT"] = tempfile.mkdtemp(prefix="kg-budget-check-", dir=Path.home() / ".cache")
+atexit.register(shutil.rmtree, os.environ["KG_STORAGE_ROOT"], True)
 os.environ.pop("KG_BUDGET_NOTICES", None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "knowledge-graph" / "server"))
 from mcp_http import budget, chore_dispatch, harness  # noqa: E402

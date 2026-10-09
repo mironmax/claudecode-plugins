@@ -2,9 +2,9 @@ $ python3 lifecycle/repro/repro_lifecycle.py  # after the fix
 == timeout: a start that gives up after its window (X1)
    slow kg start: rc=1: Failed to start the server: server did not answer /health within 15s
    pid file kept: True; breadcrumb: True
-   its server answers /health afterwards (pids [30678])
+   its server answers /health afterwards (pids [1357005])
    ok: the breadcrumb is gone once the server serves
-   kg start again: rc=0: Server already running (PID 30678).
+   kg start again: rc=0: Server already running (PID 1357005).
    ok: no breadcrumb after a start that found the server running
    after a crash, the SessionStart hook gives: a preload (it started the server)
    ok: the hook started the server and preloaded
@@ -18,13 +18,13 @@ $ python3 lifecycle/repro/repro_lifecycle.py  # after the fix
    the unit's server answers /health: True; breadcrumb: False
    ok: the breadcrumb is gone once the server serves
 == pid-reuse: a stale pid file naming a server on another port (X2)
-   port 39101's server runs as pid 30790 (the kernel reused the pid); port 44897's pid file says 30790
-   kg start (port 44897): rc=0: Server started (PID 30797, version 0.14.0).
-   ok: port 44897 serves
-   kg stop (port 44897): Stopping server (PID 30797)... / Server stopped.
-   ok: port 39101's server untouched
+   port 44721's server runs as pid 1357199 (pid reuse not available here: pid file rewritten as reuse would leave it); port 34295's pid file says 1357199
+   kg start (port 34295): rc=0: Server started (PID 1357205, version 0.14.0).
+   ok: port 34295 serves
+   kg stop (port 34295): Stopping server (PID 1357205)... / Server stopped.
+   ok: port 44721's server untouched
 == stop-race: kg start while kg stop waits for the server to exit (X3)
-   kg start during the stop: rc=0 after 7.0s: Server started (PID 31090, version 0.14.0).
-   kg stop (7.4s, SIGKILL after 6 s): Stopping server (PID 30922)... / Server stopped.
+   kg start during the stop: rc=0 after 7.0s: Server started (PID 1357266, version 0.14.0).
+   kg stop (7.2s, SIGKILL after 6 s): Stopping server (PID 1357248)... / Server stopped.
    ok: after both, the server serves
 RESULT: PASS

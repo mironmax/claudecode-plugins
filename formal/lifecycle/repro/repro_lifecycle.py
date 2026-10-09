@@ -243,8 +243,10 @@ def case_pid_reuse():
         a.wait_health(False)
         time.sleep(2.5)                    # pid reuse comes later than the file write
         proc, how = spawn_with_pid(old, b.env)
-        if proc.pid != old:
+        if proc.pid != old:   # stand in for reuse: same file, its old mtime kept
+            stamp = a.pidfile.stat().st_mtime
             a.pidfile.write_text(str(proc.pid))
+            os.utime(a.pidfile, (stamp, stamp))
         b.wait_health(True)
         print(f"   port {b.port}'s server runs as pid {proc.pid} ({how}); port {a.port}'s pid file says {a.pidfile.read_text()}")
         start = a.kg("start")
