@@ -79,11 +79,14 @@ def main() -> int:
         # The server ends a timed-out run with TERM to this wrapper's group.
         # agy leads a session of its own (so a fallback can kill all of it),
         # which also puts it beyond that group: take it down from here.
-        if "proc" in started:
-            try:
-                os.killpg(started["proc"].pid, signal.SIGKILL)
-            except OSError:
-                pass
+        if "proc" not in started:   # Popen has not returned yet: stop once it has
+            started["term"] = signum
+            return
+        try:
+            os.killpg(started["proc"].pid, signal.SIGKILL)
+        except OSError:
+            pass
+        sys.stdout.flush()
         os.write(1, b"stopped: the run was terminated\n")
         os._exit(128 + signum)
 
@@ -91,6 +94,8 @@ def main() -> int:
     proc = started["proc"] = subprocess.Popen(
         cmd, cwd=args.workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+    if "term" in started:
+        stop(started["term"], None)
     proc.stdin.write(json.dumps({"event": "user", "message": {"content": prompt}}) + "\n")
     proc.stdin.close()
 
