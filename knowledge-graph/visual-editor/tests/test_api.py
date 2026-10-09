@@ -7,6 +7,8 @@ app, including its list-shaped graph snapshots and project addressing.
 """
 
 import copy
+import json
+import threading
 import asyncio
 import importlib.util
 import os
@@ -14,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 SERVER = Path(__file__).resolve().parents[2] / "server"
@@ -282,6 +285,72 @@ class EditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.graph["nodes"]["signal-beta"].get("_archived"))
         same_origin = {"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost:8766"}
         self.assertEqual((await self.client.get("/api/health", headers=same_origin)).status_code, 200)
+
+
+class _FakeUpstream:
+    """websockets.connect stand-in for the memory server's /ws: answers a
+    subscribe as the server does; {"type": "restart"} ends the connection."""
+    def __init__(self, url):
+        self.url, self.sent, self.queue = url, [], None
+
+    async def __aenter__(self):
+        self.queue = asyncio.Queue()
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def send(self, data):
+        self.sent.append(data)
+        msg = json.loads(data)
+        if msg.get("type") == "subscribe":
+            await self.queue.put(json.dumps({"type": "subscribed", "sub": msg["sub"],
+                                             "project_path": msg["project_path"]}))
+        elif msg.get("type") == "restart":
+            await self.queue.put(None)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        item = await self.queue.get()
+        if item is None:
+            raise StopAsyncIteration
+        return item
+
+
+class EditorProxyTests(unittest.TestCase):
+    def test_ws_proxy_forwards_subscriptions_and_closes_with_the_server(self):
+        from starlette.testclient import TestClient
+        from starlette.websockets import WebSocketDisconnect
+        upstreams = []
+
+        def connect(url):
+            upstreams.append(_FakeUpstream(url))
+            return upstreams[-1]
+
+        with patch.dict(sys.modules, {"websockets": SimpleNamespace(connect=connect)}):
+            client = TestClient(editor.app)
+            with client.websocket_connect("ws://localhost/ws",
+                                          headers={"origin": "http://localhost:8766"}) as ws:
+                ws.send_text(json.dumps({"type": "subscribe", "sub": 1, "project_path": "/p"}))
+                self.assertEqual(ws.receive_json(),
+                                 {"type": "subscribed", "sub": 1, "project_path": "/p"})
+                # The memory server goes away: the page must see its socket
+                # close (and reconnect), not sit on a dead proxy.
+                ws.send_text(json.dumps({"type": "restart"}))
+                outcome = []
+
+                def receive():
+                    try:
+                        outcome.append(ws.receive_json())
+                    except WebSocketDisconnect:
+                        outcome.append("closed")
+                waiter = threading.Thread(target=receive, daemon=True)
+                waiter.start()
+                waiter.join(5)
+                self.assertEqual(outcome, ["closed"])
+        self.assertEqual(upstreams[0].url, editor.MCP_WS_URL)
 
 
 class EditorConfigTests(unittest.TestCase):

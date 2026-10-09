@@ -66,6 +66,7 @@ globalThis.app = {
     CONFIG, checkHealth, gistCounterText, bindGistCounter,
     openEditNodeModal, renderNodeDetails, submitNodeForm, saveInlineEdit,
     initialize, openModal, closeModal, handleKeyboardShortcut,
+    connectWebSocket, handleWebSocketMessage, selectProject, selectUserGraph,
 };
 // D3 drawing and layout are not emulated. Keep the real view/state logic.
 renderGraph = data => {
@@ -347,6 +348,110 @@ await check('Inline and modal saves accept long gists, while empty gists remain 
     await app.submitNodeForm(true);
     assert.equal(requests.length, 3);
     assert.equal(context.toasts.at(-1).type, 'error');
+});
+
+// Live updates (formal F6): the page subscribes to the graph it shows. The
+// socket is a stand-in; the protocol logic is the page's own.
+const sockets = [];
+context.WebSocket = class {
+    constructor(url) { this.url = url; this.readyState = 0; this.sent = []; sockets.push(this); }
+    send(data) { this.sent.push(JSON.parse(data)); }
+};
+context.WebSocket.OPEN = 1;
+context.CSS = { escape: value => value };
+context.document.querySelector = () => null;
+function liveHarness() {
+    vm.runInContext('globalThis.graphLoads = 0; loadGraph = async () => { graphLoads++; };', context);
+    context.toasts.length = 0;
+    state.graphLevel = null;
+    state.selectedProject = null;
+    state.projects = [];
+    app.connectWebSocket();
+    const ws = sockets.at(-1);
+    ws.readyState = 1;
+    ws.onopen();
+    const deliver = message => app.handleWebSocketMessage(message);
+    const reply = (extra = {}) => deliver({ type: 'subscribed', sub: ws.sent.at(-1).sub,
+                                            project_path: ws.sent.at(-1).project_path, ...extra });
+    return { ws, deliver, reply, loads: () => context.graphLoads };
+}
+const change = (level, project, id = 'n') => ({
+    type: 'node_updated', level, node: { id }, ...(project ? { project_path: project } : {}) });
+
+await check('The page subscribes on connect and on every selection, naming the project by path', () => {
+    const { ws, reply } = liveHarness();
+    assert.deepEqual(json(ws.sent), [{ type: 'subscribe', sub: ws.sent[0].sub, project_path: null }]);
+    reply();
+    assert.equal(element('connection-text').textContent, 'Live');
+    app.selectProject('/home/u/proj-a');
+    assert.deepEqual(json(ws.sent.at(-1)),
+        { type: 'subscribe', sub: ws.sent[0].sub + 1, project_path: '/home/u/proj-a' });
+    app.selectUserGraph();
+    assert.equal(ws.sent.at(-1).project_path, null);
+});
+
+await check('With a live server a selection loads on the reply to its own subscription only', () => {
+    const { ws, reply, loads } = liveHarness();
+    reply();
+    app.selectProject('/home/u/proj-a');
+    const first = ws.sent.at(-1);
+    app.selectProject('/home/u/proj-b');
+    assert.equal(loads(), 0, 'no load before the subscription is confirmed');
+    app.handleWebSocketMessage({ type: 'subscribed', sub: first.sub, project_path: first.project_path });
+    assert.equal(loads(), 0, 'a reply to an earlier selection is ignored');
+    reply();
+    assert.equal(loads(), 1);
+});
+
+await check('A change for the previous project after a switch never touches the new view', () => {
+    const { reply, deliver, loads } = liveHarness();
+    reply();
+    app.selectProject('/home/u/proj-a');
+    reply();
+    deliver(change('project', '/home/u/proj-a', 'a1'));
+    assert.equal(loads(), 2);
+    assert.equal(context.toasts.length, 1);
+    app.selectProject('/home/u/proj-b');
+    deliver(change('project', '/home/u/proj-a', 'a2'));   // sent before the switch reached the server
+    reply();
+    deliver(change('project', '/home/u/proj-a', 'a3'));   // even after the new reply
+    assert.equal(loads(), 3, 'only the reply loaded');
+    assert.equal(context.toasts.length, 1);
+    deliver(change('project', '/home/u/proj-b', 'b1'));
+    deliver(change('project', null, 'untagged'));
+    assert.equal(loads(), 4);
+    assert.equal(context.toasts.at(-1).message, 'Node updated: b1');
+});
+
+await check('Against an older server (no reply) the page loads at once and project changes need Refresh', () => {
+    const { ws, deliver, loads } = liveHarness();
+    assert.equal(element('connection-text').textContent, 'Connected');
+    app.selectProject('/home/u/proj-a');
+    assert.equal(loads(), 1);
+    deliver(change('project', null));
+    assert.equal(loads(), 1);
+    app.selectUserGraph();
+    deliver(change('user'));
+    assert.equal(loads(), 3, 'user graph changes stay live, as before');
+    assert.equal(ws.sent.length, 3);
+});
+
+await check('A reconnect resubscribes and reloads; a close while waiting loads at once', () => {
+    const { ws, reply, loads } = liveHarness();
+    reply();
+    app.selectProject('/home/u/proj-a');
+    ws.onclose();                       // e.g. the server restarted before replying
+    assert.equal(loads(), 1);
+    assert.equal(element('connection-text').textContent, 'Offline');
+    app.connectWebSocket();
+    const again = sockets.at(-1);
+    again.readyState = 1;
+    again.onopen();
+    assert.deepEqual(again.sent.map(m => m.project_path), ['/home/u/proj-a']);
+    app.handleWebSocketMessage({ type: 'subscribed', sub: again.sent[0].sub, project_path: '/home/u/proj-a' });
+    assert.equal(loads(), 2, 'changes missed while disconnected are loaded');
+    vm.runInContext('loadGraph = async () => {};', context);
+    state.graphLevel = null;
 });
 
 await check('Retry stays usable if the memory server is down when the editor first opens', async () => {

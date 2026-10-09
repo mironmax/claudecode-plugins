@@ -10,6 +10,7 @@ DNS-rebinding) for all routes; the WebSocket endpoint additionally checks
 Origin here because browsers do not apply CORS to WebSocket upgrades.
 """
 
+import json
 import logging
 import threading
 import time
@@ -17,7 +18,7 @@ import time
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from core.constants import project_namespace
+from core.constants import project_namespace, safe_project_path
 from core.exceptions import KGError, NodeNotFoundError, SessionNotFoundError
 from core.utils import GIST_SCAN_LIMIT
 from .security import origin_allowed
@@ -564,6 +565,35 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
     # WebSocket Endpoint
     # ========================================================================
 
+    def _ws_subscribe(session_id: str, data: str) -> dict | None:
+        """Handle {"type": "subscribe", "project_path": str | null, "sub": int}.
+
+        Binds the connection to the project graph it names, resolved exactly
+        as REST resolves project_path (safe_project_path: within $HOME), or to
+        the user graph only when project_path is null. The reply echoes `sub`
+        so the page can match it to its latest request; it is sent after the
+        binding, so every project change after the reply is this project's.
+        A path that fails validation unbinds (fails closed). Anything else is
+        ignored, as before subscriptions existed.
+        """
+        try:
+            msg = json.loads(data)
+        except ValueError:
+            return None
+        if not isinstance(msg, dict) or msg.get("type") != "subscribe":
+            return None
+        sub = msg.get("sub") if isinstance(msg.get("sub"), int) else None
+        path = msg.get("project_path")
+        try:
+            if path is not None and not isinstance(path, str):
+                raise ValueError("project_path must be a string or null")
+            root = str(safe_project_path(path)) if path else None
+        except ValueError as e:
+            connection_manager.subscribe(session_id, None)
+            return {"type": "subscribe_error", "sub": sub, "detail": str(e)}
+        connection_manager.subscribe(session_id, root)
+        return {"type": "subscribed", "sub": sub, "project_path": root}
+
     @rest_api.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket, session_id: str | None = None):
         """WebSocket endpoint for real-time graph updates.
@@ -594,6 +624,10 @@ def create_rest_api(store, session_manager, connection_manager, version: str) ->
                 data = await websocket.receive_text()
                 if data == "ping":
                     await connection_manager.send_personal(session_id, {"type": "pong"})
+                    continue
+                reply = _ws_subscribe(session_id, data)
+                if reply:
+                    await connection_manager.send_personal(session_id, reply)
 
         except WebSocketDisconnect:
             connection_manager.disconnect(session_id)

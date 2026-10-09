@@ -323,17 +323,30 @@ class MultiProjectGraphStore:
         self._versions[graph_key][key] = new_ver
         return new_ver
 
-    def _broadcast(self, message: dict, level: str, session_id: str | None = None):
-        """Broadcast a change notification. Thread-safe."""
+    def _broadcast(self, message: dict, level: str, session_id: str | None = None,
+                   graph_key: str | None = None):
+        """Broadcast a change notification. Thread-safe.
+
+        A project-level change is addressed by the graph it was written to
+        (graph_key), not by the writer's session: a write addressed by
+        project_path (the editor's) has no session project. The message
+        carries that project root, so a subscriber can tell which project a
+        change belongs to after it switched.
+        """
         if not self.broadcast_callback:
             return
 
         project_path = None
-        if level == "project" and session_id:
-            try:
-                project_path = self.session_manager.get_project_path(session_id)
-            except Exception:
-                pass
+        if level == "project":
+            if graph_key and is_project_namespace(graph_key):
+                project_path = graph_key.split(":", 1)[1]
+            elif session_id:
+                try:
+                    project_path = self.session_manager.get_project_path(session_id)
+                except Exception:
+                    pass
+            if project_path:
+                message["project_path"] = project_path
 
         # Schedule on event loop
         try:
@@ -768,7 +781,7 @@ class MultiProjectGraphStore:
             self._broadcast(
                 {"type": "node_updated", "level": level, "node": node, "source_session": session_id},
                 level,
-                session_id
+                session_id, graph_key=graph_key
             )
 
             near_dup = self._near_duplicate(graph_key, node_id, gist) if is_new else None
@@ -1006,7 +1019,7 @@ class MultiProjectGraphStore:
             self._broadcast(
                 {"type": "edge_updated", "level": level, "edge": edge, "source_session": session_id},
                 level,
-                session_id
+                session_id, graph_key=graph_key
             )
 
             logger.debug(f"Put edge {from_ref}->{to_ref}:{rel} in {level} graph")
@@ -1107,7 +1120,7 @@ class MultiProjectGraphStore:
             self._broadcast(
                 {"type": "node_deleted", "level": resolved_level, "node_id": node_id, "source_session": session_id},
                 resolved_level,
-                session_id
+                session_id, graph_key=graph_key
             )
 
             logger.info(f"Deleted node '{node_id}' and {len(edges_to_delete)} edges from {resolved_level} graph")
@@ -1198,7 +1211,7 @@ class MultiProjectGraphStore:
                 {"type": "node_renamed", "level": resolved_level, "old_id": old_id,
                  "node": node, "source_session": session_id},
                 resolved_level,
-                session_id
+                session_id, graph_key=graph_key
             )
 
             logger.info(
@@ -1367,7 +1380,7 @@ class MultiProjectGraphStore:
                 self._broadcast(
                     {"type": "edge_deleted", "level": resolved_level, "from": from_ref, "to": to_ref, "rel": rel, "source_session": session_id},
                     resolved_level,
-                    session_id
+                    session_id, graph_key=graph_key
                 )
 
                 logger.debug(f"Deleted edge {from_ref}->{to_ref}:{rel} from {resolved_level} graph")
@@ -1518,7 +1531,7 @@ class MultiProjectGraphStore:
                 {"type": "node_recalled", "level": resolved_level, "node": node,
                  "rescued_from_orphan": rescued, "source_session": session_id},
                 resolved_level,
-                session_id
+                session_id, graph_key=graph_key
             )
 
             logger.info(f"Recalled archived node '{node_id}' in {resolved_level} graph"

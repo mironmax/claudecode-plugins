@@ -482,14 +482,21 @@ async def websocket_proxy(websocket: WebSocket, session_id: str | None = None):
                 except:
                     pass
 
-            await asyncio.gather(
-                forward_to_mcp(),
-                forward_to_client(),
-                return_exceptions=True
-            )
+            # Either side ending ends both. When the memory server restarts,
+            # the page must see its socket close so it reconnects and
+            # subscribes again, rather than sit on a dead proxy.
+            tasks = [asyncio.create_task(forward_to_mcp()),
+                     asyncio.create_task(forward_to_client())]
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as e:
         logger.error(f"WebSocket proxy error: {e}")
+    try:
         await websocket.close()
+    except Exception:
+        pass  # the page already closed it
 
 
 if __name__ == "__main__":
