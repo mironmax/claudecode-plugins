@@ -29,12 +29,16 @@ _KG_SID_PATTERNS = (
 
 
 def safe_transcript_path(transcript_path: str) -> str | None:
-    """A Claude Code transcript: a .jsonl file under the user's home."""
-    home = str(Path.home().resolve())
+    """A transcript or rollout: a .jsonl file under the user's home, or under
+    CODEX_HOME, which may live elsewhere."""
+    roots = [Path.home(), *([Path(os.environ["CODEX_HOME"])] if os.environ.get("CODEX_HOME") else [])]
     resolved = os.path.realpath(transcript_path)
-    if not (resolved + "/").startswith(home + "/") or not resolved.endswith(".jsonl"):
+    if not resolved.endswith(".jsonl"):
         return None
-    return resolved
+    for root in roots:
+        if (resolved + "/").startswith(os.path.realpath(root) + "/"):
+            return resolved
+    return None
 
 
 def _scan_kg_sid(resolved: str, start: int = 0) -> tuple[str | None, int]:

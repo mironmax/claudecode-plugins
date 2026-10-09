@@ -73,6 +73,13 @@ def main():
     check("wrong suffix is refused", safe_transcript_path(str(not_jsonl)) is None)
     trav = str(inside / ".." / ".." / ".." / ".." / ".." / "etc" / "passwd")
     check("traversal out of home is refused", safe_transcript_path(trav) is None)
+    os.environ["CODEX_HOME"] = str(outside)
+    try:
+        check("a rollout under CODEX_HOME outside home is accepted",
+              safe_transcript_path(str(bad_out)) == str(bad_out.resolve()))
+        check("...but nothing else outside home", safe_transcript_path(trav) is None)
+    finally:
+        del os.environ["CODEX_HOME"]
 
     # --- 2. tool event cwd containment ----------------------------------------
     print("tool event cwd:")
