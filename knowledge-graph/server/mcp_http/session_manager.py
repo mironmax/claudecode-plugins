@@ -539,17 +539,27 @@ class HTTPSessionManager:
         return False
 
     @_locked
-    def claim_push_window(self, session_id: str, now: float) -> tuple[float, dict] | None:
+    def claim_push_window(self, session_id: str, now: float,
+                          claim: bool = True) -> tuple[float, dict] | None:
         """Take the window of foreign writes not yet pushed to this session:
         returns (since, seen_at) and moves the push mark to `now` in the same
         locked step, so two racing callers never deliver one change twice.
-        The window opens where the session last looked: start, kg_sync or push."""
+        The window opens where the session last looked: start, kg_sync or push.
+        claim=False leaves the mark for mark_pushed, once the reply is delivered."""
         data = self._sessions.get(session_id)
         if data is None:
             return None
         since = max(data["start_ts"], data.get("last_synced_ts", 0), data.get("pushed_ts", 0))
-        data["pushed_ts"] = now
+        if claim:
+            data["pushed_ts"] = now
         return since, dict(data.get("seen_at", {}))
+
+    @_locked
+    def mark_pushed(self, session_id: str, at: float) -> None:
+        """Move the push mark to `at`: a deferred reply carrying a notice was delivered."""
+        data = self._sessions.get(session_id)
+        if data is not None:
+            data["pushed_ts"] = max(data.get("pushed_ts", 0), at)
 
     @_locked
     def mark_synced(self, session_id: str, at: float | None = None) -> None:

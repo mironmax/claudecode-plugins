@@ -1,0 +1,7 @@
+$ python3 delivery/repro/repro_paging.py
+part 1: 44599 units, paged=True; it shows the rollback-rules header and 37 of its 110 notes
+after part 1: rollback-rules counts as read in full: True
+a new read drops part 2: True
+S writes rollback-rules with the 37 notes it saw + 1: written; stored notes now 38
+   BUG: 73 notes S never received are gone
+RESULT: FAIL

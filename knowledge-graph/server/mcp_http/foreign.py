@@ -22,9 +22,16 @@ def notice(store, session_manager, session_id: str | None) -> str | None:
     """Gists of nodes other sessions wrote since this session last looked."""
     if not session_id:
         return None
-    window = session_manager.claim_push_window(session_id, time.time())
+    # Through a deferred view (Antigravity), the push mark and the seen mark
+    # are recorded with the reply's delivery: a refused reply leaves the
+    # window open and nothing marked.
+    now = time.time()
+    deferred = getattr(session_manager, "deferred", False)
+    window = session_manager.claim_push_window(session_id, now, claim=not deferred)
     if window is None:
         return None
+    if deferred:
+        session_manager.mark_pushed(session_id, now)
     since, seen_at = window
     diff = store.get_sync_diff(session_id, since)
     own = session_manager.lookup(session_id) or {}

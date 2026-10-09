@@ -431,11 +431,13 @@ def create_mcp_server() -> Server:
     # Tool Handlers
     # ========================================================================
 
-    def _foreign(sid: str | None) -> str:
-        """Nodes other sessions wrote meanwhile, as a reply suffix ('' if none)."""
+    def _foreign(sid: str | None, view) -> str:
+        """Nodes other sessions wrote meanwhile, as a reply suffix ('' if none).
+        Its marks go through the reply's view: a deferred reply records them
+        only when it is delivered, a refused one never."""
         from mcp_http import foreign
         try:
-            text = foreign.notice(store, session_manager, sid)
+            text = foreign.notice(store, view, sid)
         except Exception:
             logger.debug("foreign writes notice failed", exc_info=True)
             text = None
@@ -557,11 +559,13 @@ def create_mcp_server() -> Server:
                     for n in graphs[lvl]["nodes"]
                     if not n.get("_archived") and "_orphaned_ts" not in n
                 ]
-                view.mark_seen(session_id, shown, via="full_read")
-                # Preloaded gists render here as bare ids: their view is still
-                # the preload's, so only the gists shown now count as viewed.
-                view.note_viewed(
-                    session_id, [n for n in shown if n not in preloaded], at=viewed_at)
+                # Preloaded gists render here as bare ids: they count as seen
+                # and viewed through the preload, never through this read (a
+                # read queued across a checkpoint can be replayed after a new
+                # preload that no longer shows them).
+                fresh = [n for n in shown if n not in preloaded]
+                view.mark_seen(session_id, fresh, via="full_read")
+                view.note_viewed(session_id, fresh, at=viewed_at)
                 # The announce ritual belongs to the FULL read, not the preload:
                 # a session that only scanned the compact core has not recalled
                 # its memories yet. First full read carries the instruction;
@@ -611,7 +615,7 @@ def create_mcp_server() -> Server:
                     )
                     view.mark_seen(sid, shown, via="search", at=viewed_at)
 
-                return [TextContent(type="text", text=text + _foreign(sid))]
+                return [TextContent(type="text", text=text + _foreign(sid, view))]
 
             elif name == "kg_put_node":
                 sid = arguments["session_id"]
@@ -653,7 +657,7 @@ def create_mcp_server() -> Server:
                          + node_id_warning(arguments["id"]) + dup_note
                          + ("\nA case added to a lesson counts as your endorsement of it."
                             if result.get("note_credited") else "")
-                         + _foreign(sid),
+                         + _foreign(sid, view),
                 )]
 
             elif name == "kg_put_edge":
