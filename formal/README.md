@@ -14,7 +14,8 @@ it without anyone asking (the visual editor, cross-site pages) are gone.
 F11 was found later and fixed in v0.10.1; F5 and F8 in v0.10.2.
 F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 is fixed on
 the development branch (project-bound editor subscriptions, modelled first).
-F7 remains open.
+F13–F16, found by a second pass on delivery (paged reads and Antigravity's
+queue), are fixed there too. F7 remains open.
 
 ## Method
 
@@ -55,6 +56,10 @@ randomized search over the real compactor instead of a model.
 | F10 | The maintenance pass tier skips the "never rename a node a live session holds" rule; `_live_seen` fails open | reading | fixed, 0.9.44 | medium-low |
 | F11 | A write built on a stale or partial view drops another session's note, or notes the writer never read | Lean BFS + reproduction | fixed, 0.10.1 | medium |
 | F12 | A fork takes over a KG session no hook has bound yet | Lean BFS + reproduction | fixed, 0.11.0 | medium-low |
+| F13 | A paged node read counts a node as read before its notes go out; a write can then drop them | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F14 | The other-sessions notice marks nodes seen before its (queued or refused) Antigravity reply is delivered | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F15 | A full read replayed after a checkpoint marks preloaded anchors seen | Lean BFS + reproduction | fixed, unreleased | low |
+| F16 | A checkpoint with a full delivery queue refuses the fresh preload | Lean BFS + reproduction | fixed, unreleased | low |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.

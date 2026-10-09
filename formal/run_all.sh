@@ -34,5 +34,9 @@ run websocket/evidence/model.log             lean --run websocket/lean/Subscribe
 run websocket/evidence/repro.log             $PY websocket/repro/repro_ws.py
 run compaction/evidence/search.log           $PY compaction/repro/thrash_search.py
 run security/evidence/repro.log              $PY security/repro/repro_csrf.py
+run delivery/evidence/model-paging.log       lean --run delivery/lean/Paging.lean
+run delivery/evidence/model-agy.log          lean --run delivery/lean/Agy.lean
+run delivery/evidence/repro-paging-after.log $PY delivery/repro/repro_paging.py
+run delivery/evidence/repro-agy-after.log    $PY delivery/repro/repro_agy.py
 run concurrent-writes/evidence/model.log     lean --run concurrent-writes/lean/Writes.lean
 run concurrent-writes/evidence/repro-after.log $PY concurrent-writes/repro/repro_lost_update.py

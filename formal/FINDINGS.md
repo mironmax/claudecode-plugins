@@ -422,3 +422,112 @@ re-checked.
   corruption, since renames are atomic.
 - Chore timeouts kill only the Claude pid. The process was started with
   `start_new_session`, so its children may survive.
+
+---
+
+## Delivery: effects only on delivery (F13–F16)
+
+Two models cover the two mechanisms that apply a reply's effects only when
+it reaches the model: paged `kg_read` replies (0.14.0) and Antigravity's
+queued delivery (0.11.0). `delivery/lean/Paging.lean`: two nodes, all 27
+reply shapes with blocks and parts of 1–3 lines, ≤2 reads, ≤1 compaction,
+≤1 foreign write, ≤1 write by the session, ≤1 restart. `delivery/lean/Agy.lean`:
+one conversation, queue bound 2, 2 chunks a packet, ≤4 hooks, lost or late
+acks, one each of full read, search with the other-sessions notice, inline
+read, foreign write, graph change, own write and compaction. Reproductions
+run against the real MCP app and the REST hook and ack routes
+(`delivery/repro/`). Line numbers below are at `ecc3dc1`.
+
+### F13 — A paged node read counted a node as read before its notes went out
+
+**Status:** fixed (unreleased). Test: `tests/test_paging.py`
+`test_a_node_counts_as_read_only_once_its_whole_block_went_out`.
+
+**Where:** `mcp_http/paging.py:58-81`: each id's effects went with the first
+part showing its line, the `▸ id (` header. For `kg_read(ids=[...])` the
+notes can continue into the next part, but the full-read stamp (which the
+F11 guard trusts) and the read/promotion were applied with the header's part.
+
+**Trace (2 steps, 17 of 27 shapes):** the session reads `ids=[n0, n1]`; part 1
+holds n1's header but not all its notes; the session writes n1 with the notes
+it saw, and the guard accepts. The notes it never received are gone.
+
+**Reproduced** at Claude Code's real 45,000-unit limit: part 1 showed 37 of
+110 notes, a new read dropped part 2, and the accepted write left 38.
+
+**Fix:** a node block's effects go with the part holding its last line
+(`paging._block_ends`); full-graph reads keep the first-part rule. P1–P4
+then hold (479,470 states).
+
+### F14 — The other-sessions notice marked nodes seen before its reply was delivered
+
+**Status:** fixed (unreleased). Tests: `tests/test_antigravity.py`
+`test_foreign_notice_on_a_queued_reply_marks_nothing_until_delivered`,
+`test_foreign_notice_on_a_refused_reply_changes_nothing`.
+
+**Where:** `mcp_streamable_server.py:434-441` called `foreign.notice` with the
+real session manager rather than the reply's deferred view; `foreign.py`
+marked the pushed nodes seen and moved the push mark at once. In Antigravity
+a search reply over 3,500 bytes is queued, or refused, yet the marks applied.
+
+**Trace (4 steps):** S reads X (v1); T writes X (v2); S's search is queued with
+the notice for X v2 and X counts as seen now; S writes X built on v1 and the
+write is accepted, overwriting T's change. A refused reply does the same and
+also uses up the push window.
+
+**Fix:** the notice goes through the reply's view; on the deferred path the
+push window is claimed without moving the mark, and the view's new
+`mark_pushed` moves it on delivery. A3 and A5 then hold (214,686 states).
+
+### F15 — A full read replayed after a checkpoint marked preloaded anchors seen
+
+**Status:** fixed (unreleased). Test: `test_replayed_full_read_counts_only_the_gists_it_shows`.
+
+**Where:** `mcp_streamable_server.py:551-560` marked every id the full read
+showed seen, including bare "(preloaded)" anchors; Antigravity replays pending
+replies after a checkpoint's fresh preload (`antigravity.py:228-244`).
+
+**Trace (9 steps):** a preload showing `a` is acked; the graph changes so a new
+preload would drop `a`; a full read is queued with `a` as an anchor; a
+compaction replaces the context; the new preload (without `a`) and the replayed
+read are acked; `a` counts as seen with no gist in context, so recall
+suppresses it. **Reproduced** with 45 newer nodes pushing a node out of the
+10,000-byte preload.
+
+**Fix:** a full read marks seen only the gists it shows; the preload marks its
+own ids. Residual: the replayed read still labels the node "(preloaded)", but
+nothing is marked, so recall offers it again.
+
+### F16 — A checkpoint with a full queue refused the fresh preload
+
+**Status:** fixed (unreleased). Test: `test_checkpoint_queues_its_preload_even_when_the_queue_is_full`.
+
+**Where:** `delivery.py:68-79` applied the queue bound to the preload, and
+`antigravity.py:244` ignored the refusal, so replayed replies reached the new
+context before the preload. **Reproduced** with four replies filling
+1,048,059 of 1,048,576 bytes. Rare: it needs about 1 MiB or 64 replies pending
+at a compaction.
+
+**Fix:** the preload (`enqueue(first=True)`) is exempt from the bound; at most
+one is pending and its budget caps it at 10,000 bytes, so the queue can exceed
+its bound by that much.
+
+### Checked and holds (within bounds)
+
+- Paging P1 (seen ⊆ delivered gists; promoted ⊆ delivered headers) and P3
+  (full-read flag only after the last part) hold on the code before the fix.
+- `set_pages` and `take_page` save before a part's effects apply, so a restart
+  can lose effects but never invent them.
+- Stale-write protection carries the view time taken before the render, for
+  paged and queued replies alike.
+- Antigravity A2 (full-read flag only after every chunk), A4 (no effect
+  applied twice; acks match the queue head) and A7 (an ack of a packet made
+  before a handled checkpoint is refused) hold on the code before the fixes.
+- Overflow refuses without dropping earlier replies; queues and the outstanding
+  packet persist across restarts.
+
+**Suspected, not reproduced:** a reply lost in transport still counts as
+delivered (true of every MCP reply); a crash within 30 s of an inline reply
+loses its view marks, so the next write is blind, which F11 allows; a note
+containing a line that starts with `▸ ` or `Session: ` would end its block
+early.
