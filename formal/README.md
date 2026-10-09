@@ -16,7 +16,8 @@ F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 is fixed on
 the development branch (project-bound editor subscriptions, modelled first).
 F13–F16, found by a second pass on delivery (paged reads and Antigravity's
 queue), and F17–F23, from the dispatcher's pass tier, runners and budget
-notices, and F24–F26, from the server lifecycle, are fixed there too. F7 remains open.
+notices, F24–F26, from the server lifecycle, and F27–F32, from usefulness
+accounting, are fixed there too. F7 remains open.
 
 ## Open work
 
@@ -29,8 +30,6 @@ to be modelled and reproduced, each in its own directory:
 - `cross-session/`: the push of other sessions' writes and `kg_sync`
   (each change pushed once, never to its writer, nothing falling between the
   push window and the sync watermark);
-- `credits/`: one vote per node per session, credit caps, idempotent
-  reconciliation of repeat credits on load, maintenance sessions;
 
 The models are not yet run in CI; `run_all.sh` prints results but never
 fails, so a CI job would need expected outcomes per model and reproduction.
@@ -88,6 +87,12 @@ randomized search over the real compactor instead of a model.
 | F24 | A start that runs out of time leaves its server untracked under a start-error record nobody clears | Lean BFS + reproduction | fixed, unreleased | medium-low |
 | F25 | A stale pid file is trusted for whatever process now holds the pid | Lean BFS + reproduction | fixed, unreleased | low |
 | F26 | `kg stop`/`restart` don't hold the start lock: a start during a stop leaves nothing serving | Lean BFS + reproduction | fixed, unreleased | low |
+| F27 | A rename lets a session vote twice for one node | Lean BFS + reproduction | fixed, unreleased | low |
+| F28 | A maintenance rename resets the node's activity time to 0 | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F29 | A server restart forgets that a session is maintenance | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F30 | A maintenance tidy turns the author's own next case into a note credit | Lean BFS + reproduction | fixed, unreleased | low |
+| F31 | A crash keeps a vote but loses its ledger entry | Lean BFS + reproduction | fixed, unreleased | low |
+| F32 | An `instance-of` edge in the maintain graph credits a user lesson | reading + reproduction | fixed, unreleased | very low |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.

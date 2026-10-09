@@ -629,3 +629,45 @@ graceful stop, the shim returns an error it cannot tell apart from a failed
 write; the agent can safely retry. `kg stop`'s SIGKILL after 6 s skips the
 final flush and commit (acknowledged writes are already on disk). "Already
 running" does not check `/health`. The hooks compare `KG_HTTP_PORT` as text.
+
+---
+
+## Usefulness accounting and maintenance sessions (F27–F32)
+
+Model: `credits/lean/Credits.lean` (the store's lock-held methods as atomic
+steps: endorsement, note credit, reads, rename, recurrence credit, graph
+load, saver tick, restart, crash; work sessions A and B and a pass M that may
+flag itself maintenance at any point; caps scaled down; three scopes, since
+the full product exceeds the interpreter). Reproduction:
+`credits/repro/repro_credits.py`; test `tests/test_credit_accounting.py`
+(16 of 20 checks fail on the code before). Line numbers at `ecc3dc1`.
+
+- **F27 — A rename let a session vote twice for one node** (low): the
+  session's vote ledger was not re-keyed by `rename_node_ref`; a pass could
+  also credit one node 3+3. Fix: renames carry the ledger.
+- **F28 — A maintenance rename reset the node's activity time to 0**
+  (medium-low; `store.py:1179-1183`), so a gist-only lesson could fall to
+  recency 0 and be archived. Fix: re-key the version entry before the bump.
+- **F29 — A server restart forgot that a session is maintenance** (medium-low):
+  the flag lived only in memory, so after an update or crash a running pass's
+  reads promoted and stamped, `credits=2-3` were refused, `credits=1` was
+  counted as use, and its writes were pushed as other sessions' writes. Fix:
+  the flag is saved on the session and restored at start.
+- **F30 — A maintenance tidy turned the author's own next case into a note
+  credit** (low). Fix: a maintenance write records the author it found, and
+  the note credit compares against that.
+- **F31 — A crash kept a vote but lost its ledger entry** (low; ledger saved
+  only every 30 s), so the session could vote again. Fix: save the sessions
+  file when a ledger changes.
+- **F32 — An `instance-of` edge in the maintain graph credited a user
+  lesson** (very low; graph loads never would). Fix: only a project graph
+  reaches up to user lessons.
+
+**Checked and holds:** one vote per node per session and both caps under 12
+concurrent threads; recurrence reconciliation is idempotent across reloads,
+renames and restarts; a session flagged before its first read never stamps
+or promotes; a maintenance rewrite keeps the activity time; `via` labels
+match the path that granted the credit. **Open, by design or for a decision:**
+reads made before a late maintenance flag keep their effects; a maintenance
+write unarchives the node it edits; `_clean_orphaned_edges` keeps
+maintain→user edges contrary to its comment.
