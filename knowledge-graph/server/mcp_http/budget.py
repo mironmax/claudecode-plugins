@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import chore_dispatch, harness
+from .session_manager import safe_transcript_path
 
 # (warn, stop) used-% per window. Five hours: the day's work; past 90% the
 # work must wrap up or ask. A spent week stops work for days, so its lines
@@ -55,9 +56,10 @@ def reading_for(name: str, transcript_path: str | None, now: float) -> dict | No
     """Gauge keys for this harness's session, or None."""
     try:
         if name == harness.CODEX:
-            if not transcript_path:
+            rollout = safe_transcript_path(transcript_path) if transcript_path else None
+            if not rollout:   # a hook-supplied path, contained like every other
                 return None
-            return chore_dispatch.codex_limits(Path(transcript_path), now)
+            return chore_dispatch.codex_limits(Path(rollout), now)
         if name == harness.ANTIGRAVITY:
             return _agy_reading(now)
         data = chore_dispatch.ClaudeRunner().gauge(chore_dispatch._config(), now)

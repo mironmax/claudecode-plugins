@@ -280,7 +280,7 @@ def status() -> int:
 
 
 def logs(follow: bool) -> int:
-    if service_enabled():   # the unit's server logs to stderr, which systemd keeps in the journal
+    if service_enabled() and shutil.which("journalctl"):   # the unit's server logs to stderr: the journal
         os.execvp("journalctl", ["journalctl", "--user", "-u", UNIT,
                                  *(["-f"] if follow else ["-n", "50", "--no-pager"])])
     if not LOG_FILE.exists():

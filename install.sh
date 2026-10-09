@@ -13,7 +13,8 @@ uv tool install --upgrade kg-memory   # a re-run upgrades
 KG="$(command -v kg || echo "$HOME/.local/bin/kg")"
 
 # Piped into sh, stdin is this script: setup asks its questions on the terminal.
-if [ -r /dev/tty ]; then
+# /dev/tty can exist without a controlling terminal (an agent's shell): try it.
+if (exec < /dev/tty) 2>/dev/null; then
     exec "$KG" setup < /dev/tty
 fi
 echo "kg is installed. Run \`kg setup\` in a terminal to connect your harnesses."
