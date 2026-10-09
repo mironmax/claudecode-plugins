@@ -219,6 +219,10 @@ def _start() -> int:
         return systemctl("start")
     pid = running_pid()
     if pid:
+        # Still starting, or stuck: only an answer proves it serves.
+        if not wait(lambda: health() is not None, 15):
+            print(f"Server process {pid} is running but not answering. See {LOG_FILE}")
+            return 1
         BREADCRUMB.unlink(missing_ok=True)   # this start succeeded
         print(f"Server already running (PID {pid}).")
         return 0

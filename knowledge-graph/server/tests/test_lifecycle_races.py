@@ -101,6 +101,20 @@ class LifecycleRaceTests(unittest.TestCase):
         self.assertEqual(box.kg("start").returncode, 0)   # already running
         self.assertFalse(box.crumb.exists())
 
+    def test_a_server_that_never_answers_is_not_running(self):
+        box = Box(self)
+        box.state.mkdir(parents=True, exist_ok=True)
+        stuck = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)",
+                                  "mcp_streamable_server"])
+        self.addCleanup(stuck.kill)
+        time.sleep(1.1)   # the pid file is written after the process starts
+        box.pidfile.write_text(str(stuck.pid))
+        box.crumb.write_text("when: earlier\ncause: the server hung on start\n")
+        out = box.slow_start()
+        self.assertEqual(out.returncode, 1, out.stdout)
+        self.assertIn("not answering", out.stdout)
+        self.assertTrue(box.crumb.exists(), "a start that found a stuck server cleared its cause")
+
     def test_the_units_server_clears_the_breadcrumb_once_it_serves(self):
         box = Box(self)
         bin_dir = box.home / "bin"
