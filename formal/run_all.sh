@@ -21,6 +21,18 @@ run() {  # run <log> <cmd...>
 run chore-dispatch/evidence/model.log        lean --run chore-dispatch/lean/Dispatch.lean
 run chore-dispatch/evidence/repro-spawn_fail.log $PY chore-dispatch/repro/repro_stale_state.py spawn_fail
 run chore-dispatch/evidence/repro-quick_exit.log $PY chore-dispatch/repro/repro_stale_state.py quick_exit
+run chore-dispatch/evidence/tiers-model.log   lean --run chore-dispatch/lean/Tiers.lean
+run chore-dispatch/evidence/check-rules.log   $PY chore-dispatch/repro/check_rules.py
+run chore-dispatch/evidence/repro-agy-orphan-after.log $PY chore-dispatch/repro/repro_agy_orphan.py
+run chore-dispatch/evidence/repro-runner-pin-after.log $PY chore-dispatch/repro/repro_runner_pin.py
+run chore-dispatch/evidence/repro-state-write-after.log $PY chore-dispatch/repro/repro_state_write.py
+run chore-dispatch/evidence/repro-wedge-after.log $PY chore-dispatch/repro/repro_wedge.py
+run chore-dispatch/evidence/repro-gauge-carried-after.log $PY chore-dispatch/repro/repro_gauge_carried.py
+run chore-dispatch/evidence/repro-midflight-config-after.log $PY chore-dispatch/repro/repro_midflight.py config
+run chore-dispatch/evidence/repro-midflight-suspend-after.log $PY chore-dispatch/repro/repro_midflight.py suspend
+run budget-notices/evidence/model.log         lean --run budget-notices/lean/Budget.lean
+run budget-notices/evidence/repro-agy-stale-after.log $PY budget-notices/repro/repro_agy_stale.py
+run budget-notices/evidence/check-budget.log  $PY budget-notices/repro/check_budget.py
 run store-persistence/evidence/model.log     lean --run store-persistence/lean/Persist.lean
 run store-persistence/evidence/repro.log     $PY store-persistence/repro/repro_failed_save.py
 run rename/evidence/model.log                lean --run rename/lean/Rename.lean

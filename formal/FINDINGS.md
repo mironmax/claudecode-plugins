@@ -531,3 +531,59 @@ delivered (true of every MCP reply); a crash within 30 s of an inline reply
 loses its view marks, so the next write is blind, which F11 allows; a note
 containing a line that starts with `▸ ` or `Session: ` would end its block
 early.
+
+---
+
+## Dispatch tiers, runners and budget notices (F17–F23)
+
+Models: `chore-dispatch/lean/Tiers.lean` (the combined chore and pass
+dispatcher under concurrent prompts, process exits and timeouts, config
+edits, unwritable state, one-window gauge frames, unreadable live context;
+2 threads, 1–2 graphs, ≤9 ticks; plus all 864 runner configurations) and
+`budget-notices/lean/Budget.lean` (racing prompt and tool hooks, ≤3 windows,
+≤1 restart). F1's `Dispatch.lean` output is unchanged. Each finding below
+reproduces against the real code (`chore-dispatch/repro/`,
+`budget-notices/repro/`) and is fixed, tested in `tests/test_dispatch_tiers.py`
+(14 of its 21 checks fail on the code before). Line numbers at `ecc3dc1`.
+
+- **F17 — A timed-out Antigravity run left agy running** (medium-low). agy
+  starts in its own session (`agy_chore.py:76-78`); a timeout killed only the
+  wrapper's group, so the next dispatch started a second agy. Fix: TERM the
+  group, wait, KILL; the wrapper's TERM handler kills agy's group.
+- **F18 — A configured `codex_bin`/`antigravity_bin` did not pin its runner
+  under auto** when Claude Code was installed (`chore_dispatch.py:470-472`;
+  20 of 864 configurations), contrary to the 0.10.0 promise. Fix: configured
+  binaries first, then installed ones.
+- **F19 — An unwritable `chore_state.json` failed open** (`:508-516`, `:1035`):
+  three prompts in a second gave three dispatches. Fix: a failed state write
+  refuses before a run starts.
+- **F20 — A carried five-hour reading passed as fresh.** Gauge age was judged
+  by `updated_at`, which every frame bumps, though a missing window is
+  carried with its own `*_seen_at`: a 10% reading three hours old opened both
+  gates. Fix: age by the oldest `*_seen_at` the reading carries.
+- **F21 — A runner command that raised wedged dispatch until restart**
+  (`_spawn:700` built it before the `try`). Fails closed. Fix: build inside
+  the `try`, log `spawn_failed`, clear `_running`.
+- **F22 — The lock re-decided on the decision's config and clock**
+  (`:1014-1035`): switching chores off or changing the runner mid-decision
+  still dispatched; a suspend mid-decision spent on a 120-minute-old gauge and
+  broke the per-graph cooldown. Fix: inside the lock, re-read config and clock
+  and refuse on a change, a stale gauge or a cooling graph.
+- **F23 — The Antigravity budget notice could describe a window that had
+  already reset** (`budget.py:61-62` returned the cached reading before the
+  reset check). Fix: zero a passed window on a copy of the cached reading.
+
+**Checked and holds:** at most one run at a time across both tiers for the
+claude and codex runners; interval, caps and counts under concurrent prompts,
+spawn failures, quick exits and timeouts; an unreadable live context refuses;
+`pick_chore` over 100k random graphs never renames a held id, never rewrites a
+churning node, never takes a declined id; the Antigravity runner never starts
+without its grants or while paid credits could be spent; budget notices are
+said once per level per window under 16 racing threads and across restarts
+(the record is saved inside the lock).
+
+**Not changed, for a decision:** a graph due a pass blocks every chore while
+the pass is refused (the user graph is a candidate on every prompt); live
+context is protected at dispatch time only, not during a 25-minute pass;
+`state["passes"]` is written but never read; a budget notice is recorded when
+produced, so a lost hook reply loses it.

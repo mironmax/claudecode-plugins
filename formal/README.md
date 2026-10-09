@@ -15,7 +15,8 @@ F11 was found later and fixed in v0.10.1; F5 and F8 in v0.10.2.
 F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 is fixed on
 the development branch (project-bound editor subscriptions, modelled first).
 F13–F16, found by a second pass on delivery (paged reads and Antigravity's
-queue), are fixed there too. F7 remains open.
+queue), and F17–F23, from the dispatcher's pass tier, runners and budget
+notices, are fixed there too. F7 remains open.
 
 ## Open work
 
@@ -33,8 +34,6 @@ to be modelled and reproduced, each in its own directory:
   connection is retried;
 - `credits/`: one vote per node per session, credit caps, idempotent
   reconciliation of repeat credits on load, maintenance sessions;
-- `chore-dispatch/` (pass tier, runners) and `budget-notices/` (once per
-  level per window under racing hooks).
 
 The models are not yet run in CI; `run_all.sh` prints results but never
 fails, so a CI job would need expected outcomes per model and reproduction.
@@ -82,6 +81,13 @@ randomized search over the real compactor instead of a model.
 | F14 | The other-sessions notice marks nodes seen before its (queued or refused) Antigravity reply is delivered | Lean BFS + reproduction | fixed, unreleased | medium-low |
 | F15 | A full read replayed after a checkpoint marks preloaded anchors seen | Lean BFS + reproduction | fixed, unreleased | low |
 | F16 | A checkpoint with a full delivery queue refuses the fresh preload | Lean BFS + reproduction | fixed, unreleased | low |
+| F17 | A timed-out Antigravity maintenance run leaves agy running | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F18 | A configured `codex_bin`/`antigravity_bin` does not pin its runner under auto | enumeration + reproduction | fixed, unreleased | medium-low |
+| F19 | An unwritable chore state file fails open: repeated dispatches | Lean BFS + reproduction | fixed, unreleased | low-medium |
+| F20 | A carried five-hour gauge reading passes as fresh | reproduction | fixed, unreleased | low-medium |
+| F21 | A runner command that raises wedges dispatch until restart | Lean BFS + reproduction | fixed, unreleased | low |
+| F22 | The dispatch lock re-decides on stale config and clock | Lean BFS + reproduction | fixed, unreleased | low |
+| F23 | An Antigravity budget notice describes a window that already reset | Lean BFS + reproduction | fixed, unreleased | low |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.
