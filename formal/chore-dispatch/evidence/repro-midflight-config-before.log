@@ -1,0 +1,4 @@
+$ python3 chore-dispatch/repro/repro_midflight.py config  # at ecc3dc1, before the fixes
+chores switched off during target selection -> dispatched: ['claude']
+runner changed to codex during target selection -> dispatched: ['claude']
+BUG: chores switched off; runner changed to codex

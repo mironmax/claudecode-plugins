@@ -4,9 +4,12 @@ Follow this when a user asks you to install or repair the knowledge-graph memory
 
 1. Install the command. With `uv` present: `uv tool install kg-memory`.
    Without it, ask the user before running the bootstrap, which installs uv
-   first: `curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`.
+   and kg-memory, then runs `kg setup` interactively when there is a
+   terminal to ask in: `curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`.
 2. See what setup would change: `kg setup --plan`. Each line has a key in
-   brackets. Show the list to the user and ask which items to apply.
+   brackets. Show the list to the user and ask which items to apply. Point
+   out `upkeep`: it switches on background maintenance, which spends the
+   user's quota while it is spare, so `--yes` applies it only when named.
 3. Apply only what the user agreed to: `kg setup --yes --only KEY,KEY`. Every
    file it edits is backed up under `~/.local/state/knowledge-graph/backups/`.
    If your harness refuses to run it (it edits harness settings), ask the user
@@ -16,6 +19,8 @@ Follow this when a user asks you to install or repair the knowledge-graph memory
    knowledge-graph hooks; fully quit and reopen Claude Desktop; then start a
    new session in each harness.
 
-Updates: `kg update`. Removal: `kg uninstall --plan`, then `kg uninstall`
-(memory in `~/.knowledge-graph/` is kept). Operations and troubleshooting:
-the `kg-ops` skill.
+Updates: `kg update`. Removal: show the user `kg uninstall --plan`, then run
+`kg uninstall --yes` with their agreement (without `--yes` it needs a
+terminal to ask in), then `uv tool uninstall kg-memory`. Memory in
+`~/.knowledge-graph/` is kept. Operations and troubleshooting: the `kg-ops`
+skill.

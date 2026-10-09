@@ -433,6 +433,76 @@ class AntigravityTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("never-delivered", self.sm.get_seen(sid))
         self.assertIn("EARLIER_REPLY", "".join(await self.drain()))
 
+    # formal/delivery X2-X4: what a deferred reply implies waits for its delivery.
+
+    async def foreign_setup(self, cid):
+        for i in range(14):  # enough matches that the search reply exceeds 3,500 bytes
+            self.seed(f"key-rotation-{i}", f"key rotation step {i}: " + "rotate signing keys " * 10)
+        self.seed("cache-policy", "CACHE_V1")
+        if cid == "conversation-a":
+            sid = await self.bootstrap()
+            await self.call("kg_read", {"session_id": sid, "id": "cache-policy"})
+        else:
+            await self.call("kg_read", {"cwd": str(self.root), "id": "cache-policy"}, cid=cid)
+            sid = self.sid(cid)
+        viewed = self.sm.viewed_at(sid, "cache-policy")
+        self.assertIsNotNone(viewed)
+        time.sleep(0.01)
+        self.seed("cache-policy", "CACHE_V2_BY_ANOTHER_SESSION")
+        time.sleep(0.01)
+        return sid, viewed
+
+    async def test_foreign_notice_on_a_queued_reply_marks_nothing_until_delivered(self):
+        sid, viewed = await self.foreign_setup("conversation-a")
+        result = await self.call("kg_search", {"session_id": sid, "query": "key rotation"})
+        self.assertIn("queued", result["content"][0]["text"])
+        self.assertEqual(self.sm.viewed_at(sid, "cache-policy"), viewed)
+        stale = await self.call("kg_put_node", {"session_id": sid, "level": "project",
+                                                "id": "cache-policy", "gist": "CACHE_V1 + mine"})
+        self.assertIn("NOT WRITTEN", stale["content"][0]["text"])
+        self.assertIn("CACHE_V2_BY_ANOTHER_SESSION", "".join(await self.drain()))
+        self.assertGreater(self.sm.viewed_at(sid, "cache-policy"), viewed)
+
+    async def test_foreign_notice_on_a_refused_reply_changes_nothing(self):
+        sid, viewed = await self.foreign_setup("no-hooks")
+        pushed = self.sm.lookup(sid).get("pushed_ts")
+        result = await self.call("kg_search", {"session_id": sid, "query": "key rotation"},
+                                 cid="no-hooks")
+        self.assertTrue(result["isError"])
+        self.assertEqual(self.sm.viewed_at(sid, "cache-policy"), viewed)
+        self.assertEqual(self.sm.lookup(sid).get("pushed_ts"), pushed, "the window stays open")
+        stale = await self.call("kg_put_node", {"session_id": sid, "level": "project",
+                                                "id": "cache-policy", "gist": "CACHE_V1 + mine"},
+                                cid="no-hooks")
+        self.assertIn("NOT WRITTEN", stale["content"][0]["text"])
+
+    async def test_replayed_full_read_counts_only_the_gists_it_shows(self):
+        self.transcript({"type": "USER_INPUT", "step_index": 1, "content": "<USER_REQUEST>hi</USER_REQUEST>"})
+        old = time.time() - 90 * 86400
+        node = self.seed("anchor-node", "ANCHOR_GIST")["node"]
+        node["_created_ts"] = node["_last_read_ts"] = node["_written"]["ts"] = old
+        sid = await self.bootstrap()
+        self.assertIn("anchor-node", self.sm.get_preloaded(sid))
+        for i in range(45):  # the next preload has no room left for anchor-node
+            self.seed(f"new-lesson-{i:02d}", f"lesson {i}: " + "fresh knowledge " * 18)
+        self.assertIn("queued", (await self.call("kg_read", {"session_id": sid}))["content"][0]["text"])
+        self.transcript({"type": "CHECKPOINT", "step_index": 9, "content": "{{ CHECKPOINT 0 }} summary"})
+        context = "".join(await self.drain())
+        self.assertIn("anchor-node (preloaded)", context)
+        self.assertNotIn("anchor-node:", context, "no part of the new context shows its gist")
+        self.assertTrue(self.sm.has_full_read(sid))
+        self.assertNotIn("anchor-node", self.sm.get_seen(sid))
+
+    async def test_checkpoint_queues_its_preload_even_when_the_queue_is_full(self):
+        self.transcript({"type": "USER_INPUT", "step_index": 1, "content": "<USER_REQUEST>hi</USER_REQUEST>"})
+        sid = await self.bootstrap()
+        self.assertTrue(self.sm.queue_context(sid, "EARLIER_REPLY " + "x" * (QUEUE_BYTES - 100), "kg_read"))
+        self.assertFalse(self.sm.queue_context(sid, "y" * 4000, "kg_read"), "a reply is refused")
+        self.transcript({"type": "CHECKPOINT", "step_index": 9, "content": "{{ CHECKPOINT 0 }} summary"})
+        packet = await self.hook()
+        self.assertTrue(self.text(packet).startswith("KG context — preload:"))
+        self.assertIn("EARLIER_REPLY", "".join([self.text(packet)] + await self.drain()))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

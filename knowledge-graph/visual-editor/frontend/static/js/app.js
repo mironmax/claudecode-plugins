@@ -62,6 +62,13 @@ const state = {
     zoom: null,
     sessionId: null,
     ws: null,
+    // Live-update subscription (see subscribeCurrent). `live`: the server on
+    // this connection answered a subscription, so it supports them. `seq`
+    // numbers requests; only the reply to the latest one counts. `root` is the
+    // project root the server confirmed (null: user graph only). `awaiting`:
+    // the selected graph loads when that reply arrives.
+    live: false,
+    sub: { seq: 0, acked: false, root: null, awaiting: false },
     contextNode: null,
     edgeCreationSource: null,
     // Track which field is currently being edited inline
@@ -153,7 +160,11 @@ function connectWebSocket() {
     state.ws = new WebSocket(wsUrl);
 
     state.ws.onopen = () => {
-        setConnectionStatus('connected', 'Live');
+        // 'Live' once the server confirms the subscription; an older server
+        // never does, and its project changes need Refresh.
+        setConnectionStatus('connected', 'Connected');
+        state.live = false;
+        subscribeCurrent();
     };
 
     state.ws.onmessage = (event) => {
@@ -167,8 +178,51 @@ function connectWebSocket() {
 
     state.ws.onclose = () => {
         setConnectionStatus('error', 'Offline');
+        state.live = false;
+        state.sub.acked = false;
+        // A selection that was waiting for the subscription reply loads now:
+        // the reconnect may reach a server that never replies.
+        if (state.sub.awaiting) {
+            state.sub.awaiting = false;
+            loadGraph();
+        }
         setTimeout(() => connectWebSocket(), 5000);
     };
+}
+
+// Ask the server for live changes of the graph on screen: the selected
+// project, named by path exactly as REST requests name it, or the user graph
+// only. Sent on every (re)connect and every selection change. An older server
+// ignores the message and never replies; the page then works as before, and
+// project changes need Refresh.
+function subscribeCurrent() {
+    const sub = state.sub;
+    sub.seq += 1;
+    sub.acked = false;
+    sub.root = null;
+    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+    state.ws.send(JSON.stringify({
+        type: 'subscribe',
+        sub: sub.seq,
+        project_path: state.graphLevel === 'project' ? state.selectedProject : null,
+    }));
+}
+
+// Load a newly selected graph. When this connection's server supports
+// subscriptions, the load waits for the reply to the new one: a change
+// committed after an immediate load but before the server switched the
+// subscription would reach neither the load nor the page.
+function loadSelectedGraph() {
+    subscribeCurrent();
+    if (state.live && state.ws?.readyState === WebSocket.OPEN) {
+        state.sub.awaiting = true;
+        hideElement('graph-error');
+        hideElement('graph-welcome');
+        showElement('graph-loading');
+    } else {
+        state.sub.awaiting = false;
+        loadGraph();
+    }
 }
 
 function handleWebSocketMessage(message) {
@@ -176,16 +230,32 @@ function handleWebSocketMessage(message) {
         case 'connected':
             state.sessionId = message.session_id;
             break;
+        case 'subscribed':
+        case 'subscribe_error':
+            if (message.sub !== state.sub.seq) break;  // reply to an earlier selection
+            state.live = true;
+            state.sub.awaiting = false;
+            state.sub.acked = message.type === 'subscribed';
+            state.sub.root = state.sub.acked ? (message.project_path ?? null) : null;
+            setConnectionStatus('connected', 'Live');
+            // Changes from here on arrive as messages; everything before is in
+            // this load, including any missed while disconnected.
+            if (state.graphLevel) loadGraph();
+            break;
         case 'node_updated':
         case 'node_deleted':
         case 'edge_updated':
         case 'edge_deleted':
         case 'node_recalled':
         case 'node_renamed':
-            if (state.graphLevel && message.level === state.graphLevel) {
-                loadGraph();
-                showToast(formatUpdateMessage(message), 'success');
-            }
+            if (!state.graphLevel || message.level !== state.graphLevel) break;
+            // A project change counts only for the project the server confirmed
+            // for the latest subscription: one sent for the previous project
+            // before the switch reached the server must not touch this view.
+            if (message.level === 'project'
+                && !(state.sub.acked && message.project_path && message.project_path === state.sub.root)) break;
+            loadGraph();
+            showToast(formatUpdateMessage(message), 'success');
             break;
     }
 }
@@ -347,7 +417,7 @@ function selectUserGraph() {
     state.graphLevel = 'user';
     state.selectedProject = null;
     resetGraphSelection();
-    loadGraph();
+    loadSelectedGraph();
 }
 
 function selectProject(projectPath) {
@@ -358,7 +428,7 @@ function selectProject(projectPath) {
     state.graphLevel = 'project';
     state.selectedProject = projectPath;
     resetGraphSelection();
-    loadGraph();
+    loadSelectedGraph();
 }
 
 function resetGraphSelection() {

@@ -13,18 +13,44 @@ class ConnectionManager:
     def __init__(self):
         # Map: session_id -> WebSocket
         self.active_connections: dict[str, WebSocket] = {}
+        # Map: session_id -> the project root this connection subscribed to,
+        # or None for "user graph only". A connection with no entry never
+        # subscribed (an older editor page, a non-editor client) and falls
+        # back to its session's registered project, as before subscriptions.
+        self.subscriptions: dict[str, str | None] = {}
 
     async def connect(self, websocket: WebSocket, session_id: str):
         """Accept and register a WebSocket connection."""
         await websocket.accept()
         self.active_connections[session_id] = websocket
+        # A new connection starts unsubscribed, even under a reused session id.
+        self.subscriptions.pop(session_id, None)
         logger.info(f"WebSocket connected: {session_id}")
 
     def disconnect(self, session_id: str):
         """Remove a WebSocket connection."""
+        self.subscriptions.pop(session_id, None)
         if session_id in self.active_connections:
             del self.active_connections[session_id]
             logger.info(f"WebSocket disconnected: {session_id}")
+
+    def subscribe(self, session_id: str, project_root: str | None):
+        """Bind a connection to one project graph (None: user graph only).
+
+        project_root must already be resolved the way REST resolves a
+        project_path (safe_project_path); the /ws route does that.
+        """
+        self.subscriptions[session_id] = project_root
+
+    def _watches(self, session_id: str, project_path: str, session_manager) -> bool:
+        """Does this connection receive project-level changes for project_path?"""
+        if session_id in self.subscriptions:
+            return self.subscriptions[session_id] == project_path
+        try:
+            return session_manager.get_project_path(session_id) == project_path
+        except Exception:
+            # Session might be invalid
+            return False
 
     async def send_personal(self, session_id: str, message: dict):
         """Send message to a specific session."""
@@ -54,35 +80,25 @@ class ConnectionManager:
         if not session_manager:
             return
 
-        # Determine which sessions to notify
-        target_sessions = []
-
+        sent = 0
         for session_id in list(self.active_connections.keys()):
             # Skip excluded session
             if session_id == exclude_session:
                 continue
 
-            # For user-level changes, broadcast to everyone
-            if message.get("level") == "user":
-                target_sessions.append(session_id)
-                continue
+            # User-level changes go to everyone. A project-level change goes
+            # only to connections watching that project, decided right before
+            # each send: a connection that switched project while an earlier
+            # send was awaited must not get the old project's change.
+            if message.get("level") != "user":
+                if not project_path or not self._watches(session_id, project_path, session_manager):
+                    continue
 
-            # For project-level changes, only broadcast to sessions watching this project
-            if project_path:
-                try:
-                    session_project = session_manager.get_project_path(session_id)
-                    if session_project == project_path:
-                        target_sessions.append(session_id)
-                except Exception:
-                    # Session might be invalid
-                    pass
-
-        # Send to all target sessions
-        for session_id in target_sessions:
             await self.send_personal(session_id, message)
+            sent += 1
 
-        if target_sessions:
-            logger.debug(f"Broadcast to {len(target_sessions)} sessions: {message.get('type')}")
+        if sent:
+            logger.debug(f"Broadcast to {sent} sessions: {message.get('type')}")
 
     async def broadcast_all(self, message: dict):
         """Broadcast message to all connected sessions."""

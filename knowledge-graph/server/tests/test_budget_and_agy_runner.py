@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import shutil
 import tempfile
 import time
 import unittest
@@ -155,7 +156,10 @@ class BudgetNoticeTests(unittest.TestCase):
     def setUp(self):
         self.sm = HTTPSessionManager()
         self.sid = self.sm.register(None)["session_id"]
-        self.dir = Path(tempfile.mkdtemp(prefix="kg-budget-"))
+        # Under home: the server reads only a transcript there, as hooks write them.
+        (Path.home() / ".cache").mkdir(exist_ok=True)
+        self.dir = Path(tempfile.mkdtemp(prefix="kg-budget-", dir=Path.home() / ".cache"))
+        self.addCleanup(shutil.rmtree, self.dir, True)
         self.rollout = self.dir / "rollout-test.jsonl"
         self.now = 1_800_000_000.0  # 2027-01-15
         self.resets = self.now + 3600
@@ -186,6 +190,15 @@ class BudgetNoticeTests(unittest.TestCase):
         with patch.object(chore_dispatch, "_config", return_value={"budget_notices": False}):
             self.assertIsNone(self.notice())
         self.assertIsNone(budget.notice(self.sm, self.sid, harness.CODEX, None, self.now))
+
+    def test_a_rollout_outside_home_is_not_read(self):
+        outside = Path(tempfile.mkdtemp(prefix="kg-budget-outside-"))
+        self.addCleanup(shutil.rmtree, outside, True)
+        if (str(outside.resolve()) + "/").startswith(str(Path.home().resolve()) + "/"):
+            self.skipTest("the temp directory is under home here")
+        rollout(outside / "rollout-test.jsonl", 95, 96, self.resets)
+        self.assertIsNone(budget.notice(self.sm, self.sid, harness.CODEX,
+                                        str(outside / "rollout-test.jsonl"), self.now))
 
     def test_claude_reads_the_status_line_and_a_passed_reset_is_empty(self):
         limits = self.dir / "last-limits.json"

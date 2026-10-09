@@ -1,0 +1,4 @@
+$ python3 chore-dispatch/repro/repro_runner_pin.py  # at ecc3dc1, before the fixes
+codex_bin correct: chores.json {'codex_bin': 'codex'} (runner auto) -> gauge read: ['claude'], dispatched on: ['claude']
+codex_bin mistyped: chores.json {'codex_bin': 'codx'} (runner auto) -> gauge read: ['claude'], dispatched on: ['claude']
+BUG: a configured codex_bin does not pin Codex while Claude Code is installed; the run spends the Claude subscription

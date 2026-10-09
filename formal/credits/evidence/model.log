@@ -1,0 +1,88 @@
+$ lean --run credits/lean/Credits.lean
+===== fixed=false  (HARD=2 GUIDE=1 PERNODE=3 PASS=4, ≤2 restarts or crashes)
+--- scope ledger: A and M endorse/credit L and N; B rewords L, A adds a case; M renames; saver; restart or crash
+✗ P1 one vote (or one credit) per node per session: COUNTEREXAMPLE
+    A kg_useful a (logged as an endorsement)
+    M kg_rename_node a -> b
+    A kg_useful b (logged as an endorsement)
+✗ P1' the same, without a rename: COUNTEREXAMPLE
+    A kg_useful a (logged as an endorsement)
+    server crash, then start (sessions.json as last saved)
+    A kg_useful a (logged as an endorsement)
+✗ P2 caps: a work session ≤ HARD votes; a pass ≤ PERNODE per node and ≤ PASS in all: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    M kg_useful a credits=1 (logged via maintenance)
+    M kg_rename_node a -> b
+    M kg_useful b credits=3 (logged via maintenance)
+✗ P7 a declared pass's credits are logged via maintenance: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    server restart
+    M kg_useful a (logged as an endorsement)
+✗ sanity (expect ✗): L holds an endorsement and a pass credit of 2+, and is renamed: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    A kg_useful a (logged as an endorsement)
+    M kg_useful a credits=2 (logged via maintenance)
+    M kg_rename_node a -> b
+✗ observe (expect ✗): the guidance is soft, an endorsement past it is accepted: COUNTEREXAMPLE
+    A kg_useful a (logged as an endorsement)
+    A kg_useful n (logged as an endorsement)
+--- scope reads and writes: A, B, M read/write L; renames; restart or crash
+✗ P4 a declared pass's reads never stamp recency or promote: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    server restart
+    M kg_read L (stamps its read time, promotes)
+✗ P5 a pass never earns a note credit, and no note credit goes to the lesson's author: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    M put_node L rewording
+    A put_node L adding a case -> note credit
+✗ P6 no step of a declared pass (write, rename) drops L's activity time: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    M kg_rename_node a -> b
+✗ sanity (expect ✗): B's case on A's lesson is a note credit: COUNTEREXAMPLE
+    B put_node L adding a case -> note credit
+✗ observe (expect ✗): a session flagged after its own read keeps that read's effects: COUNTEREXAMPLE
+    M kg_read L (stamps its read time, promotes)
+    M kg_read(maintenance=true)
+✗ observe (expect ✗): a pass's write unarchives the node it edits: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    M put_node L rewording
+--- scope recurrence: edges via put_edge or outside it, loads, renames; restart or crash
+✓ P3 reconciliation is idempotent: one stamp per credited case, only for edged cases: no counterexample (189 states, exhaustive)
+✗ sanity (expect ✗): L holds two repeats, renamed, after a restart or crash: COUNTEREXAMPLE
+    A kg_rename_node a -> b
+    edge case1 -> L written outside put_edge
+    edge case2 -> L written outside put_edge
+    server restart
+===== fixed=true  (HARD=2 GUIDE=1 PERNODE=3 PASS=4, ≤2 restarts or crashes)
+--- scope ledger: A and M endorse/credit L and N; B rewords L, A adds a case; M renames; saver; restart or crash
+✓ P1 one vote (or one credit) per node per session: no counterexample (2076 states, exhaustive)
+✓ P1' the same, without a rename: no counterexample (2076 states, exhaustive)
+✓ P2 caps: a work session ≤ HARD votes; a pass ≤ PERNODE per node and ≤ PASS in all: no counterexample (2076 states, exhaustive)
+✓ P7 a declared pass's credits are logged via maintenance: no counterexample (2076 states, exhaustive)
+✗ sanity (expect ✗): L holds an endorsement and a pass credit of 2+, and is renamed: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    A kg_useful a (logged as an endorsement)
+    M kg_useful a credits=2 (logged via maintenance)
+    M kg_rename_node a -> b
+✗ observe (expect ✗): the guidance is soft, an endorsement past it is accepted: COUNTEREXAMPLE
+    A kg_useful a (logged as an endorsement)
+    A kg_useful n (logged as an endorsement)
+--- scope reads and writes: A, B, M read/write L; renames; restart or crash
+✓ P4 a declared pass's reads never stamp recency or promote: no counterexample (444 states, exhaustive)
+✓ P5 a pass never earns a note credit, and no note credit goes to the lesson's author: no counterexample (444 states, exhaustive)
+✓ P6 no step of a declared pass (write, rename) drops L's activity time: no counterexample (444 states, exhaustive)
+✗ sanity (expect ✗): B's case on A's lesson is a note credit: COUNTEREXAMPLE
+    B put_node L adding a case -> note credit
+✗ observe (expect ✗): a session flagged after its own read keeps that read's effects: COUNTEREXAMPLE
+    M kg_read L (stamps its read time, promotes)
+    M kg_read(maintenance=true)
+✗ observe (expect ✗): a pass's write unarchives the node it edits: COUNTEREXAMPLE
+    M kg_read(maintenance=true)
+    M put_node L rewording
+--- scope recurrence: edges via put_edge or outside it, loads, renames; restart or crash
+✓ P3 reconciliation is idempotent: one stamp per credited case, only for edged cases: no counterexample (108 states, exhaustive)
+✗ sanity (expect ✗): L holds two repeats, renamed, after a restart or crash: COUNTEREXAMPLE
+    A kg_rename_node a -> b
+    edge case1 -> L written outside put_edge
+    edge case2 -> L written outside put_edge
+    server restart

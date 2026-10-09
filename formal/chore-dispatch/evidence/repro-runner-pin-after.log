@@ -1,0 +1,4 @@
+$ python3 chore-dispatch/repro/repro_runner_pin.py  # after the fixes
+codex_bin correct: chores.json {'codex_bin': 'codex'} (runner auto) -> gauge read: ['codex'], dispatched on: ['codex']
+codex_bin mistyped: chores.json {'codex_bin': 'codx'} (runner auto) -> gauge read: ['codex'], dispatched on: []
+PASS

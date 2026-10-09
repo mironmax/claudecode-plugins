@@ -1,0 +1,4 @@
+$ python3 budget-notices/repro/repro_agy_stale.py  # at ecc3dc1, before the fixes
+cached reading: weekly 96.0% used, resets at RESET; cache age at the hook: 90 s (cache lifetime 300 s)
+notice 30 s after the reset: 'Budget: weekly quota at 96% (resets Fri 08:00). Wrap up now: commit or checkpoint, write the handover and memory updates, then stop or ask the user.'
+BUG: the cached reading of a window that has reset is not zeroed; a fresh session is told to wrap up now while its weekly quota is empty

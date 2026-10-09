@@ -7,6 +7,8 @@ app, including its list-shaped graph snapshots and project addressing.
 """
 
 import copy
+import json
+import threading
 import asyncio
 import importlib.util
 import os
@@ -14,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 SERVER = Path(__file__).resolve().parents[2] / "server"
@@ -273,6 +276,107 @@ class EditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIn("absent-node", response.json()["detail"])
         self.assertEqual((await self.client.get("/api/nodes/invalid/x/score")).status_code, 422)
+
+    async def test_cross_site_requests_are_refused(self):
+        # A cross-site <img> GET would otherwise promote the node through the proxy.
+        for headers in ({"Sec-Fetch-Site": "cross-site"}, {"Origin": "https://example.com"}):
+            response = await self.client.get("/api/nodes/user/signal-beta", headers=headers)
+            self.assertEqual(response.status_code, 403, headers)
+        self.assertTrue(self.graph["nodes"]["signal-beta"].get("_archived"))
+        same_origin = {"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost:8766"}
+        self.assertEqual((await self.client.get("/api/health", headers=same_origin)).status_code, 200)
+        # A link to the editor on another site still opens the page itself.
+        link = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"}
+        self.assertEqual((await self.client.get("/", headers=link)).status_code, 200)
+
+
+class _FakeUpstream:
+    """websockets.connect stand-in for the memory server's /ws: answers a
+    subscribe as the server does; {"type": "restart"} ends the connection."""
+    def __init__(self, url):
+        self.url, self.sent, self.queue = url, [], None
+
+    async def __aenter__(self):
+        self.queue = asyncio.Queue()
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def send(self, data):
+        self.sent.append(data)
+        msg = json.loads(data)
+        if msg.get("type") == "subscribe":
+            await self.queue.put(json.dumps({"type": "subscribed", "sub": msg["sub"],
+                                             "project_path": msg["project_path"]}))
+        elif msg.get("type") == "restart":
+            await self.queue.put(None)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        item = await self.queue.get()
+        if item is None:
+            raise StopAsyncIteration
+        return item
+
+
+class EditorProxyTests(unittest.TestCase):
+    def test_ws_proxy_forwards_subscriptions_and_closes_with_the_server(self):
+        from starlette.testclient import TestClient
+        from starlette.websockets import WebSocketDisconnect
+        upstreams = []
+
+        def connect(url):
+            upstreams.append(_FakeUpstream(url))
+            return upstreams[-1]
+
+        with patch.dict(sys.modules, {"websockets": SimpleNamespace(connect=connect)}):
+            client = TestClient(editor.app)
+            with client.websocket_connect("ws://localhost/ws",
+                                          headers={"origin": "http://localhost:8766"}) as ws:
+                ws.send_text(json.dumps({"type": "subscribe", "sub": 1, "project_path": "/p"}))
+                self.assertEqual(ws.receive_json(),
+                                 {"type": "subscribed", "sub": 1, "project_path": "/p"})
+                # The memory server goes away: the page must see its socket
+                # close (and reconnect), not sit on a dead proxy.
+                ws.send_text(json.dumps({"type": "restart"}))
+                outcome = []
+
+                def receive():
+                    try:
+                        outcome.append(ws.receive_json())
+                    except WebSocketDisconnect:
+                        outcome.append("closed")
+                waiter = threading.Thread(target=receive, daemon=True)
+                waiter.start()
+                waiter.join(5)
+                self.assertEqual(outcome, ["closed"])
+        self.assertEqual(upstreams[0].url, editor.MCP_WS_URL)
+
+
+class EditorConfigTests(unittest.TestCase):
+    def load(self, **env):
+        with patch.dict(os.environ, env):
+            spec = importlib.util.spec_from_file_location(
+                "visual_backend_config", SERVER.parent / "visual-editor/backend/server.py")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        return module
+
+    def cors_origins(self, module):
+        return next(m.kwargs["allow_origins"] for m in module.app.user_middleware
+                    if "allow_origins" in m.kwargs)
+
+    def test_defaults(self):
+        self.assertEqual(editor.MCP_WS_URL, "ws://127.0.0.1:8765/ws")
+        self.assertIn("http://localhost:8766", self.cors_origins(editor))
+
+    def test_ports_follow_the_environment(self):
+        module = self.load(MCP_SERVER_URL="http://127.0.0.1:8767/", EDITOR_PORT="8770")
+        self.assertEqual(module.MCP_WS_URL, "ws://127.0.0.1:8767/ws")
+        self.assertEqual(self.cors_origins(module), ["http://localhost:8770", "http://127.0.0.1:8770"])
 
 
 if __name__ == "__main__":

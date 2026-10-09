@@ -1,0 +1,14 @@
+$ python3 delivery/repro/repro_agy.py
+X2a kg_search reply queued; cache-policy seen_at unchanged before any delivery; S's write on its v1 view: refused; gist now 'cache headers per route: v2, T moved them to the edge'
+   ok
+   once delivered, the notice counts as a view: S's merged write goes through
+X2b kg_search reply refused; cache-policy seen_at unchanged before any delivery; S's write on its v1 view: refused; gist now 'cache headers per route: v2, T moved them to the edge'
+   ok
+X3 first preload showed anchor-node: True; after the checkpoint the new preload shows it: False; the replayed read shows its gist: False (anchor only: True); seen after delivery: False
+   ok
+X4 4 replies queued (1048059 of 1048576 bytes); after the checkpoint the first packet is 'KG context — preload'
+   ok
+RESULT X2a: PASS
+RESULT X2b: PASS
+RESULT X3: PASS
+RESULT X4: PASS

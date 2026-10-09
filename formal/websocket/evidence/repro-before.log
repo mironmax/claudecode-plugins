@@ -1,0 +1,9 @@
+$ python3 websocket/repro/repro_ws.py   # same script, on the code before the fix
+editor ws session: 1aa5c2b9 session project: None
+reply to subscribe(P): pong sub None project matches P: False
+writes (P, Q, user marker): 200 200 200
+changes the editor received before the marker: []
+FAIL: project-level change never reached the editor
+writes (P, Q, user marker): 200 200 200
+older page (no subscribe) received before the marker: []
+FAIL

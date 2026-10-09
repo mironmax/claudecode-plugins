@@ -20,7 +20,7 @@ Filenames and directory listings tell you what exists. The KG tells you what eac
 Directory-scale orientation. Answers: "which part of the codebase?"
 
 ```
-kg_put_node(level="project", id="auth-subsystem",
+kg_put_node(session_id, level="project", id="auth-subsystem",
   gist="JWT issue/verify + refresh flow. No user lookup, no permissions — those are in user-subsystem.",
   touches=["src/auth/"])
 ```
@@ -30,7 +30,7 @@ File-cluster-scale. Answers: "which file within that area?"
 One node covers 1–5 tightly related files that always change together.
 
 ```
-kg_put_node(level="project", id="auth-token-signing",
+kg_put_node(session_id, level="project", id="auth-token-signing",
   gist="Signs/verifies JWTs only. Key rotation logic here, not in middleware.",
   touches=["src/auth/jwt.ts", "src/auth/keys.ts"])
 ```
@@ -97,7 +97,7 @@ kg_progress(session_id, task_id="extract")
 ### Step 2: Survey
 ```
 Glob("**/package.json")  # or pyproject.toml, go.mod, Cargo.toml
-Glob("src/**", limit=2)  # directory shape only
+Glob("src/*")  # top-level shape only
 Glob("**/README*")
 ```
 Identify: main directories, entry points, config files, key abstractions.
@@ -106,12 +106,12 @@ Identify: main directories, entry points, config files, key abstractions.
 Map the 5–10 subsystems. Fast, coarse. Connect them to resources and entries.
 
 ```
-kg_put_node(level="project", id="api-subsystem",
+kg_put_node(session_id, level="project", id="api-subsystem",
   gist="HTTP layer: routing, validation, response shaping. No business logic.",
   touches=["src/api/"])
-kg_put_node(level="project", id="postgres-db",
+kg_put_node(session_id, level="project", id="postgres-db",
   gist="Primary store. Schema via Alembic migrations.", touches=["migrations/"])
-kg_put_edge(level="project", from="api-subsystem", to="postgres-db",
+kg_put_edge(session_id, level="project", from="api-subsystem", to="postgres-db",
   rel="persists", notes=["via domain-subsystem ORM calls"])
 ```
 
@@ -129,10 +129,10 @@ When you open files in an area, add a component node for the file cluster.
 Do not create component nodes for areas you haven't touched.
 
 ```
-kg_put_node(level="project", id="auth-token-signing",
+kg_put_node(session_id, level="project", id="auth-token-signing",
   gist="Signs/verifies JWTs. Key rotation here. Middleware is separate.",
   touches=["src/auth/jwt.ts", "src/auth/keys.ts"])
-kg_put_edge(level="project", from="auth-subsystem", to="auth-token-signing",
+kg_put_edge(session_id, level="project", from="auth-subsystem", to="auth-token-signing",
   rel="contains")
 ```
 
@@ -156,27 +156,27 @@ graph near token limit · project is small enough to Glob in one pass
 
 ```
 # Tier 1 — Subsystems
-kg_put_node(level="project", id="api-subsystem",
+kg_put_node(session_id, level="project", id="api-subsystem",
   gist="FastAPI routes + request validation. No business logic — delegates everything to domain.",
   touches=["src/api/"])
-kg_put_node(level="project", id="domain-subsystem",
+kg_put_node(session_id, level="project", id="domain-subsystem",
   gist="Business rules + orchestration. Framework-free. Entry point for all logic.",
   touches=["src/domain/"])
-kg_put_node(level="project", id="data-subsystem",
+kg_put_node(session_id, level="project", id="data-subsystem",
   gist="SQLAlchemy models + async sessions. Schema owned here via Alembic.",
   touches=["src/data/", "migrations/"])
-kg_put_node(level="project", id="postgres-db", gist="Primary store.")
-kg_put_node(level="project", id="redis-cache", gist="Session store + rate limit counters.")
+kg_put_node(session_id, level="project", id="postgres-db", gist="Primary store.")
+kg_put_node(session_id, level="project", id="redis-cache", gist="Session store + rate limit counters.")
 
-kg_put_edge(level="project", from="api-subsystem", to="domain-subsystem", rel="calls")
-kg_put_edge(level="project", from="domain-subsystem", to="data-subsystem", rel="calls")
-kg_put_edge(level="project", from="data-subsystem", to="postgres-db", rel="persists")
-kg_put_edge(level="project", from="api-subsystem", to="redis-cache",
+kg_put_edge(session_id, level="project", from="api-subsystem", to="domain-subsystem", rel="calls")
+kg_put_edge(session_id, level="project", from="domain-subsystem", to="data-subsystem", rel="calls")
+kg_put_edge(session_id, level="project", from="data-subsystem", to="postgres-db", rel="persists")
+kg_put_edge(session_id, level="project", from="api-subsystem", to="redis-cache",
   rel="persists", notes=["rate limiting only"])
 
 # Tier 2 — Components (added later, as files are explored)
-kg_put_node(level="project", id="auth-middleware",
+kg_put_node(session_id, level="project", id="auth-middleware",
   gist="Validates JWT on every request. Injects user_id into request state. Does NOT issue tokens.",
   touches=["src/api/middleware/auth.py"])
-kg_put_edge(level="project", from="auth-middleware", to="api-subsystem", rel="guards")
+kg_put_edge(session_id, level="project", from="auth-middleware", to="api-subsystem", rel="guards")
 ```

@@ -1,0 +1,30 @@
+$ python3 credits/repro/repro_credits.py    # at ecc3dc1, before the fix
+== X1: a rename lets a session vote twice for one node
+     after the rename: A's second vote accepted=True, M's second credit accepted=True, node stamps=8
+BUG X1: session A endorsed the renamed node a second time
+BUG X1: one maintenance pass credited one node 3+3 times (cap: 3 per node)
+== X2: a maintenance rename resets the node's activity time
+     recency after the pass's rewrite: the write time; after the pass's rename: 0 (the epoch)
+ok  X2: a maintenance rewrite keeps the node's previous activity time
+BUG X2: a maintenance rename moved recency from the write time to 0 (the epoch) (version used_ts=0)
+== X3: a server restart forgets that a session is maintenance
+     after a restart: session restored=True, maintenance=False
+BUG X3: restart: its read promoted an archived node; its read stamped recency; credits=2 refused as 'credits are for a maintenance pass'; credits=1 became an endorsement logged via None (counted as use)
+     after a crash: session restored=True, maintenance=False
+BUG X3: crash: its read promoted an archived node; its read stamped recency; credits=2 refused as 'credits are for a maintenance pass'; credits=1 became an endorsement logged via None (counted as use)
+== X4: a maintenance tidy turns the author's next case into a note credit
+BUG X4: author A earned a note credit (via 'note') on its own lesson
+ok  X4-control: another session's case credited=True
+== X5: a crash keeps the vote and loses the ledger entry
+     after the crash: second vote accepted=True, node stamps=2
+BUG X5: session A endorsed the same node twice across a crash
+== X6: an instance-of edge in the maintain graph credits a user lesson
+     user lesson stamps after put_edge at level maintain: 1
+BUG X6: put_edge credited a user lesson from the maintain graph; no load would have
+== checked, holds
+ok  H1: 12 threads: A holds 10 distinct votes (cap 10), M 15 credits on 5 nodes (cap 15), node stamps 25 = votes + credits
+ok  H2: (user stamps, project stamps, recurrence log lines) over 6 reloads and a restart: [(1, 1, 2), (1, 1, 2), (1, 1, 2), (1, 1, 2), (1, 1, 2), (1, 1, 2)]
+ok  H3: a session flagged before its read: no stamp, no promotion
+     late flag: the read before it promoted=True stamped=True and stays so; the session is maintenance from the flag on=True
+ok  H4: vias in order: ['note', 'recurrence', 'maintenance', 'search']
+RESULT: FAIL X1, X2, X3, X4, X5, X6

@@ -1,0 +1,5 @@
+$ python3 chore-dispatch/repro/repro_state_write.py  # after the fixes
+min_interval=2700s; three prompts within a second
+log events: ['skip(state write failed)', 'skip(state write failed)', 'skip(state write failed)']
+dispatches=0  chore_state.json exists=False
+PASS

@@ -125,6 +125,9 @@ class Step:
     key = ""
     group = ""
     title = ""
+    # Opt-in: asked with No as the default, and skipped by --yes unless named
+    # in --only. For what spends the user's quota.
+    opt_in = False
 
     def check(self, ctx: Context) -> tuple[str, str]:
         raise NotImplementedError
@@ -228,8 +231,9 @@ def systemd_user() -> bool:
 def unit_text(command: str) -> str:
     # A user service starts with systemd's minimal environment, but maintenance
     # runs spawn claude/codex/agy, which may live anywhere on the user's PATH.
+    # XDG_STATE_HOME keeps the server's start record where kg looks for it.
     keep = {k: v for k, v in os.environ.items()
-            if k == "PATH" or k == "CODEX_HOME" or k.startswith("KG_")}
+            if k in ("PATH", "CODEX_HOME", "XDG_STATE_HOME") or k.startswith("KG_")}
     if "PATH" in keep:
         keep["PATH"] = os.pathsep.join(dict.fromkeys(keep["PATH"].split(os.pathsep)))
     env = "".join(f'Environment="{k}={v.replace("%", "%%")}"\n' for k, v in sorted(keep.items()))
@@ -705,6 +709,7 @@ class AgyPermissions(Step):
 
 class Upkeep(Step):
     key, group, title = "upkeep", "Memory", "background upkeep"
+    opt_in = True   # it spends quota
 
     def check(self, ctx):
         cfg = load_json(kg.STORAGE_ROOT / "chores.json")

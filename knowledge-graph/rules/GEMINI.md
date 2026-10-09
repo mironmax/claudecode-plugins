@@ -16,5 +16,4 @@ Large kg_* replies arrive as KG context from the next hook. When a reply says
 delivery continues, call kg_sync with the same session_id until all parts
 arrive before using or updating that reply. A queued receipt alone does not
 mean the memories have been read. The kg-core skill contains the full memory
-workflow. Antigravity maintenance and history scouting are outside this
-experimental CLI iteration.
+workflow.

@@ -15,7 +15,7 @@ QUEUE_ITEMS = 64
 
 VIEW_METHODS = frozenset({
     "mark_seen", "note_viewed", "mark_promoted", "mark_full_read",
-    "mark_synced", "set_preloaded",
+    "mark_synced", "mark_pushed", "set_preloaded",
 })
 # Graph-side effects of a read, applied through the store outside the
 # session lock once delivery is accepted.
@@ -67,11 +67,14 @@ def apply_graph_effects(store, effects):
 
 def enqueue(data, text, kind, effects, first=False):
     """Add without evicting anything already promised to the model. `first`
-    puts orientation ahead of replayed replies, unless a packet is out."""
+    puts orientation ahead of replayed replies, unless a packet is out. It
+    is exempt from the bound: one preload at most is pending, sized by its
+    own budget, and a full queue at a checkpoint must not let replayed
+    replies reach the new context before it."""
     queue = data.setdefault("agy_pending", [])
     size = len(text.encode("utf-8"))
-    if len(queue) >= QUEUE_ITEMS or size + sum(
-            len(item["text"].encode("utf-8")) for item in queue) > QUEUE_BYTES:
+    if not first and (len(queue) >= QUEUE_ITEMS or size + sum(
+            len(item["text"].encode("utf-8")) for item in queue) > QUEUE_BYTES):
         return False
     item = {"id": uuid.uuid4().hex, "kind": kind, "text": text,
             "offset": 0, "effects": effects}

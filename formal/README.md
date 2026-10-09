@@ -12,8 +12,27 @@ file:line references are in [FINDINGS.md](FINDINGS.md).
 reload lets disk win, logs what it drops, and the two paths that triggered
 it without anyone asking (the visual editor, cross-site pages) are gone.
 F11 was found later and fixed in v0.10.1; F5 and F8 in v0.10.2.
-F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 and F7
-remain open.
+F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 is fixed on
+the development branch (project-bound editor subscriptions, modelled first).
+F13–F16, found by a second pass on delivery (paged reads and Antigravity's
+queue), and F17–F23, from the dispatcher's pass tier, runners and budget
+notices, F24–F26, from the server lifecycle, and F27–F32, from usefulness
+accounting, are fixed there too. F7 remains open.
+
+## Open work
+
+A second pass started on the parts added since 0.11 that no model covered
+yet. Delivery (F13–F16) and the editor's subscriptions (F6) are done. Still
+to be modelled and reproduced, each in its own directory:
+
+- `compaction/`: a Lean model of the per-tick archive / refill / rebalance /
+  orphan sequence and the root cause of F7's one-tick churn;
+- `cross-session/`: the push of other sessions' writes and `kg_sync`
+  (each change pushed once, never to its writer, nothing falling between the
+  push window and the sync watermark);
+
+The models are not yet run in CI; `run_all.sh` prints results but never
+fails, so a CI job would need expected outcomes per model and reproduction.
 
 ## Method
 
@@ -46,14 +65,34 @@ randomized search over the real compactor instead of a model.
 | F2 | A failed write-through still clears `dirty`, so the write is lost at shutdown while `put_node` reports success | Lean BFS | fixed, 0.9.44 | medium |
 | F3 | Forced reload discards unsaved in-memory state | Lean BFS | reproduced | medium-low |
 | F4 | Saver thread dies permanently on a session-dict race (no lock, no `try`) | reading + stress | fixed, 0.9.44 | medium |
-| F5 | Rename re-points or drops cross-level edges (4 variants) | Lean enumeration | reproduced, fixed | medium |
-| F6 | The visual editor never receives project-level live updates | reading | reproduced | low |
+| F5 | Rename re-points or drops cross-level edges (4 variants) | Lean enumeration | fixed, 0.10.2 | medium |
+| F6 | The visual editor never receives project-level live updates | reading; fix checked in Lean | fixed, unreleased | low |
 | F7 | Compaction and refill churn: a node archived on one tick is re-promoted on the next | randomized search over the real compactor | reproduced | low |
-| F8 | A fork shares its live parent's KG session; the parent's hooks resolve to another session | Lean BFS | reproduced, fixed | medium-low |
+| F8 | A fork shares its live parent's KG session; the parent's hooks resolve to another session | Lean BFS | fixed, 0.10.2 | medium-low |
 | F9 | Cross-site GETs with side effects (`reload=true`, `session_bootstrap`) | reading + test | fixed, 0.9.44 | low |
 | F10 | The maintenance pass tier skips the "never rename a node a live session holds" rule; `_live_seen` fails open | reading | fixed, 0.9.44 | medium-low |
-| F11 | A write built on a stale or partial view drops another session's note, or notes the writer never read | Lean BFS + reproduction | reproduced, fixed | medium |
-| F12 | A fork takes over a KG session no hook has bound yet | Lean BFS + reproduction | fixed on main, unreleased | medium-low |
+| F11 | A write built on a stale or partial view drops another session's note, or notes the writer never read | Lean BFS + reproduction | fixed, 0.10.1 | medium |
+| F12 | A fork takes over a KG session no hook has bound yet | Lean BFS + reproduction | fixed, 0.11.0 | medium-low |
+| F13 | A paged node read counts a node as read before its notes go out; a write can then drop them | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F14 | The other-sessions notice marks nodes seen before its (queued or refused) Antigravity reply is delivered | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F15 | A full read replayed after a checkpoint marks preloaded anchors seen | Lean BFS + reproduction | fixed, unreleased | low |
+| F16 | A checkpoint with a full delivery queue refuses the fresh preload | Lean BFS + reproduction | fixed, unreleased | low |
+| F17 | A timed-out Antigravity maintenance run leaves agy running | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F18 | A configured `codex_bin`/`antigravity_bin` does not pin its runner under auto | enumeration + reproduction | fixed, unreleased | medium-low |
+| F19 | An unwritable chore state file fails open: repeated dispatches | Lean BFS + reproduction | fixed, unreleased | low-medium |
+| F20 | A carried five-hour gauge reading passes as fresh | reproduction | fixed, unreleased | low-medium |
+| F21 | A runner command that raises wedges dispatch until restart | Lean BFS + reproduction | fixed, unreleased | low |
+| F22 | The dispatch lock re-decides on stale config and clock | Lean BFS + reproduction | fixed, unreleased | low |
+| F23 | An Antigravity budget notice describes a window that already reset | Lean BFS + reproduction | fixed, unreleased | low |
+| F24 | A start that runs out of time leaves its server untracked under a start-error record nobody clears | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F25 | A stale pid file is trusted for whatever process now holds the pid | Lean BFS + reproduction | fixed, unreleased | low |
+| F26 | `kg stop`/`restart` don't hold the start lock: a start during a stop leaves nothing serving | Lean BFS + reproduction | fixed, unreleased | low |
+| F27 | A rename lets a session vote twice for one node | Lean BFS + reproduction | fixed, unreleased | low |
+| F28 | A maintenance rename resets the node's activity time to 0 | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F29 | A server restart forgets that a session is maintenance | Lean BFS + reproduction | fixed, unreleased | medium-low |
+| F30 | A maintenance tidy turns the author's own next case into a note credit | Lean BFS + reproduction | fixed, unreleased | low |
+| F31 | A crash keeps a vote but loses its ledger entry | Lean BFS + reproduction | fixed, unreleased | low |
+| F32 | An `instance-of` edge in the maintain graph credits a user lesson | reading + reproduction | fixed, unreleased | very low |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.
@@ -71,9 +110,9 @@ FINDINGS.md so they need not be re-checked.
 ## Running
 
 ```bash
-# once: Lean toolchain (pinned in lean-toolchain) + server test deps
+# once: Lean toolchain (pinned in lean-toolchain) + the server's venv
 curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
-pip install -r ../knowledge-graph/server/requirements.txt httpx
+../knowledge-graph/cli/kg-dev version     # builds ../knowledge-graph/server/venv on first use
 
 PYTHON="$(realpath ../knowledge-graph/server/venv/bin/python)" ./run_all.sh
                       # ~1 min; rewrites <concern>/evidence/*.log
@@ -91,5 +130,6 @@ declines.
 <concern>/lean/*.lean    model + bounded search (executable: lean --run)
 <concern>/repro/*.py     deterministic reproduction against the real code
 <concern>/evidence/*.log output of the run at f17349a, before any fix:
-                         the counterexamples as found
+                         the counterexamples as found (concurrent-writes and
+                         sessions were re-run with the F11 and F12 fixes)
 ```

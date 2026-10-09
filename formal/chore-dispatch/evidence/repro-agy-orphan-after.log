@@ -1,0 +1,5 @@
+$ python3 chore-dispatch/repro/repro_agy_orphan.py  # after the fixes
+run 1: watcher cleared _running after the timeout
+run 2: watcher cleared _running after the timeout
+agy processes started: 2; still running after both runs 'ended': 0
+PASS

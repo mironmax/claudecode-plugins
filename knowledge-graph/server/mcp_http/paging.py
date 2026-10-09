@@ -55,16 +55,33 @@ def _shown_in(part: str, ids) -> set:
             if re.search(rf"^(?:  |▸ ){re.escape(nid)}(?=[: (]|$)", part, re.M)}
 
 
+def _block_ends(parts: list[str], ids) -> dict:
+    """The part holding the last line of each id's node block (from its
+    '▸ id (' header to the next header or the reply's Session line)."""
+    ends, current = {}, None
+    for i, part in enumerate(parts):
+        for line in part.split("\n"):
+            if line.startswith(("▸ ", "Session: ")):
+                head = line[2:].split(" ", 1)[0] if line.startswith("▸ ") else None
+                current = head if head in ids else None
+            if current is not None and line.strip():
+                ends[current] = i
+    return ends
+
+
 def assign(effects: list, parts: list[str]) -> list[list]:
     """Each part's share of the read's effects. An id goes with the first part
-    that shows it, or the last part when no line shows it; anything not about
-    ids (the full-read flag) goes with the last part."""
+    that shows it, or the last part when no line shows it; a node read's
+    block, whose notes can run on into the next part, goes with the part
+    that ends it, so the node counts as read only once all of it went out.
+    Anything not about ids (the full-read flag) goes with the last part."""
     ids = {nid for e in effects if e["method"] in ID_LISTS for nid in e["args"][1]}
     ids |= {e["args"][0] for e in effects if e["method"] == "record_read"}
     home = {}
     for i, part in enumerate(parts):
         for nid in _shown_in(part, ids - home.keys()):
             home[nid] = i
+    home.update(_block_ends(parts, ids))
     last = len(parts) - 1
     out = [[] for _ in parts]
     for e in effects:

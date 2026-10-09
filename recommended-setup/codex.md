@@ -36,7 +36,7 @@ Read the labels carefully: **limit percentages are remaining**, while `context-u
 
 The native footer accepts built-in items, not arbitrary shell output. The Claude `statusline.sh` cannot be installed here, and enabling this preset does not create `~/.claude/last-limits.json` or give the agent a new quota-reading tool. A separate usage display or a custom Codex build is needed for a persistent reset countdown outside the built-in warning.
 
-With the Knowledge Graph plugin installed, the agent does not depend on this footer to pace itself: the memory server reads the session's own rollout and tells it once when to plan the wrap-up (80% of five hours) and when to wrap up now (90%). Nothing to install.
+With the Knowledge Graph plugin installed, the agent does not depend on this footer to pace itself: the memory server reads the session's own rollout and tells it once when to plan the wrap-up (80% of five hours) and when to wrap up now (90%), and the same at 90/95% of the week. Nothing to install, as long as the plugin's hooks are trusted in `/hooks`.
 
 **Undo:** use `/statusline` to restore your previous selection, or restore the previous `status_line` value from your config backup.
 

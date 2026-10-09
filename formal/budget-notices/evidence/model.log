@@ -1,0 +1,137 @@
+$ lean --run budget-notices/lean/Budget.lean
+--- Claude Code / Codex (reading zeroed after a reset): hooks=2 x 3 calls, windows≤3, restarts≤1, agy=false zeroAgy=false atomicNote=true splitRead=false saveOk=true
+✓ B1 each level said at most once per window (across restarts): no counterexample (8854 states, exhaustive)
+✓ B2 no notice about a window that has already reset: no counterexample (8854 states, exhaustive)
+✗ sanity (expect ✗): both levels said in two windows: COUNTEREXAMPLE (6509 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads (window 0, level 1); note_budget_level -> new; SAYS level 1 of window 0
+    usage rises to level 2
+    gauge source catches up (window 0, level 2)
+    prompt hook: reads (window 0, level 2); note_budget_level -> new; SAYS level 2 of window 0
+    window 0 resets
+    usage rises to level 1
+    gauge source catches up (window 1, level 1)
+    prompt hook: reads (window 1, level 1); note_budget_level -> new; SAYS level 1 of window 1
+    usage rises to level 2
+    gauge source catches up (window 1, level 2)
+    tool hook: reads (window 1, level 2); note_budget_level -> new; SAYS level 2 of window 1
+--- Antigravity cache, as shipped: hooks=2 x 3 calls, windows≤3, restarts≤1, agy=true zeroAgy=false atomicNote=true splitRead=false saveOk=true
+✓ B1 each level said at most once per window (across restarts): no counterexample (21422 states, exhaustive)
+✗ B2 no notice about a window that has already reset: COUNTEREXAMPLE (144 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    window 0 resets
+    prompt hook: reads (window 0, level 1); note_budget_level -> new; SAYS level 1 of window 0
+✗ sanity (expect ✗): both levels said in two windows: COUNTEREXAMPLE (13286 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads (window 0, level 1); note_budget_level -> new; SAYS level 1 of window 0
+    usage rises to level 2
+    gauge source catches up (window 0, level 2)
+    prompt hook: reads (window 0, level 2); note_budget_level -> new; SAYS level 2 of window 0
+    window 0 resets
+    usage rises to level 1
+    gauge source catches up (window 1, level 1)
+    prompt hook: reads (window 1, level 1); note_budget_level -> new; SAYS level 1 of window 1
+    usage rises to level 2
+    gauge source catches up (window 1, level 2)
+    tool hook: reads (window 1, level 2); note_budget_level -> new; SAYS level 2 of window 1
+--- Antigravity cache, zeroAgy fix: hooks=2 x 3 calls, windows≤3, restarts≤1, agy=true zeroAgy=true atomicNote=true splitRead=false saveOk=true
+✓ B1 each level said at most once per window (across restarts): no counterexample (8854 states, exhaustive)
+✓ B2 no notice about a window that has already reset: no counterexample (8854 states, exhaustive)
+✗ sanity (expect ✗): both levels said in two windows: COUNTEREXAMPLE (6509 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads (window 0, level 1); note_budget_level -> new; SAYS level 1 of window 0
+    usage rises to level 2
+    gauge source catches up (window 0, level 2)
+    prompt hook: reads (window 0, level 2); note_budget_level -> new; SAYS level 2 of window 0
+    window 0 resets
+    usage rises to level 1
+    gauge source catches up (window 1, level 1)
+    prompt hook: reads (window 1, level 1); note_budget_level -> new; SAYS level 1 of window 1
+    usage rises to level 2
+    gauge source catches up (window 1, level 2)
+    tool hook: reads (window 1, level 2); note_budget_level -> new; SAYS level 2 of window 1
+--- note split into check, then record (no lock): hooks=2 x 3 calls, windows≤3, restarts≤1, agy=false zeroAgy=false atomicNote=false splitRead=false saveOk=true
+✗ B1 each level said at most once per window (across restarts): COUNTEREXAMPLE (785 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads (window 0, level 1); check -> new
+    tool hook: reads (window 0, level 1); check -> new
+    prompt hook: records; SAYS level 1 of window 0
+    tool hook: records; SAYS level 1 of window 0
+✗ B2 no notice about a window that has already reset: COUNTEREXAMPLE (348 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads (window 0, level 1); check -> new
+    window 0 resets
+    prompt hook: records; SAYS level 1 of window 0
+✗ sanity (expect ✗): both levels said in two windows: COUNTEREXAMPLE (43140 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads (window 0, level 1); check -> new
+    tool hook: reads (window 0, level 1); check -> new
+    prompt hook: records; SAYS level 1 of window 0
+    tool hook: records; SAYS level 1 of window 0
+    usage rises to level 2
+    gauge source catches up (window 0, level 2)
+    prompt hook: reads (window 0, level 2); check -> new
+    tool hook: reads (window 0, level 2); check -> new
+    prompt hook: records; SAYS level 2 of window 0
+    tool hook: records; SAYS level 2 of window 0
+--- read and note as separate steps (handlers interleaving; not the code): hooks=2 x 3 calls, windows≤3, restarts≤1, agy=false zeroAgy=false atomicNote=true splitRead=true saveOk=true
+✗ B1 each level said at most once per window (across restarts): COUNTEREXAMPLE (38767 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads gauge (window 0, level 1)
+    prompt hook: note_budget_level -> new; SAYS level 1 of window 0
+    prompt hook: reads gauge (window 0, level 1)
+    window 0 resets
+    usage rises to level 1
+    gauge source catches up (window 1, level 1)
+    tool hook: reads gauge (window 1, level 1)
+    tool hook: note_budget_level -> new; SAYS level 1 of window 1
+    prompt hook: note_budget_level -> new; SAYS level 1 of window 0
+✗ B2 no notice about a window that has already reset: COUNTEREXAMPLE (424 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads gauge (window 0, level 1)
+    window 0 resets
+    prompt hook: note_budget_level -> new; SAYS level 1 of window 0
+✗ sanity (expect ✗): both levels said in two windows: COUNTEREXAMPLE (115755 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads gauge (window 0, level 1)
+    prompt hook: note_budget_level -> new; SAYS level 1 of window 0
+    prompt hook: reads gauge (window 0, level 1)
+    window 0 resets
+    usage rises to level 1
+    gauge source catches up (window 1, level 1)
+    tool hook: reads gauge (window 1, level 1)
+    tool hook: note_budget_level -> new; SAYS level 1 of window 1
+    prompt hook: note_budget_level -> new; SAYS level 1 of window 0
+    prompt hook: reads gauge (window 1, level 1)
+    prompt hook: note_budget_level -> new; SAYS level 1 of window 1
+--- save_sessions fails: hooks=2 x 3 calls, windows≤3, restarts≤1, agy=false zeroAgy=false atomicNote=true splitRead=false saveOk=false
+✗ B1 each level said at most once per window (across restarts): COUNTEREXAMPLE (323 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads (window 0, level 1); note_budget_level -> new; SAYS level 1 of window 0
+    server restarts: the record is reloaded from sessions.json
+    prompt hook: reads (window 0, level 1); note_budget_level -> new; SAYS level 1 of window 0
+✓ B2 no notice about a window that has already reset: no counterexample (17608 states, exhaustive)
+✗ sanity (expect ✗): both levels said in two windows: COUNTEREXAMPLE (8973 states explored)
+    usage rises to level 1
+    gauge source catches up (window 0, level 1)
+    prompt hook: reads (window 0, level 1); note_budget_level -> new; SAYS level 1 of window 0
+    usage rises to level 2
+    gauge source catches up (window 0, level 2)
+    prompt hook: reads (window 0, level 2); note_budget_level -> new; SAYS level 2 of window 0
+    window 0 resets
+    usage rises to level 1
+    gauge source catches up (window 1, level 1)
+    prompt hook: reads (window 1, level 1); note_budget_level -> new; SAYS level 1 of window 1
+    server restarts: the record is reloaded from sessions.json
+    tool hook: reads (window 1, level 1); note_budget_level -> new; SAYS level 1 of window 1

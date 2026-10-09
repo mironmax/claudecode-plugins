@@ -1,0 +1,98 @@
+$ lean --run delivery/lean/Agy.lean
+--- fix2=false fix3=false fix4=false  (QMAX=2 items, 2 chunks a packet, ≤4 hooks, one of each other event)
+✗ A1 seen(a) ⇒ a's gist is in the current context: COUNTEREXAMPLE (7 steps)
+    hook, preload queued (shows a: true), prints packet 2: [#1 to chunk 1]
+    ack of packet 2 commits
+    S kg_read(full) queued as R#3 (a as anchor)
+    S kg_search queued as Q#4 (notice: X v1)
+    compaction (CHECKPOINT row written)
+    hook: new CHECKPOINT, context reset, preload REFUSED (queue full), prints packet 5: [#3 to chunk 2]
+    ack of packet 5 commits
+✓ A2 full-read flag ⇒ every chunk of the read reached the current context: no counterexample (212256 states, exhaustive)
+✗ A3 a refused reply changes nothing: COUNTEREXAMPLE (3 steps)
+    S kg_read(full) queued as R#1 (a shown)
+    hook, preload queued (shows a: true), prints packet 3: [#2 to chunk 1, #1 to chunk 1]
+    S kg_search refused: queue full
+✓ A4 no item's effects applied twice; acks match the queue head: no counterexample (212256 states, exhaustive)
+✗ A5 a recorded view never lets through a write built on a version S did not receive: COUNTEREXAMPLE (4 steps)
+    S kg_read(id=X) inline: sees X v1
+    T writes X (v2) at 3
+    S kg_search queued as Q#1 (notice: X v2)
+    S put_node X accepted, built on v1 (stored v2)
+✗ A6 after a checkpoint the preload is the first thing delivered: COUNTEREXAMPLE (4 steps)
+    S kg_read(full) queued as R#1 (a shown)
+    S kg_search queued as Q#2 (notice: X v1)
+    compaction (CHECKPOINT row written)
+    hook: new CHECKPOINT, context reset, preload REFUSED (queue full), prints packet 3: [#1 to chunk 2]
+✓ A7 an ack of a packet made before a handled checkpoint is refused: no counterexample (212256 states, exhaustive)
+✗ sanity (expect ✗): R replayed after a checkpoint, complete, write of S accepted: COUNTEREXAMPLE (7 steps)
+    S kg_read(full) queued as R#1 (a shown)
+    S kg_search queued as Q#2 (notice: X v1)
+    S kg_read(id=X) inline: sees X v1
+    S put_node X accepted, built on v1 (stored v1)
+    compaction (CHECKPOINT row written)
+    hook: new CHECKPOINT, context reset, preload REFUSED (queue full), prints packet 3: [#1 to chunk 2]
+    ack of packet 3 commits
+--- fix2=true fix3=false fix4=true  (QMAX=2 items, 2 chunks a packet, ≤4 hooks, one of each other event)
+✗ A1 seen(a) ⇒ a's gist is in the current context: COUNTEREXAMPLE (9 steps)
+    hook, preload queued (shows a: true), prints packet 2: [#1 to chunk 1]
+    graph changes: a preload built now drops a
+    ack of packet 2 commits
+    S kg_read(full) queued as R#3 (a as anchor)
+    compaction (CHECKPOINT row written)
+    hook: new CHECKPOINT, context reset, preload queued (shows a: false), prints packet 5: [#4 to chunk 1, #3 to chunk 1]
+    ack of packet 5 commits
+    hook, prints packet 6: [#3 to chunk 2]
+    ack of packet 6 commits
+✓ A2 full-read flag ⇒ every chunk of the read reached the current context: no counterexample (214686 states, exhaustive)
+✓ A3 a refused reply changes nothing: no counterexample (214686 states, exhaustive)
+✓ A4 no item's effects applied twice; acks match the queue head: no counterexample (214686 states, exhaustive)
+✓ A5 a recorded view never lets through a write built on a version S did not receive: no counterexample (214686 states, exhaustive)
+✓ A6 after a checkpoint the preload is the first thing delivered: no counterexample (214686 states, exhaustive)
+✓ A7 an ack of a packet made before a handled checkpoint is refused: no counterexample (214686 states, exhaustive)
+✗ sanity (expect ✗): R replayed after a checkpoint, complete, write of S accepted: COUNTEREXAMPLE (8 steps)
+    S kg_read(full) queued as R#1 (a shown)
+    S kg_search queued as Q#2 (notice: X v1)
+    compaction (CHECKPOINT row written)
+    hook: new CHECKPOINT, context reset, preload queued (shows a: true), prints packet 4: [#3 to chunk 1, #1 to chunk 1]
+    ack of packet 4 commits
+    hook, prints packet 5: [#1 to chunk 2, #2 to chunk 1]
+    S put_node X accepted, built on v1 (stored v1)
+    ack of packet 5 commits
+--- fix2=true fix3=true fix4=false  (QMAX=2 items, 2 chunks a packet, ≤4 hooks, one of each other event)
+✓ A1 seen(a) ⇒ a's gist is in the current context: no counterexample (206890 states, exhaustive)
+✓ A2 full-read flag ⇒ every chunk of the read reached the current context: no counterexample (206890 states, exhaustive)
+✓ A3 a refused reply changes nothing: no counterexample (206890 states, exhaustive)
+✓ A4 no item's effects applied twice; acks match the queue head: no counterexample (206890 states, exhaustive)
+✓ A5 a recorded view never lets through a write built on a version S did not receive: no counterexample (206890 states, exhaustive)
+✗ A6 after a checkpoint the preload is the first thing delivered: COUNTEREXAMPLE (4 steps)
+    S kg_read(full) queued as R#1 (a shown)
+    S kg_search queued as Q#2 (notice: X v1)
+    compaction (CHECKPOINT row written)
+    hook: new CHECKPOINT, context reset, preload REFUSED (queue full), prints packet 3: [#1 to chunk 2]
+✓ A7 an ack of a packet made before a handled checkpoint is refused: no counterexample (206890 states, exhaustive)
+✗ sanity (expect ✗): R replayed after a checkpoint, complete, write of S accepted: COUNTEREXAMPLE (7 steps)
+    S kg_read(full) queued as R#1 (a shown)
+    S kg_search queued as Q#2 (notice: X v1)
+    S kg_read(id=X) inline: sees X v1
+    S put_node X accepted, built on v1 (stored v1)
+    compaction (CHECKPOINT row written)
+    hook: new CHECKPOINT, context reset, preload REFUSED (queue full), prints packet 3: [#1 to chunk 2]
+    ack of packet 3 commits
+--- fix2=true fix3=true fix4=true  (QMAX=2 items, 2 chunks a packet, ≤4 hooks, one of each other event)
+✓ A1 seen(a) ⇒ a's gist is in the current context: no counterexample (214686 states, exhaustive)
+✓ A2 full-read flag ⇒ every chunk of the read reached the current context: no counterexample (214686 states, exhaustive)
+✓ A3 a refused reply changes nothing: no counterexample (214686 states, exhaustive)
+✓ A4 no item's effects applied twice; acks match the queue head: no counterexample (214686 states, exhaustive)
+✓ A5 a recorded view never lets through a write built on a version S did not receive: no counterexample (214686 states, exhaustive)
+✓ A6 after a checkpoint the preload is the first thing delivered: no counterexample (214686 states, exhaustive)
+✓ A7 an ack of a packet made before a handled checkpoint is refused: no counterexample (214686 states, exhaustive)
+✗ sanity (expect ✗): R replayed after a checkpoint, complete, write of S accepted: COUNTEREXAMPLE (8 steps)
+    S kg_read(full) queued as R#1 (a shown)
+    S kg_search queued as Q#2 (notice: X v1)
+    compaction (CHECKPOINT row written)
+    hook: new CHECKPOINT, context reset, preload queued (shows a: true), prints packet 4: [#3 to chunk 1, #1 to chunk 1]
+    ack of packet 4 commits
+    hook, prints packet 5: [#1 to chunk 2, #2 to chunk 1]
+    S put_node X accepted, built on v1 (stored v1)
+    ack of packet 5 commits

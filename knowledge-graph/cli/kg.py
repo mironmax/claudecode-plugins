@@ -7,6 +7,7 @@ server relative to this file.
 """
 
 import argparse
+import contextlib
 import fcntl
 import json
 import os
@@ -81,11 +82,26 @@ def port_owners() -> list[int]:
     return []
 
 
+def started(pid: int) -> float | None:
+    """When the process started, by the wall clock (ps gives whole seconds)."""
+    out = subprocess.run(["ps", "-p", str(pid), "-o", "lstart="], capture_output=True, text=True,
+                         env={**os.environ, "LC_ALL": "C"})
+    try:
+        return time.mktime(time.strptime(out.stdout.strip(), "%a %b %d %H:%M:%S %Y"))
+    except ValueError:
+        return None
+
+
 def running_pid() -> int | None:
     """Our server's PID: the pid file when it is still ours, else the port owner."""
     try:
         pid = int(PID_FILE.read_text())
-        if alive(pid) and SERVER_MARK in process_args(pid):
+        # A pid outlives its server: after a crash or a reboot the kernel gives
+        # it to another process, maybe another port's server. Ours started
+        # before the file naming it was written.
+        born = started(pid)
+        if (alive(pid) and SERVER_MARK in process_args(pid)
+                and (born is None or born <= PID_FILE.stat().st_mtime + 1)):
             return pid
     except (OSError, ValueError):
         pass
@@ -112,10 +128,10 @@ def wait(predicate, seconds: float) -> bool:
     return predicate()
 
 
-def write_breadcrumb(cause: str) -> None:
+def write_breadcrumb(cause: str, log: object = LOG_FILE) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     BREADCRUMB.write_text(f"when: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                          f"cause: {cause}\nlog: {LOG_FILE}\n")
+                          f"cause: {cause}\nlog: {log}\n")
 
 
 def failure_cause() -> str:
@@ -154,12 +170,18 @@ def service_enabled() -> bool:
 
 def systemctl(action: str) -> int:
     out = subprocess.run(["systemctl", "--user", action, UNIT], capture_output=True, text=True)
+    journal = f"journalctl --user -u {UNIT}"
     if out.returncode:
         print(f"systemctl --user {action} {UNIT} failed: {out.stderr.strip()}")
+        if action != "stop":
+            write_breadcrumb(f"systemctl --user {action} {UNIT} failed", journal)
         return 1
     if action != "stop" and not wait(lambda: health() is not None, 20):
-        print(f"{UNIT} is {action}ed but the server does not answer: journalctl --user -u {UNIT}")
+        print(f"{UNIT} is {action}ed but the server does not answer: {journal}")
+        write_breadcrumb(f"{UNIT} {action}ed but the server does not answer", journal)
         return 1
+    if action != "stop":   # hooks read a leftover cause as "down and failing"
+        BREADCRUMB.unlink(missing_ok=True)
     print(f"Server {action}ed by {UNIT} (version {version()}).")
     return 0
 
@@ -174,13 +196,20 @@ def stop_strays() -> None:
     wait(lambda: all(str(p) == main for p in port_owners()), 6)
 
 
-def start() -> int:
-    # A harness launching `kg mcp` and its SessionStart hook start the server
-    # at the same moment; the loser would fail on the port and leave a false
-    # breadcrumb. Serialised, it finds the winner's server running.
+@contextlib.contextmanager
+def lifecycle_lock():
+    """One start, stop or restart at a time. A harness launching `kg mcp` and
+    its SessionStart hook start the server at the same moment; the loser would
+    fail on the port and leave a false breadcrumb. And a start during a stop
+    would find the server on its way out "already running"."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     with open(STATE_DIR / "start.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def start() -> int:
+    with lifecycle_lock():
         return _start()
 
 
@@ -190,6 +219,11 @@ def _start() -> int:
         return systemctl("start")
     pid = running_pid()
     if pid:
+        # Still starting, or stuck: only an answer proves it serves.
+        if not wait(lambda: health() is not None, 15):
+            print(f"Server process {pid} is running but not answering. See {LOG_FILE}")
+            return 1
+        BREADCRUMB.unlink(missing_ok=True)   # this start succeeded
         print(f"Server already running (PID {pid}).")
         return 0
     if not port_free():
@@ -210,7 +244,10 @@ def _start() -> int:
         return 0
     cause = failure_cause()
     write_breadcrumb(cause)
-    PID_FILE.unlink(missing_ok=True)
+    # Still starting after the window: keep it findable (kg stop, the next
+    # start). The server removes the breadcrumb once it serves.
+    if proc.poll() is not None:
+        PID_FILE.unlink(missing_ok=True)
     print(f"Failed to start the server: {cause}\nSee {LOG_FILE}")
     return 1
 
@@ -227,6 +264,11 @@ def commit_storage() -> None:
 
 
 def stop() -> int:
+    with lifecycle_lock():
+        return _stop()
+
+
+def _stop() -> int:
     if service_enabled():
         systemctl("stop")
     pids = {p for p in [running_pid(), *port_owners()] if p}
@@ -249,11 +291,12 @@ def stop() -> int:
 
 
 def restart() -> int:
-    if service_enabled():
-        stop_strays()
-        return systemctl("restart")
-    stop()
-    return start()
+    with lifecycle_lock():
+        if service_enabled():
+            stop_strays()
+            return systemctl("restart")
+        _stop()
+        return _start()
 
 
 def status() -> int:
@@ -274,6 +317,9 @@ def status() -> int:
 
 
 def logs(follow: bool) -> int:
+    if service_enabled() and shutil.which("journalctl"):   # the unit's server logs to stderr: the journal
+        os.execvp("journalctl", ["journalctl", "--user", "-u", UNIT,
+                                 *(["-f"] if follow else ["-n", "50", "--no-pager"])])
     if not LOG_FILE.exists():
         print(f"No log yet at {LOG_FILE}")
         return 1

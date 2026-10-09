@@ -57,7 +57,7 @@ Each render atomically writes `~/.gemini/antigravity-cli/last-limits.json`:
 
 Each bucket keeps its own observation timestamp. A frame with no quota preserves earlier observations and displays them as **cached**. Once a cached reset time has passed, the display shows **reset passed** until a fresh observation arrives. `updated_at` records the render time; use the bucket's `*_seen_at` to judge freshness. Missing context is null, not zero. Context and model belong to whichever session rendered last.
 
-**Verify:** launch an interactive `agy` session and check the display and saved JSON. `jq . ~/.gemini/antigravity-cli/last-limits.json` is an optional reader. Unattended sessions may leave the file stale; this script supplies observations, not an Antigravity maintenance runner.
+**Verify:** launch an interactive `agy` session and check the display and saved JSON. `jq . ~/.gemini/antigravity-cli/last-limits.json` is an optional reader. Unattended sessions may leave the file stale; this script supplies observations only. The Knowledge Graph plugin's budget notices and Antigravity maintenance runner do not read this file; they query `agy -p /usage` live.
 
 **Undo:** remove `statusLine` from settings and remove the installed script if desired.
 

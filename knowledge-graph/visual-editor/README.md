@@ -49,9 +49,9 @@ visual-editor/
 |---|---|---|
 | `EDITOR_PORT` | `8766` | Frontend + API port |
 | `EDITOR_HOST` | `127.0.0.1` | Bind address |
-| `MCP_SERVER_URL` | `http://127.0.0.1:8765` | Where to proxy |
+| `MCP_SERVER_URL` | `http://127.0.0.1:8765` | The memory server: REST requests and the `/ws` live updates are proxied there |
 
-If you change `EDITOR_PORT`, the frontend's WebSocket URL auto-derives from `window.location` so the page stays self-consistent. CORS in `server.py` is set up for same-origin only — exposing on a different port and accessing from another origin would need an entry there.
+If you change `EDITOR_PORT`, the frontend's WebSocket URL auto-derives from `window.location` so the page stays self-consistent. CORS in `server.py` allows `http://localhost:$EDITOR_PORT` and `http://127.0.0.1:$EDITOR_PORT` only, and requests a browser marks as cross-site are refused — accessing the editor from another origin would need an entry there.
 
 ## API Endpoints (Backend)
 
@@ -77,7 +77,7 @@ All under `http://localhost:$EDITOR_PORT`:
 - Desktop only — minimum 1366px screen width
 - Edge creation requires typing target node ID (no click-to-connect)
 - No undo, no multi-select
-- Live updates cover the user graph only; project-graph changes need Refresh
+- Live updates cover the user graph and the selected project; with an older memory server, project-graph changes need Refresh
 - Score explanations require a memory server with the score endpoint; search
   works with older servers through the existing graph snapshot endpoint
 

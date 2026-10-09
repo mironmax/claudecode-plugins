@@ -24,6 +24,7 @@ os.environ["KG_STORAGE_ROOT"] = _STORAGE.name
 
 import httpx2 as httpx
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from core.exceptions import NodeConflictError
 from mcp_http import harness, paging
 from mcp_http.session_manager import HTTPSessionManager
 from mcp_http.store import GraphConfig, MultiProjectGraphStore
@@ -159,6 +160,30 @@ class PagingTests(unittest.IsolatedAsyncioTestCase):
         self.sm.reset_context(sid)
         self.assertIn("Nothing more to read", await self.call({"session_id": sid, "more": True}))
         self.assertFalse(self.sm.has_full_read(sid))
+
+    async def test_a_node_counts_as_read_only_once_its_whole_block_went_out(self):
+        # formal/delivery X1: a block whose notes run on into the next part was
+        # credited as read with the part showing its header, so a write over
+        # notes the session never received went through.
+        notes = [f"case {i}: " + "what happened " * 6 for i in range(40)]
+        self.store.put_node(level="project", node_id="long-notes", gist="a lesson with many cases",
+                            notes=notes, session_id=self.writer, guard=False)
+        sid = self.sm.register(str(self.root))["session_id"]
+        ids = [f"lesson-{i:02d}" for i in range(4)] + ["long-notes"]
+        first = await self.call({"session_id": sid, "ids": ids})
+        self.assertRegex(first, FOOTER)
+        self.assertIn("▸ long-notes (", first)
+        self.assertNotIn(notes[-1], first, "the block continues in part 2")
+        self.assertIsNone(self.sm.viewed_at(sid, "long-notes", full=True))
+        shown = [n for n in notes if f"    - {n}\n" in first + "\n"]
+        with self.assertRaises(NodeConflictError):
+            self.store.put_node(level="project", node_id="long-notes", gist="a lesson with many cases",
+                                notes=shown + ["mine"], session_id=sid)
+        self.assertEqual(len(self.store.read_node("long-notes", session_id=self.writer)["node"]["notes"]),
+                         len(notes))
+        await self.read_all_rest(sid, first, harness.CLAUDE_CODE)
+        self.assertIsNotNone(self.sm.viewed_at(sid, "long-notes", full=True))
+        self.assertTrue(set(ids) <= self.sm.get_seen(sid))
 
     async def test_a_reply_that_fits_is_one_part(self):
         sid = self.sm.register(str(self.root))["session_id"]

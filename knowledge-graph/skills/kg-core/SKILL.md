@@ -37,7 +37,8 @@ description: |
 The preload block is a compact core — the top-scored slice of both graphs, not
 the whole. The one full `kg_read(session_id)` renders everything it dropped
 without repeating what is already shown (preloaded gists collapse to id-only
-anchors). The session_id from the preload — or from the first kg_read — goes on
+anchors). A long read arrives in parts: follow each with
+`kg_read(session_id, more=true)` to the end. The session_id from the preload — or from the first kg_read — goes on
 every later kg_* call: it keeps one session, includes the project graph in
 searches, and avoids minting spurious sessions.
 
@@ -45,8 +46,9 @@ No preload block (Desktop sessions, server still warming up):
 `kg_read(cwd="<project root>")` returns the full graph plus your session_id.
 With no project folder (a general chat), `kg_read()` opens user memory alone;
 passing cwd with that session_id later attaches the project.
-Connection refused usually means the server is starting — retry after a few
-seconds; persistent trouble is a /kg-ops matter.
+The tools start the server themselves and wait out restarts, so a kg tool
+that keeps failing to connect means a start that fails — a /kg-ops matter
+(`kg doctor`).
 
 Resuming an earlier conversation: `kg_sync(session_id)` picks up what other
 sessions wrote meanwhile.

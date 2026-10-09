@@ -18,7 +18,7 @@ Every card judges applicability against these conditions:
 - Nodes are written once at the moment of insight and rarely rewritten.
   Archival hides nodes rather than deleting them, and maintenance runs
   outside the agent loop.
-- Claude Code and Codex share the memory across model families. The store is personal
+- Claude Code, Codex and (experimentally) Antigravity share the memory across model families. The store is personal
   and long-lived (months), with a few thousand nodes across many projects.
 - Retrieval channels are a session-start preload, per-prompt and file recall,
   and explicit search and reads. File recall shipped in 0.9.41.

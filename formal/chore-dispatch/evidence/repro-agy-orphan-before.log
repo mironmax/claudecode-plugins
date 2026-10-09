@@ -1,0 +1,5 @@
+$ python3 chore-dispatch/repro/repro_agy_orphan.py  # at ecc3dc1, before the fixes
+run 1: watcher cleared _running after the timeout
+run 2: watcher cleared _running after the timeout
+agy processes started: 2; still running after both runs 'ended': 2
+BUG: the timeout killed the wrapper's group only; agy, in a session of its own, keeps running while the next run starts

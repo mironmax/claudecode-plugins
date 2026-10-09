@@ -9,7 +9,8 @@ kg editor        # starts the memory server and the editor if needed, opens http
 kg editor stop
 ```
 
-Logs: `~/.local/state/knowledge-graph/visual_editor.log`.
+Logs: `~/.local/state/knowledge-graph/visual_editor.log` (in `port-<N>/` there
+when the memory server uses another `KG_HTTP_PORT`).
 
 ---
 
@@ -46,7 +47,8 @@ The selected entry is highlighted with a blue left border. The header shows whic
 Projects come from the memory server's stored graphs and their project-path
 metadata, so projects used only by Codex appear too. A project whose directory
 is missing is shown as unavailable. The editor falls back to Claude history
-only when talking to an older server without the projects endpoint.
+only when the server lacks the projects endpoint (an older server) or cannot
+be reached.
 
 ---
 
@@ -168,7 +170,7 @@ Common relationship types: `depends-on`, `implements`, `extends`, `uses`, `insta
 | Select node | Left-click |
 | Pan | Click + drag on background |
 | Zoom | Scroll wheel, or +/− buttons |
-| Reset zoom | ⟲ button |
+| Reset zoom | the Reset zoom button |
 | Context menu | Right-click node |
 | Move node (temp) | Drag node |
 
@@ -178,8 +180,9 @@ Common relationship types: `depends-on`, `implements`, `extends`, `uses`, `insta
 
 The dot in the top-right corner shows the WebSocket state:
 
-- **● Live** (green) — WebSocket connected; changes an agent makes to the **user** graph appear automatically. Changes to a **project** graph do not arrive live yet (a known gap: the editor's connection is not tied to a project) — press **Refresh** to see them.
-- **● Offline** (red) — WebSocket dropped; auto-reconnects every 5 seconds. Changes still save correctly — you just won't see them until reconnect or Refresh.
+- **● Live** (green) — connected and subscribed to the graph on screen: changes an agent makes to the user graph, or to the project you are viewing, appear automatically (the graph reloads and a toast names the change). Changes to other projects never reach this page; they show when you select that project.
+- **● Connected** (green) — connected to a memory server too old for project subscriptions: user-graph changes arrive live; press **Refresh** for project-graph changes.
+- **● Offline** (red) — WebSocket dropped; auto-reconnects every 5 seconds and reloads the graph on screen once it is back, so changes made meanwhile are not missed.
 - **● Server down** (red) — MCP server unreachable; reads and writes will fail.
 
 If you see persistent Offline/Server down: run `kg status` and `kg start` if needed.
@@ -216,12 +219,12 @@ Then reload the browser tab.
 **Graph not loading / empty**
 - Check you selected a graph in the left panel
 - For project graphs: capture some project memory first, then refresh. Check that the stored project directory still exists and that the editor can reach the server's `/api/projects` endpoint
-- Check logs: `~/.local/state/knowledge-graph/visual_editor.log`
+- Check logs: `~/.local/state/knowledge-graph/visual_editor.log` (or `port-<N>/visual_editor.log`)
 
 **Changes not appearing**
 - Check the connection status indicator
 - Press **Refresh** in the header
-- If WebSocket is Live, user-graph changes from agent sessions arrive automatically; project-graph changes need **Refresh**
+- If the status is **Live**, changes to the user graph and to the project on screen arrive automatically; if it reads **Connected**, the memory server is older and project-graph changes need **Refresh**
 
 **Modal won't close**
 - Press **Escape**, click the ✕ button or **Cancel**, or click the dark overlay behind the modal

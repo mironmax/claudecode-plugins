@@ -22,14 +22,17 @@ not yet been checked in a signed-in session (see [Status](#status)).
 
 ## Install
 
-Requires memory server 0.11.0 or later. A hook never
-replaces a running server: if an older one is running, the session start
-says it lacks the adapter. Restart it from the updated plugin
-(`kg restart`, see [Server Management](README.md#server-management)).
+Requires kg-memory 0.12.0 or later (the `kg` command; the server adapter
+itself dates from 0.11.0). The simple route is `kg setup`: it installs the
+plugin from the kg-memory package (`agy-plugin`) and offers the tool grants
+below (`agy-permissions`); `kg update` refreshes both the plugin and the
+server. A hook never replaces a running server: if an older one is running,
+the session start says it lacks the adapter. Run `kg update`, or `kg restart`
+if kg is already current (see [Server management](README.md#server-management)).
 
 The CLI installs plugins from a local directory only: it refuses git URLs,
-and third-party marketplaces cannot be registered. Install from a checkout,
-or from the copy Claude Code or Codex already installed:
+and third-party marketplaces cannot be registered. To install by hand, use a
+clean checkout (a working tree with venvs or caches copies them too):
 
 ```bash
 git clone https://github.com/mironmax/kg-memory
@@ -42,9 +45,8 @@ start a new conversation. Use `plugin install`, not `plugin import`: import
 converts the Claude Code files and drops every hook and the MCP entry.
 
 The install is a copy in `~/.gemini/config/plugins/knowledge-graph/`. The
-plugin needs the `kg` command (`uv tool install kg-memory`): `kg setup`
-installs this copy and `kg update` refreshes it; start a new conversation
-afterwards. If no server is running, the first
+plugin needs the `kg` command (`uv tool install kg-memory`). Start a new
+conversation after installing or updating. If no server is running, the first
 `SessionStart` starts one through `kg`.
 
 The [recommended Antigravity setup](../recommended-setup/antigravity.md)
@@ -53,8 +55,9 @@ independent of this plugin.
 
 ### Tool permissions
 
-Interactive sessions ask before each MCP tool. For unattended runs, merge
-these into `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`:
+Interactive sessions ask before each MCP tool. For unattended runs, these go
+into `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`;
+`kg setup` offers to add them (`agy-permissions`), or merge them by hand:
 
 ```json
 [
@@ -69,8 +72,8 @@ these into `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`:
 ]
 ```
 
-Node and edge deletion stay on Ask. The plugin grants no permissions and
-changes no global settings. It registers no `PreToolUse` hook: in this CLI an
+Node and edge deletion stay on Ask. The plugin itself grants no permissions
+and changes no global settings. It registers no `PreToolUse` hook: in this CLI an
 empty reply there denies the tool.
 
 ### Maintenance runner
@@ -80,7 +83,8 @@ dispatch one, as in Claude Code and Codex; the configured runner spends the
 quota. `"runner": "antigravity"` in `~/.knowledge-graph/chores.json` runs it on
 agy itself. Because agy takes no per-run settings, the run uses your grants:
 it is refused unless `permissions.allow` above holds the kg tools, and while
-`useG1Credits` could spend paid credits. Deletions stay on Ask, which headless
+`useG1Credits` could spend paid credits (unless `"antigravity_allow_credits":
+true`). Deletions stay on Ask, which headless
 agy soft-denies, so an Antigravity run never deletes. The gate is a live
 `agy -p /usage` reading for the run's model group; plans with weekly buckets
 only skip the five-hour gate. The run is a tool-less `kg-maintainer` agent
@@ -145,14 +149,16 @@ runner is verified with a mock model only).
 ## Development and verification
 
 Use a separate port and storage root so tests never touch the shared server.
-In one terminal, from a repository checkout with the server venv prepared:
+In one terminal, from a repository checkout (`knowledge-graph/cli/kg-dev`
+builds the venv at `knowledge-graph/server/venv` on first use):
 
 ```bash
 export KG_HTTP_PORT=8767 KG_STORAGE_ROOT="$PWD/devdocs/antigravity-memory" KG_AUTOCOMMIT_INTERVAL=0
-knowledge-graph/server/venv/bin/python knowledge-graph/server/mcp_streamable_server.py
+knowledge-graph/cli/kg-dev serve
 ```
 
-In another, stage a copy whose MCP URL points at that port and install it:
+In another, stage a copy whose `kg mcp` entry carries that port
+(`KG_HTTP_PORT` in its env) and install it:
 
 ```bash
 export KG_HTTP_PORT=8767 KG_STORAGE_ROOT="$PWD/devdocs/antigravity-memory"
@@ -160,14 +166,16 @@ agy plugin install "$(python3 docs/harnesses/tools/antigravity-probe/stage_plugi
 agy
 ```
 
-The port variable steers the hooks and the staged URL steers the tools; they
-must agree. Reinstall a fresh staged copy each iteration, restart the server
+The exported port steers the hooks and the staged env steers the tools; they
+must agree. The staged entry still runs whichever `kg` is on PATH, so keep the
+development server running on that port before opening a conversation. Reinstall a fresh staged copy each iteration, restart the server
 after Python changes, and open a new conversation.
 
-Boundary tests:
+Boundary tests (the adapter, then the budget gauge and maintenance runner):
 
 ```bash
 knowledge-graph/server/venv/bin/python knowledge-graph/server/tests/test_antigravity.py
+knowledge-graph/server/venv/bin/python knowledge-graph/server/tests/test_budget_and_agy_runner.py
 ```
 
 Native smoke (Linux, bubblewrap). It overlays a scratch home, so the venv
@@ -181,9 +189,9 @@ It uses dummy credentials, a scripted model and a native install, and checks
 transport and bookkeeping, not how a real model uses memory.
 
 Maintenance-runner smoke: the chore wrapper against a real agy, a mock model
-and a real server (7 checks: the agent loads, only MCP tools are offered,
-`kg_read` reaches the server, hooks stand down, the run stays in its own
-workspace). The agy binary must also live outside `$HOME`:
+and a real server (7 checks, among them: the agent loads, only MCP tools are
+offered, `kg_read` reaches the server, hooks stand down, the run stays in its
+own workspace). The agy binary must also live outside `$HOME`:
 
 ```bash
 knowledge-graph/server/venv/bin/python docs/harnesses/tools/antigravity-probe/chore_smoke.py --agy /path/outside/home/agy

@@ -1,0 +1,22 @@
+$ lean --run delivery/lean/Paging.lean
+--- fixed=false  (≤2 reads, ≤1 compaction, ≤1 foreign write, ≤1 write by S, ≤1 restart)
+✓ P1 seen ⊆ gists delivered; promoted ⊆ headers delivered: no counterexample (494399 states over 27 reply shapes, exhaustive)
+✗ P2 read_at only after the node's whole block reached S: COUNTEREXAMPLE in 17 of 27 reply shapes; shortest (n0 1 lines, n1 2 lines, 2 lines a part):
+    S kg_read(ids=[n0,n1]) at 2: part 1 of 2 goes out
+✓ P3 full-read flag only after the read's last part: no counterexample (494399 states over 27 reply shapes, exhaustive)
+✗ P4 an accepted write never drops notes S did not receive: COUNTEREXAMPLE in 17 of 27 reply shapes; shortest (n0 1 lines, n1 2 lines, 2 lines a part):
+    S kg_read(ids=[n0,n1]) at 2: part 1 of 2 goes out
+    S put_node n1 accepted (it holds n1's notes in full at v0; stored v1)
+✗ sanity (expect ✗): a full read completes and a write of S goes through: COUNTEREXAMPLE in 27 of 27 reply shapes; shortest (n0 1 lines, n1 1 lines, 2 lines a part):
+    S kg_read(ids=[n0,n1]) at 2: part 1 of 1 goes out
+    S kg_read(full graph) at 3: part 1 of 1 goes out
+    S put_node n0 accepted (it holds n0's notes in full at v1; stored v1)
+--- fixed=true  (≤2 reads, ≤1 compaction, ≤1 foreign write, ≤1 write by S, ≤1 restart)
+✓ P1 seen ⊆ gists delivered; promoted ⊆ headers delivered: no counterexample (479470 states over 27 reply shapes, exhaustive)
+✓ P2 read_at only after the node's whole block reached S: no counterexample (479470 states over 27 reply shapes, exhaustive)
+✓ P3 full-read flag only after the read's last part: no counterexample (479470 states over 27 reply shapes, exhaustive)
+✓ P4 an accepted write never drops notes S did not receive: no counterexample (479470 states over 27 reply shapes, exhaustive)
+✗ sanity (expect ✗): a full read completes and a write of S goes through: COUNTEREXAMPLE in 27 of 27 reply shapes; shortest (n0 1 lines, n1 1 lines, 2 lines a part):
+    S kg_read(ids=[n0,n1]) at 2: part 1 of 1 goes out
+    S kg_read(full graph) at 3: part 1 of 1 goes out
+    S put_node n0 accepted (it holds n0's notes in full at v1; stored v1)

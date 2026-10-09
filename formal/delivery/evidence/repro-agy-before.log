@@ -1,0 +1,13 @@
+$ python3 delivery/repro/repro_agy.py
+X2a kg_search reply queued; cache-policy seen_at advanced before any delivery; S's write on its v1 view: written; gist now "cache headers per route: v1, plus S's change"
+   BUG: T's change is overwritten by a write built on the older view
+X2b kg_search reply refused; cache-policy seen_at advanced before any delivery; S's write on its v1 view: written; gist now "cache headers per route: v1, plus S's change"
+   BUG: T's change is overwritten by a write built on the older view
+X3 first preload showed anchor-node: True; after the checkpoint the new preload shows it: False; the replayed read shows its gist: False (anchor only: True); seen after delivery: True
+   BUG: anchor-node counts as seen; no part of the new context shows its gist
+X4 4 replies queued (1048059 of 1048576 bytes); after the checkpoint the first packet is 'KG context — kg_read'
+   BUG: the fresh preload was refused by the full queue; replayed replies reach the new context first
+RESULT X2a: FAIL
+RESULT X2b: FAIL
+RESULT X3: FAIL
+RESULT X4: FAIL

@@ -1,0 +1,6 @@
+$ python3 chore-dispatch/repro/repro_gauge_carried.py  # after the fixes
+last-limits.json: {'five_hour_pct': 10, 'five_hour_seen_at': 1800000000, 'seven_day_seen_at': 1800010800, 'updated_at': 1800010800}
+_gauge_read at 13:00 -> reading={'5h': 10, '7d': 20, 'pace': 0.66, 'age_s': 10800} error='gauge stale'
+chore gate: refused; pass gate: refused
+five-hour value observed 180 min ago; max age 90 min
+PASS

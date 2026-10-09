@@ -1,0 +1,4 @@
+$ python3 chore-dispatch/repro/repro_wedge.py  # at ecc3dc1, before the fixes
+log events: ['dispatch']
+_running set: True  (no process was started)
+BUG: the dispatch is logged, no process runs, and _running stays set: every later prompt returns at the fast gate without a log line until the server restarts

@@ -1,0 +1,6 @@
+$ python3 chore-dispatch/repro/repro_gauge_carried.py  # at ecc3dc1, before the fixes
+last-limits.json: {'five_hour_pct': 10, 'five_hour_seen_at': 1800000000, 'seven_day_seen_at': 1800010800, 'updated_at': 1800010800}
+_gauge_read at 13:00 -> reading={'5h': 10, '7d': 20, 'pace': 0.66, 'age_s': 0} error=''
+chore gate: open; pass gate: open
+five-hour value observed 180 min ago; max age 90 min
+BUG: freshness is judged by updated_at, which any frame bumps; the five-hour number the gates spend on is three hours old

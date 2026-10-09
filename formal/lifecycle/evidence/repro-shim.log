@@ -1,0 +1,6 @@
+$ python3 lifecycle/repro/repro_shim.py
+A  server read the call 1 time(s), then reset; shim answered: {'jsonrpc': '2.0', 'id': 7, 'error': {'code': -32603, 'message': 'kg mcp: [Errno 104] Connection reset by peer'}}
+   ok: one delivery, an error reply (no resend)
+B  connection reset in the backlog (never read); shim answered: {'jsonrpc': '2.0', 'id': 7, 'error': {'code': -32603, 'message': 'kg mcp: [Errno 104] Connection reset by peer'}}
+   observed: an error reply for a call that was never applied (M3); not retried, since the shim cannot tell this reset from A's
+RESULT: PASS

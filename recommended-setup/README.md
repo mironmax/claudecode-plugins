@@ -11,7 +11,7 @@ Both are user-level: they apply to every project on your machine and live under 
 ## What's here
 
 - **[`output-styles/concise-quality-v3.md`](output-styles/concise-quality-v3.md)** — one text for how the agent works and how it writes. It opens with a working agreement (calm, unhurried, truth over agreement), follows with response rules (lead with the answer; brevity in the report, not in the work; verify before asserting), and adds code standards, context management, memory habits and a note on collaboration. The Memory section applies only when the Knowledge Graph plugin is installed.
-- **[`statusline.sh`](statusline.sh)** — a two-line status line showing session identity and session health, including your rolling subscription quota. Its second job is the one that changes how Claude works: it writes the quota to `~/.claude/last-limits.json`, which is the only way an agent can read its own remaining budget. See [Working with the limits](#working-with-the-limits) below.
+- **[`statusline.sh`](statusline.sh)** — a two-line status line showing session identity and session health, including your rolling subscription quota. Its second job is the one that changes how Claude works: it writes the quota to `~/.claude/last-limits.json`, which is the only way an agent can read its own remaining budget. See [Working with the limits](#working-with-the-limits) below. With the Knowledge Graph plugin, `kg setup` can record the same file through `kg gauge` instead (a minimal line, or wrapping your own status line); either one feeds the memory server's budget notices and the quota gates of background upkeep.
 
 ### What was measured
 
@@ -54,7 +54,7 @@ The tilde form is what Claude Code documents — the command runs through a shel
 
 **Moving from v2 and the old `CLAUDE.md`:** v3 contains both. Set `outputStyle` to `concise-quality-v3`, then delete the working-agreement sections (*How we work*, *Memory*, *Communication*) from `~/.claude/CLAUDE.md`, or the same text loads twice. Keep anything else you have there.
 
-**Verify:** start a fresh session and ask something trivial. The answer should lead with the outcome, no preamble, no closing pleasantries — and the status line should render two lines like this:
+**Verify:** start a fresh session and ask something trivial. The answer should lead with the outcome, no preamble, no closing pleasantries — and the status line should render two data rows and a divider like this:
 
 ```
 user@host 📁 my-project 🕐 21:21 🔗 knowledge-graph [concise-quality-v3]
@@ -62,9 +62,9 @@ user@host 📁 my-project 🕐 21:21 🔗 knowledge-graph [concise-quality-v3]
 ⚡ Opus 5 │ 📊 5h:41%→02:10 7d:62%→Sun 02 │ 💾 cache:94% │ 📐 ctx:34%
 ```
 
-Reading line two: model · 5-hour quota used and when it resets · 7-day quota used and when it resets · prompt-cache hit rate this turn · context window filled. Quota percentages are green under 50%, amber to 80%, red above.
+Reading the second row: model · 5-hour quota used and when it resets · 7-day quota used and when it resets · prompt-cache hit rate this turn · context window filled. Quota percentages are green under 50%, amber to 80%, red above.
 
-A dash in the quota segment means that render carried no `rate_limits`. Claude Code sends it only to Claude.ai subscribers (Pro/Max) and only after the session's first API response, and each window can be absent independently — so early frames legitimately show a dash, and API-key users never see one at all. The line renders only what the current frame actually carried; the file on disk is the one that remembers.
+A dash in the quota segment means that render carried no `rate_limits`. Claude Code sends it only to Claude.ai subscribers (Pro/Max) and only after the session's first API response, and each window can be absent independently — so early frames legitimately show a dash, and API-key sessions, which never receive `rate_limits`, always show one. The line renders only what the current frame actually carried; the file on disk is the one that remembers.
 
 Then confirm the disk side-effect, which is the part Claude uses:
 

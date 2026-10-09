@@ -10,7 +10,7 @@ from typing import Literal
 import httpx
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -36,7 +36,10 @@ logger = logging.getLogger(__name__)
 
 # MCP Server configuration
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://127.0.0.1:8765")
+# The memory server's live-update socket, on whatever host and port it runs.
+MCP_WS_URL = "ws" + MCP_SERVER_URL.rstrip("/").removeprefix("http") + "/ws"
 MCP_TIMEOUT = 30.0
+EDITOR_PORT = int(os.getenv("EDITOR_PORT", "8766"))
 
 
 def _plugin_version() -> str:
@@ -55,7 +58,7 @@ app = FastAPI(title="Knowledge Graph Visual Editor", version=EDITOR_VERSION)
 # CORS configuration (allow browser access)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8766", "http://127.0.0.1:8766"],
+    allow_origins=[f"http://localhost:{EDITOR_PORT}", f"http://127.0.0.1:{EDITOR_PORT}"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,6 +78,21 @@ def _origin_is_local(origin: str | None) -> bool:
         return True
     parts = urlsplit(origin.strip().lower())
     return parts.scheme in ("http", "https") and parts.hostname in ("localhost", "127.0.0.1", "::1")
+
+
+@app.middleware("http")
+async def refuse_cross_site(request, call_next):
+    """A cross-site page cannot read the proxy's answers, but its GETs and
+    simple POSTs still reach the memory server (a read by id promotes a node).
+    Browsers mark them with Sec-Fetch-Site or a foreign Origin; non-browser
+    clients send neither. Same rule as the server's mcp_http/security.py."""
+    origin = request.headers.get("origin")
+    if request.method == "GET" and request.url.path == "/" and not origin:
+        return await call_next(request)   # opening the page from a link elsewhere
+    if request.headers.get("sec-fetch-site", "").lower() == "cross-site" or not _origin_is_local(origin):
+        logger.warning(f"Rejected cross-site request: {request.url.path} (origin {origin!r})")
+        return PlainTextResponse("Refused: cross-site request", status_code=403)
+    return await call_next(request)
 
 # Static files (frontend)
 frontend_dir = Path(__file__).parent.parent / "frontend"
@@ -449,7 +467,7 @@ async def websocket_proxy(websocket: WebSocket, session_id: str | None = None):
 
     try:
         params = f"?session_id={session_id}" if session_id else ""
-        async with websockets.connect(f"ws://127.0.0.1:8765/ws{params}") as mcp_ws:
+        async with websockets.connect(f"{MCP_WS_URL}{params}") as mcp_ws:
 
             async def forward_to_mcp():
                 try:
@@ -466,20 +484,27 @@ async def websocket_proxy(websocket: WebSocket, session_id: str | None = None):
                 except:
                     pass
 
-            await asyncio.gather(
-                forward_to_mcp(),
-                forward_to_client(),
-                return_exceptions=True
-            )
+            # Either side ending ends both. When the memory server restarts,
+            # the page must see its socket close so it reconnects and
+            # subscribes again, rather than sit on a dead proxy.
+            tasks = [asyncio.create_task(forward_to_mcp()),
+                     asyncio.create_task(forward_to_client())]
+            await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as e:
         logger.error(f"WebSocket proxy error: {e}")
+    try:
         await websocket.close()
+    except Exception:
+        pass  # the page already closed it
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.getenv("EDITOR_PORT", "8766"))
+    port = EDITOR_PORT
     host = os.getenv("EDITOR_HOST", "127.0.0.1")
 
     logger.info(f"Starting Visual Editor on http://{host}:{port}")

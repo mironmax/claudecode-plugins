@@ -1,0 +1,89 @@
+$ lean --run websocket/lean/Subscribe.lean
+Bounds: 2 projects, ≤2 writes, ≤3 selections, ≤1 drop/restart, one page.
+=== design 0: code before the fix (no subscription) ===
+✓ W never applies another project's change: none (1244 states, exhaustive)
+✓ R never sent another project's change: none (1244 states, exhaustive)
+✗ L no lost update while Live: COUNTEREXAMPLE (287 states)
+    page selects project 0, loads
+    REST snapshot of project 0 at v0
+    write project 0 (v1)
+    page renders project 0 v0
+    page (re)connects, subscribes
+✓ F the selected graph is shown: none (1244 states, exhaustive)
+--- design 0 (an older page) against the fixed server
+✓ W never applies another project's change: none (1244 states, exhaustive)
+✓ R never sent another project's change: none (1244 states, exhaustive)
+✗ L no lost update while Live: COUNTEREXAMPLE (287 states)
+    page selects project 0, loads
+    REST snapshot of project 0 at v0
+    write project 0 (v1)
+    page renders project 0 v0
+    page (re)connects, subscribes
+✓ F the selected graph is shown: none (1244 states, exhaustive)
+=== design 1: naive subscription (load at once, apply every project change) ===
+✗ W never applies another project's change: COUNTEREXAMPLE (5238 states)
+    page selects project 0, loads
+    page (re)connects, subscribes
+    write project 0 (v1)
+    server binds subscribe #2 to some 0, replies
+    broadcast of project 0: check + send
+    page gets reply #2
+    page selects project 1, loads
+    page applies change of project 0 (showing some 1), reloads
+✓ R never sent another project's change: none (28678 states, exhaustive)
+✗ L no lost update while Live: COUNTEREXAMPLE (2773 states)
+    page selects project 0, loads
+    REST snapshot of project 0 at v0
+    write project 0 (v1)
+    page renders project 0 v0
+    page (re)connects, subscribes
+    server binds subscribe #2 to some 0, replies
+    page gets reply #2
+✓ F the selected graph is shown: none (28678 states, exhaustive)
+=== design 2: the fix (load on the reply, filter by confirmed project) ===
+--- server decides once per broadcast (no per-send check)
+✓ W never applies another project's change: none (48062 states, exhaustive)
+✗ R never sent another project's change: COUNTEREXAMPLE (6219 states)
+    page selects project 0, loads
+    page (re)connects, subscribes
+    write project 0 (v1)
+    server binds subscribe #2 to some 0, replies
+    broadcast of project 0: decides to send
+    page selects project 1, loads
+    server binds subscribe #3 to some 1, replies
+    broadcast of project 0: sends (after an await)
+✓ L no lost update while Live: none (48062 states, exhaustive)
+✓ F the selected graph is shown: none (48062 states, exhaustive)
+--- page without the load-on-close, a restart may bring up an older server
+✓ W never applies another project's change: none (27966 states, exhaustive)
+✓ R never sent another project's change: none (27966 states, exhaustive)
+✓ L no lost update while Live: none (27966 states, exhaustive)
+✗ F the selected graph is shown: COUNTEREXAMPLE (4148 states)
+    page (re)connects, subscribes
+    server binds subscribe #1 to none, replies
+    page gets reply #1, loads
+    page selects project 0 (waits for the reply)
+    server restarts as an OLDER server
+    page (re)connects, subscribes
+    older server ignores subscribe #3
+--- the fix as shipped: per-send check, load-on-close, restart may downgrade
+✓ W never applies another project's change: none (25902 states, exhaustive)
+✓ R never sent another project's change: none (25902 states, exhaustive)
+✓ L no lost update while Live: none (25902 states, exhaustive)
+✓ F the selected graph is shown: none (25902 states, exhaustive)
+✗ sanity (expect ✗): Live, latest version, after 2 selections and a restart: COUNTEREXAMPLE (11593 states)
+    write project 0 (v1)
+    page selects project 1, loads
+    page selects project 0, loads
+    REST snapshot of project 0 at v1
+    page renders project 0 v1
+    page (re)connects, subscribes
+    connection drops / server restarts
+    page (re)connects, subscribes
+    server binds subscribe #4 to some 0, replies
+    page gets reply #4, loads
+--- the fixed page against an older server (L is vacuous: never Live)
+✓ W never applies another project's change: none (3940 states, exhaustive)
+✓ R never sent another project's change: none (3940 states, exhaustive)
+✓ L no lost update while Live: none (3940 states, exhaustive)
+✓ F the selected graph is shown: none (3940 states, exhaustive)

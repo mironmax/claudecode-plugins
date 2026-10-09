@@ -29,12 +29,16 @@ _KG_SID_PATTERNS = (
 
 
 def safe_transcript_path(transcript_path: str) -> str | None:
-    """A Claude Code transcript: a .jsonl file under the user's home."""
-    home = str(Path.home().resolve())
+    """A transcript or rollout: a .jsonl file under the user's home, or under
+    CODEX_HOME, which may live elsewhere."""
+    roots = [Path.home(), *([Path(os.environ["CODEX_HOME"])] if os.environ.get("CODEX_HOME") else [])]
     resolved = os.path.realpath(transcript_path)
-    if not (resolved + "/").startswith(home + "/") or not resolved.endswith(".jsonl"):
+    if not resolved.endswith(".jsonl"):
         return None
-    return resolved
+    for root in roots:
+        if (resolved + "/").startswith(os.path.realpath(root) + "/"):
+            return resolved
+    return None
 
 
 def _scan_kg_sid(resolved: str, start: int = 0) -> tuple[str | None, int]:
@@ -287,6 +291,20 @@ class HTTPSessionManager:
         return self._sessions.get(session_id)
 
     @_locked
+    def mark_maintenance(self, session_id: str) -> None:
+        """Record on the session that it is a maintenance pass or chore, and
+        save at once: the store's in-memory set starts empty after a restart."""
+        session = self._sessions.get(session_id)
+        if session is not None and not session.get("maintenance"):
+            session["maintenance"] = True
+            self.save_sessions()
+
+    @_locked
+    def maintenance_ids(self) -> set[str]:
+        """Sessions recorded as maintenance (see mark_maintenance)."""
+        return {sid for sid, s in self._sessions.items() if s.get("maintenance")}
+
+    @_locked
     def ensure_session(self, session_id: str) -> None:
         """
         Re-register a session if it was lost (e.g. server restart).
@@ -463,6 +481,12 @@ class HTTPSessionManager:
                     new_id if nid == old_id else nid for nid in ids
                 ))
                 touched += 1
+            # One vote per node per session: the ledger names the node too.
+            # Not deduped: its length is what the like cap counts.
+            liked = session.get("liked_ids")
+            if liked and old_id in liked:
+                session["liked_ids"] = [new_id if nid == old_id else nid for nid in liked]
+                touched += 1
             seen_via = session.get("seen_via")
             if seen_via and old_id in seen_via:
                 seen_via.setdefault(new_id, seen_via.pop(old_id))
@@ -539,17 +563,27 @@ class HTTPSessionManager:
         return False
 
     @_locked
-    def claim_push_window(self, session_id: str, now: float) -> tuple[float, dict] | None:
+    def claim_push_window(self, session_id: str, now: float,
+                          claim: bool = True) -> tuple[float, dict] | None:
         """Take the window of foreign writes not yet pushed to this session:
         returns (since, seen_at) and moves the push mark to `now` in the same
         locked step, so two racing callers never deliver one change twice.
-        The window opens where the session last looked: start, kg_sync or push."""
+        The window opens where the session last looked: start, kg_sync or push.
+        claim=False leaves the mark for mark_pushed, once the reply is delivered."""
         data = self._sessions.get(session_id)
         if data is None:
             return None
         since = max(data["start_ts"], data.get("last_synced_ts", 0), data.get("pushed_ts", 0))
-        data["pushed_ts"] = now
+        if claim:
+            data["pushed_ts"] = now
         return since, dict(data.get("seen_at", {}))
+
+    @_locked
+    def mark_pushed(self, session_id: str, at: float) -> None:
+        """Move the push mark to `at`: a deferred reply carrying a notice was delivered."""
+        data = self._sessions.get(session_id)
+        if data is not None:
+            data["pushed_ts"] = max(data.get("pushed_ts", 0), at)
 
     @_locked
     def mark_synced(self, session_id: str, at: float | None = None) -> None:

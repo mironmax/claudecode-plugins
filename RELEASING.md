@@ -7,7 +7,7 @@ release against a server from another can break sessions.
 | Channel | What triggers it | What it ships |
 |---|---|---|
 | Plugin marketplace (Claude Code, Codex) | `version` in `knowledge-graph/.claude-plugin/plugin.json` changing on `main` | skills, hooks, MCP config |
-| PyPI (`kg-memory`) | a `v*` tag, then approval in the `pypi` environment | the server and the `kg` command |
+| PyPI (`kg-memory`) | a `v*` tag, then approval in the `pypi` environment | the server, the `kg` command, and the plugin copy Antigravity installs |
 | GitHub release and wiki | by hand, at release time | notes and documentation |
 
 ## Rules
@@ -31,7 +31,7 @@ release against a server from another can break sessions.
    A change with no backward path (data, a removed tool, a new required install
    step) opens its CHANGELOG entry with **Breaking:**.
 5. **Every change reaches `main` through a pull request** with CI green on
-   Linux and macOS and, when users would notice it, a line under
+   Linux (macOS runs report-only for now) and, when users would notice it, a line under
    `## [Unreleased]` in `CHANGELOG.md`.
 6. **A published tag never moves.** Before the PyPI approval a tag can be
    withdrawn: cancel the publish run, delete the GitHub release and the tag.
@@ -46,7 +46,10 @@ release against a server from another can break sessions.
 
 1. `[Unreleased]` becomes `## [x.y.z] - YYYY-MM-DD` with a one-paragraph lead;
    every number in the entry is checked against the code.
-2. Bump both version files in one commit, to the same number.
+2. Bump both version files in one commit, to the same number
+   (`server/sync_version.py` copies `plugin.json` into `version.py`). CI fails
+   when the two differ, and the publish run fails for a tag that does not
+   match `version.py`. A manual run of the publish workflow goes to TestPyPI.
 3. Grep the diff since the last tag for private text (rule 7).
 4. Update the wiki pages the entry touches.
 5. Wait for CI on the release commit, then tag it:
@@ -54,8 +57,6 @@ release against a server from another can break sessions.
 6. Create the GitHub release with the CHANGELOG section as its notes.
 7. Approve the publish run; confirm with
    `curl -s https://pypi.org/pypi/kg-memory/json | jq -r .info.version`.
-</content>
-</invoke>
 
 ## On the maintainer's machine
 

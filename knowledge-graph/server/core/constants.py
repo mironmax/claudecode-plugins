@@ -382,7 +382,9 @@ GIST_TS_FIELD = "_gist_ts"
 # Last content change of a node (gist, notes or touches): {"ts", "by"}, "by"
 # the writing session or None. Not the version counter, which also bumps when
 # a read promotes a node out of the archive. put_node compares it with the
-# writing session's view times to refuse a write built on a stale view.
+# writing session's view times to refuse a write built on a stale view. A
+# maintenance write adds "author", the writer it found: the lesson's author
+# for the note credit.
 WRITTEN_FIELD = "_written"
 GIST_TS_MAX = 8                  # stamps kept; must exceed CHURN_MAX_REWRITES
 CHURN_WINDOW_DAYS = 30

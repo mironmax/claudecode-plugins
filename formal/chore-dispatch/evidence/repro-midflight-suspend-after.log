@@ -1,0 +1,5 @@
+$ python3 chore-dispatch/repro/repro_midflight.py suspend  # after the fixes
+log events: ['skip(gauge went stale)', 'dispatch', 'done']
+dispatches on graph 'user': 1; state.graphs.user=1800007200.0, wall clock at the end 1800007200
+  T1 dispatched on a gauge read 0 min earlier
+PASS
