@@ -285,6 +285,9 @@ class EditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.graph["nodes"]["signal-beta"].get("_archived"))
         same_origin = {"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost:8766"}
         self.assertEqual((await self.client.get("/api/health", headers=same_origin)).status_code, 200)
+        # A link to the editor on another site still opens the page itself.
+        link = {"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate"}
+        self.assertEqual((await self.client.get("/", headers=link)).status_code, 200)
 
 
 class _FakeUpstream:

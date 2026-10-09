@@ -87,6 +87,8 @@ async def refuse_cross_site(request, call_next):
     Browsers mark them with Sec-Fetch-Site or a foreign Origin; non-browser
     clients send neither. Same rule as the server's mcp_http/security.py."""
     origin = request.headers.get("origin")
+    if request.method == "GET" and request.url.path == "/" and not origin:
+        return await call_next(request)   # opening the page from a link elsewhere
     if request.headers.get("sec-fetch-site", "").lower() == "cross-site" or not _origin_is_local(origin):
         logger.warning(f"Rejected cross-site request: {request.url.path} (origin {origin!r})")
         return PlainTextResponse("Refused: cross-site request", status_code=403)
