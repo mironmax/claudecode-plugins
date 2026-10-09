@@ -175,8 +175,14 @@ Two transports, each matched to its client:
   mental model simple and makes every interaction visible in logs. Hooks talk
   to `/api/*` directly.
 - **WebSocket** for the visual editor, where we control the client and a live
-  view needs push: user-graph mutations arrive live. Project notifications
-  still need project-bound subscriptions (F6); the editor uses **Refresh** for them.
+  view needs push. The page subscribes to the graph it shows
+  (`{"type":"subscribe","project_path","sub"}`; the path is resolved as REST
+  resolves it). User-graph changes go to every connection; a project change
+  goes only to connections subscribed to that project, decided right before
+  each send. On a switch or reconnect the page reloads once the server
+  confirms the new subscription, so nothing between its load and the switch
+  is lost. Against an older server it falls back to **Refresh** for project
+  changes. Modelled first: `formal/websocket/`.
 
 **Concurrency.** Many sessions share one server process. Every store
 mutation runs under one lock, every save is atomic (temp file, fsync,
@@ -467,7 +473,7 @@ and only *known* prompts enter the consistency check.
 ### Completed
 
 - **The `kg` command** — published on PyPI as `kg-memory`: `kg setup` connects every installed harness item by item with backups, `kg doctor` checks, `kg update` upgrades kg, the server and the plugins together, `kg uninstall` reverses setup and keeps the memory; `kg mcp` is the stdio shim every harness connects through (`cli/`).
-- **Visual Editor** — D3.js graph with server-owned projects, ranked search, score inspection, node/edge editing, and live user-graph updates. Project changes require Refresh; ID renames use `kg_rename_node`. Run with `kg editor`.
+- **Visual Editor** — D3.js graph with server-owned projects, ranked search, score inspection, node/edge editing, and live updates for the user graph and the project on screen (Refresh only with an older memory server); ID renames use `kg_rename_node`. Run with `kg editor`.
 - **Scout Skill** (`/kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
 - **Extract Skill** (`/kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
 - **Ranked Search** — `kg_search` and prompt recall share one core (RRF, k=60): whitespace tokens plus their `./_-` subtokens, light stemming (schedule ≈ scheduling), adjacent-subtoken bigram terms with their own co-occurrence IDF, field-weighted occurrences (id ×3, gist ×2, notes ×1) and sharpened IDF so one term naming the right node isn't outvoted by several dull ones. Searches both user and project graphs; falls back to all loaded project graphs when session_id is absent. Write-side, the same pipeline powers `put_node`'s near-duplicate and hub-mention nudges.

@@ -77,7 +77,7 @@ All under `http://localhost:$EDITOR_PORT`:
 - Desktop only — minimum 1366px screen width
 - Edge creation requires typing target node ID (no click-to-connect)
 - No undo, no multi-select
-- Live updates cover the user graph only; project-graph changes need Refresh
+- Live updates cover the user graph and the selected project; with an older memory server, project-graph changes need Refresh
 - Score explanations require a memory server with the score endpoint; search
   works with older servers through the existing graph snapshot endpoint
 

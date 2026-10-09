@@ -180,8 +180,9 @@ Common relationship types: `depends-on`, `implements`, `extends`, `uses`, `insta
 
 The dot in the top-right corner shows the WebSocket state:
 
-- **● Live** (green) — WebSocket connected; changes an agent makes to the **user** graph appear automatically. Changes to a **project** graph do not arrive live yet (a known gap: the editor's connection is not tied to a project) — press **Refresh** to see them.
-- **● Offline** (red) — WebSocket dropped; auto-reconnects every 5 seconds. Changes still save correctly — you just won't see them until reconnect or Refresh.
+- **● Live** (green) — connected and subscribed to the graph on screen: changes an agent makes to the user graph, or to the project you are viewing, appear automatically (the graph reloads and a toast names the change). Changes to other projects never reach this page; they show when you select that project.
+- **● Connected** (green) — connected to a memory server too old for project subscriptions: user-graph changes arrive live; press **Refresh** for project-graph changes.
+- **● Offline** (red) — WebSocket dropped; auto-reconnects every 5 seconds and reloads the graph on screen once it is back, so changes made meanwhile are not missed.
 - **● Server down** (red) — MCP server unreachable; reads and writes will fail.
 
 If you see persistent Offline/Server down: run `kg status` and `kg start` if needed.
@@ -223,7 +224,7 @@ Then reload the browser tab.
 **Changes not appearing**
 - Check the connection status indicator
 - Press **Refresh** in the header
-- If WebSocket is Live, user-graph changes from agent sessions arrive automatically; project-graph changes need **Refresh**
+- If the status is **Live**, changes to the user graph and to the project on screen arrive automatically; if it reads **Connected**, the memory server is older and project-graph changes need **Refresh**
 
 **Modal won't close**
 - Press **Escape**, click the ✕ button or **Cancel**, or click the dark overlay behind the modal
