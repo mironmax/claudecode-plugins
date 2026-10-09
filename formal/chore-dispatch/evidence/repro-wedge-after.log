@@ -1,0 +1,4 @@
+$ python3 chore-dispatch/repro/repro_wedge.py  # after the fixes
+log events: ['dispatch', 'spawn_failed']
+_running set: False  (no process was started)
+PASS

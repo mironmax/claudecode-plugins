@@ -73,9 +73,24 @@ def main() -> int:
            "--log-file", str(log)]
     if args.model:
         cmd += ["--model", args.model]
-    proc = subprocess.Popen(cmd, cwd=args.workspace, stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                            text=True, start_new_session=True)
+    started = {}
+
+    def stop(signum, _frame):
+        # The server ends a timed-out run with TERM to this wrapper's group.
+        # agy leads a session of its own (so a fallback can kill all of it),
+        # which also puts it beyond that group: take it down from here.
+        if "proc" in started:
+            try:
+                os.killpg(started["proc"].pid, signal.SIGKILL)
+            except OSError:
+                pass
+        os.write(1, b"stopped: the run was terminated\n")
+        os._exit(128 + signum)
+
+    signal.signal(signal.SIGTERM, stop)
+    proc = started["proc"] = subprocess.Popen(
+        cmd, cwd=args.workspace, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL, text=True, start_new_session=True)
     proc.stdin.write(json.dumps({"event": "user", "message": {"content": prompt}}) + "\n")
     proc.stdin.close()
 

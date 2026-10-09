@@ -1,0 +1,4 @@
+$ python3 chore-dispatch/repro/repro_midflight.py config  # after the fixes
+chores switched off during target selection -> dispatched: nothing
+runner changed to codex during target selection -> dispatched: nothing
+PASS

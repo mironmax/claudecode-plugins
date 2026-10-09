@@ -1,0 +1,5 @@
+$ python3 chore-dispatch/repro/check_rules.py
+1. pick_chore: 100000 random graphs, 90312 chores picked {'anchor': 2899, 'edge': 20683, 'gist': 40196, 'id': 24494, 'lift': 848, 'notes': 1192}
+   violations: 0
+2. AntigravityRunner.refusal: 216 input combinations; runs allowed without grants or with paid credits at risk: 0
+PASS

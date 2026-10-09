@@ -1,0 +1,4 @@
+$ python3 budget-notices/repro/repro_agy_stale.py  # after the fixes
+cached reading: weekly 96.0% used, resets at RESET; cache age at the hook: 90 s (cache lifetime 300 s)
+notice 30 s after the reset: None
+PASS

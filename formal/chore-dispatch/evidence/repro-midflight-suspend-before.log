@@ -1,0 +1,6 @@
+$ python3 chore-dispatch/repro/repro_midflight.py suspend  # at ecc3dc1, before the fixes
+log events: ['dispatch', 'done', 'dispatch', 'done']
+dispatches on graph 'user': 2; state.graphs.user=1800007200.0, wall clock at the end 1800007200
+  T0 dispatched on a gauge read 120 min earlier
+  T1 dispatched on a gauge read 0 min earlier
+BUG: T0 spent on a gauge read 120 min earlier (max age 90 min); two chores on one graph inside its 6 h cooldown

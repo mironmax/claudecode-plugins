@@ -61,8 +61,12 @@ def reading_for(name: str, transcript_path: str | None, now: float) -> dict | No
                 return None
             return chore_dispatch.codex_limits(Path(rollout), now)
         if name == harness.ANTIGRAVITY:
-            return _agy_reading(now)
-        data = chore_dispatch.ClaudeRunner().gauge(chore_dispatch._config(), now)
+            # Cached up to five minutes: a reset may have passed since.
+            data = dict(_agy_reading(now) or {})
+            if not data:
+                return None
+        else:
+            data = chore_dispatch.ClaudeRunner().gauge(chore_dispatch._config(), now)
     except Exception:
         return None
     # The status line may not have rendered since a window reset.

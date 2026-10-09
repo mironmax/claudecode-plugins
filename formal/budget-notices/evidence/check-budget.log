@@ -1,0 +1,21 @@
+$ python3 budget-notices/repro/check_budget.py
+1. two hooks of one session racing (16 threads, one reading at 92%)
+  ok   exactly one notice
+  ok   and it is the stop level
+2. a server restart
+  ok   the session is restored
+  ok   the level is not said again
+3. a window reset
+  ok   the next window warns again
+  ok   a passed window reads empty
+4. switches
+  ok   KG_BUDGET_NOTICES=0 is off
+  ok   "budget_notices": false is off
+  ok   KG_BUDGET_NOTICES=1 does not override the config off
+  ok   being off did not use up the level
+  ok   KG_BUDGET_NOTICES=false is NOT off (only 0 is documented)
+5. a fork and a compaction
+  ok   the parent hears the level
+  ok   a fork inherits what its parent heard
+  ok   a compaction keeps the record: not said again
+PASS

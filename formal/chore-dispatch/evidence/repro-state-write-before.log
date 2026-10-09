@@ -1,0 +1,5 @@
+$ python3 chore-dispatch/repro/repro_state_write.py  # at ecc3dc1, before the fixes
+min_interval=2700s; three prompts within a second
+log events: ['dispatch', 'done', 'dispatch', 'done', 'dispatch', 'done']
+dispatches=3  chore_state.json exists=False
+BUG: the state write failed silently, so every prompt finds no record of the last run: no interval, no daily cap, no count

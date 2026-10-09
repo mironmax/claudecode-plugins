@@ -94,6 +94,7 @@ SHIPPED_PASS_SETTINGS = Path(__file__).resolve().parents[2] / "chores" / "pass-s
 
 _lock = threading.Lock()
 _running = threading.Event()      # at most one chore process at a time
+_TERM_GRACE_SECONDS = 5           # a timed-out run's group: TERM, then KILL
 _config_cache: dict = {"mtime": None, "data": {}}
 
 
@@ -467,8 +468,13 @@ def _runner(cfg: dict):
     choice = cfg.get("runner", "auto")
     if choice in RUNNERS:
         return RUNNERS[choice]
+    # Pins first: checked in the same loop as the installed binaries, an
+    # installed Claude Code outranked a configured codex_bin.
     for runner in RUNNERS.values():
-        if cfg.get(f"{runner.name}_bin") or runner.binary(cfg):
+        if cfg.get(f"{runner.name}_bin"):
+            return runner
+    for runner in RUNNERS.values():
+        if runner.binary(cfg):
             return runner
     return RUNNERS["claude"]
 
@@ -505,15 +511,19 @@ def _cap_reached(state: dict, cfg: dict, tier: str) -> bool:
     return state.get("count", 0) >= cfg.get("max_per_day", CHORE_MAX_PER_DAY)
 
 
-def _write_state(state: dict) -> None:
+def _write_state(state: dict) -> bool:
+    """False when the state did not reach disk: the caller must not run, or
+    the next prompt finds no record of this run and no interval or cap holds."""
     try:
         path = _state_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(state, indent=2))
         os.replace(tmp, path)
+        return True
     except Exception:
         logger.debug("chore state write failed", exc_info=True)
+        return False
 
 
 def _log(record: dict) -> None:
@@ -568,7 +578,12 @@ def _gauge_read(cfg: dict, now: float, runner) -> tuple[dict, dict | None, str]:
         data = runner.gauge(cfg, now)
     except Exception as e:
         return {}, None, f"gauge unreadable: {e}"
-    age = now - (data.get("updated_at") or 0)
+    # The status line carries a window missing from a frame forward with
+    # its own *_seen_at, and bumps updated_at for any frame: the reading is
+    # as old as the oldest window value it holds.
+    stamps = [data.get(f"{w}_seen_at") or data.get("updated_at") or 0
+              for w in ("five_hour", "seven_day") if data.get(f"{w}_pct") is not None]
+    age = now - (min(stamps) if stamps else data.get("updated_at") or 0)
     pace = weekly_pace(data, now)
     reading = {
         "5h": data.get("five_hour_pct"),
@@ -697,11 +712,14 @@ def _spawn(cfg: dict, job: dict, prompt: str, store) -> None:
     the log. Without the watcher the process would also linger as a zombie
     until the server exits.
     """
-    cmd = RUNNERS[job["runner"]].command(cfg, job)
     # Run from the store directory, not the project: the prompt names the
     # graph via kg_read(cwd=...), and a project dir would still supply
     # CLAUDE.md and .mcp.json, which --setting-sources does not govern.
     try:
+        # Inside the try: a command that cannot be built (an unreadable
+        # allowlist) must clear _running like a failed launch, or nothing
+        # ever runs again until a restart.
+        cmd = RUNNERS[job["runner"]].command(cfg, job)
         proc = subprocess.Popen(
             cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, text=True, cwd=str(get_storage_root()),
@@ -722,15 +740,18 @@ def _spawn(cfg: dict, job: dict, prompt: str, store) -> None:
             tail = (out or "")[-600:]
         except subprocess.TimeoutExpired:
             # The run leads its own session: kill the group, or whatever the
-            # agent started (MCP clients, helpers) outlives it.
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                proc.kill()
-            try:
-                proc.communicate(timeout=10)
-            except Exception:
-                pass
+            # agent started (MCP clients, helpers) outlives it. TERM first:
+            # the agy wrapper's agent runs in a session of its own, beyond
+            # this group, and only the wrapper can stop it (agy_chore.py).
+            for sig, grace in ((signal.SIGTERM, _TERM_GRACE_SECONDS), (signal.SIGKILL, 10)):
+                try:
+                    os.killpg(proc.pid, sig)
+                except OSError:
+                    proc.kill()
+                try:
+                    proc.communicate(timeout=grace)
+                except Exception:
+                    pass
             rc, tail = -9, "timeout"
         except Exception as e:
             rc, tail = -1, str(e)[:600]
@@ -1019,12 +1040,26 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
             # on fresh state, or two runs land inside min_interval and the
             # second write loses the first one's count.
             state = _read_state()
+            # ...and on the config and clock of now, not of the decision: the
+            # user may have switched chores off or changed the runner since,
+            # and a decision the machine slept through holds an old gauge.
+            decided, now, cfg_now = now, time.time(), _config()
             _roll_day(state, now)
-            if _too_soon(state, cfg, now) or _cap_reached(state, cfg, tier):
-                _log({"event": "skip", "reason": "a concurrent dispatch won",
-                      "tier": tier, "graph": graph_key})
+            last_here = (state.get("graphs") or {}).get(graph_key, 0)
+            if not _enabled(cfg_now) or _runner(cfg_now) is not runner:
+                reason = "config changed"
+            elif ((reading.get("age_s") or 0) + now - decided
+                  > cfg_now.get("gauge_max_age_s", CHORE_GAUGE_MAX_AGE_SECONDS)):
+                reason = "gauge went stale"
+            elif (_too_soon(state, cfg_now, now) or _cap_reached(state, cfg_now, tier)
+                  or tier == "chore" and now - last_here
+                  < cfg_now.get("graph_cooldown_s", CHORE_GRAPH_COOLDOWN_SECONDS)):
+                reason = "a concurrent dispatch won"
+            else:
+                reason = ""
+            if reason:
+                _log({"event": "skip", "reason": reason, "tier": tier, "graph": graph_key})
                 return
-            _running.set()
             state["last_ts"] = now
             if tier == "pass":
                 state["pass_count"] = state.get("pass_count", 0) + 1
@@ -1032,7 +1067,12 @@ def maybe_dispatch(store, session_manager, project_path: str | None) -> None:
             else:
                 state.setdefault("graphs", {})[graph_key] = now
                 state["count"] = state.get("count", 0) + 1
-            _write_state(state)
+            if not _write_state(state):
+                _log({"event": "skip", "reason": "state write failed", "tier": tier,
+                      "graph": graph_key})
+                return
+            _running.set()
+            job["dispatched_ts"] = now
 
         _log({"event": "dispatch", "tier": tier, "runner": runner.name,
               "graph": graph_key, "level": level,

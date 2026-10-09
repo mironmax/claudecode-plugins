@@ -1,0 +1,392 @@
+$ lean --run chore-dispatch/lean/Tiers.lean
+=== Part 2: runner selection (enumeration) ===
+✗ R1 fixed=false a configured *_bin pins its runner under auto: 20 of 864 configs run another subscription; first: auto, claude_bin=Bin.unset codex_bin=Bin.good antigravity_bin=Bin.unset, installed=[true, false, false]: runs claude, pinned codex
+✓ R1 fixed=true  a configured *_bin pins its runner under auto: 0 of 864 configs (exhaustive)
+--- base: chore + pass tiers, claude runner: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=false cmd=false agy=false
+✓ P1 at most one maintenance run alive (both tiers, agy child included): no counterexample (2225 states, exhaustive)
+✓ P2 dispatches ≥ min_interval apart (both tiers): no counterexample (2225 states, exhaustive)
+✓ P3 daily caps (chores, passes): no counterexample (2225 states, exhaustive)
+✓ P4 stored counts = dispatches (count, pass_count): no counterexample (2225 states, exhaustive)
+✓ P5 per-graph chore cooldown: no counterexample (2225 states, exhaustive)
+✓ P6 no dispatch while switched off: no counterexample (2225 states, exhaustive)
+✗ P7 every dispatch gated on a gauge observed ≤ max age ago: COUNTEREXAMPLE (164 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    tick
+    tick
+    tick
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+✓ P8 every dispatch runs on the runner configured at that moment: no counterexample (2225 states, exhaustive)
+✓ P9 _running set ⇒ a run or a dispatcher in flight (no wedge): no counterexample (2225 states, exhaustive)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (1348 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- base: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P1 at most one maintenance run alive (both tiers, agy child included): no counterexample (1420 states, exhaustive)
+✓ P2 dispatches ≥ min_interval apart (both tiers): no counterexample (1420 states, exhaustive)
+✓ P3 daily caps (chores, passes): no counterexample (1420 states, exhaustive)
+✓ P4 stored counts = dispatches (count, pass_count): no counterexample (1420 states, exhaustive)
+✓ P5 per-graph chore cooldown: no counterexample (1420 states, exhaustive)
+✓ P6 no dispatch while switched off: no counterexample (1420 states, exhaustive)
+✓ P7 every dispatch gated on a gauge observed ≤ max age ago: no counterexample (1420 states, exhaustive)
+✓ P8 every dispatch runs on the runner configured at that moment: no counterexample (1420 states, exhaustive)
+✓ P9 _running set ⇒ a run or a dispatcher in flight (no wedge): no counterexample (1420 states, exhaustive)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (1099 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- chores only (no graph due a pass): threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=false cmd=false agy=false
+✓ P2 dispatches ≥ min_interval apart (both tiers): no counterexample (5398 states, exhaustive)
+✓ P3 daily caps (chores, passes): no counterexample (5398 states, exhaustive)
+✓ P4 stored counts = dispatches (count, pass_count): no counterexample (5398 states, exhaustive)
+✗ P5 per-graph chore cooldown: COUNTEREXAMPLE (2330 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.chore on g0 at t=5
+    T0 Popen fails -> running cleared
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+✗ sanity (expect ✗): two dispatches: COUNTEREXAMPLE (2147 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.chore on g0 at t=5
+    T0 Popen fails -> running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g1 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g1 at t=7
+--- chores only: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P2 dispatches ≥ min_interval apart (both tiers): no counterexample (3614 states, exhaustive)
+✓ P3 daily caps (chores, passes): no counterexample (3614 states, exhaustive)
+✓ P4 stored counts = dispatches (count, pass_count): no counterexample (3614 states, exhaustive)
+✓ P5 per-graph chore cooldown: no counterexample (3614 states, exhaustive)
+✗ sanity (expect ✗): two dispatches: COUNTEREXAMPLE (1951 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.chore on g0 at t=5
+    T0 Popen fails -> running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g1 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g1 at t=7
+--- antigravity runner with timeouts: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=false cmd=false agy=false
+✗ P1 at most one maintenance run alive (both tiers, agy child included): COUNTEREXAMPLE (5961 states explored)
+    T0 fast gate: pass (runner agy)
+    T0 t=5: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.chore on g0 at t=5
+    T0 spawned agy wrapper + agy
+    timeout: killpg(wrapper) -> wrapper dies, agy survives in its own session; running cleared
+    T1 fast gate: pass (runner agy)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g1 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g1 at t=7
+    T1 spawned agy wrapper + agy
+✓ P9 _running set ⇒ a run or a dispatcher in flight (no wedge): no counterexample (8036 states, exhaustive)
+✗ sanity (expect ✗): two dispatches: COUNTEREXAMPLE (2518 states explored)
+    T0 fast gate: pass (runner agy)
+    T0 t=5: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.chore on g0 at t=5
+    T0 Popen fails -> running cleared
+    T1 fast gate: pass (runner agy)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g1 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g1 at t=7
+--- antigravity runner with timeouts: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P1 at most one maintenance run alive (both tiers, agy child included): no counterexample (3878 states, exhaustive)
+✓ P9 _running set ⇒ a run or a dispatcher in flight (no wedge): no counterexample (3878 states, exhaustive)
+✗ sanity (expect ✗): two dispatches: COUNTEREXAMPLE (2096 states explored)
+    T0 fast gate: pass (runner agy)
+    T0 t=5: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.chore on g0 at t=5
+    T0 Popen fails -> running cleared
+    T1 fast gate: pass (runner agy)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g1 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g1 at t=7
+--- state file becomes unwritable: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=false cmd=false agy=false
+✗ P2 dispatches ≥ min_interval apart (both tiers): COUNTEREXAMPLE (1053 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T1 fast gate: pass (runner claude)
+    T1 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    chore_state.json becomes unwritable
+    T0 lock: DISPATCH Tier.pass on g0 at t=5 (state write fails silently)
+    T0 Popen fails -> running cleared
+    T1 lock: DISPATCH Tier.pass on g0 at t=5 (state write fails silently)
+✗ P3 daily caps (chores, passes): COUNTEREXAMPLE (1053 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T1 fast gate: pass (runner claude)
+    T1 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    chore_state.json becomes unwritable
+    T0 lock: DISPATCH Tier.pass on g0 at t=5 (state write fails silently)
+    T0 Popen fails -> running cleared
+    T1 lock: DISPATCH Tier.pass on g0 at t=5 (state write fails silently)
+✗ P4 stored counts = dispatches (count, pass_count): COUNTEREXAMPLE (45 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    chore_state.json becomes unwritable
+    T0 lock: DISPATCH Tier.pass on g0 at t=5 (state write fails silently)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (2181 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T1 fast gate: pass (runner claude)
+    chore_state.json becomes unwritable
+    T0 lock: DISPATCH Tier.pass on g0 at t=5 (state write fails silently)
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 t=5: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=5 (state write fails silently)
+--- state file becomes unwritable: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P2 dispatches ≥ min_interval apart (both tiers): no counterexample (2910 states, exhaustive)
+✓ P3 daily caps (chores, passes): no counterexample (2910 states, exhaustive)
+✓ P4 stored counts = dispatches (count, pass_count): no counterexample (2910 states, exhaustive)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (1971 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- status-line frames carrying one window: threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=false cmd=false agy=false
+✗ P7 every dispatch gated on a gauge observed ≤ max age ago: COUNTEREXAMPLE (330 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    tick
+    tick
+    tick
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (10939 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- status-line frames carrying one window: threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P7 every dispatch gated on a gauge observed ≤ max age ago: no counterexample (36085 states, exhaustive)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (7273 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- frames, fixGauge only (no lock re-check): threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=true cmd=false agy=false
+✗ P7 every dispatch gated on a gauge observed ≤ max age ago: COUNTEREXAMPLE (317 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    tick
+    tick
+    tick
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (8232 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- frames, fixLock only (judged by updated_at): threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=false gauge=false cmd=false agy=false
+✗ P7 every dispatch gated on a gauge observed ≤ max age ago: COUNTEREXAMPLE (1354 states explored)
+    T0 fast gate: pass (runner claude)
+    tick
+    tick
+    tick
+    status line: frame with the 7d window only (5h value carried)
+    T0 t=8: decide Tier.pass on g0 (gauge seen 5, judged 8)
+    T0 lock: DISPATCH Tier.pass on g0 at t=8
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (9978 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- config edits mid-flight: threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=false cmd=false agy=false
+✗ P6 no dispatch while switched off: COUNTEREXAMPLE (82 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    user switches chores off
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+✗ P8 every dispatch runs on the runner configured at that moment: COUNTEREXAMPLE (85 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    user changes the runner
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (10767 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- config edits mid-flight: threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P6 no dispatch while switched off: no counterexample (12172 states, exhaustive)
+✓ P8 every dispatch runs on the runner configured at that moment: no counterexample (12172 states, exhaustive)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (6133 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- runner command raises: threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=false cmd=false agy=false
+✗ P9 _running set ⇒ a run or a dispatcher in flight (no wedge): COUNTEREXAMPLE (23 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 building the command raises
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (1644 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- runner command raises: threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P9 _running set ⇒ a run or a dispatcher in flight (no wedge): no counterexample (1392 states, exhaustive)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (1097 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- live context: unreadable at times, a session reads x: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=false write=false gauge=false cmd=false agy=false
+✓ P1 at most one maintenance run alive (both tiers, agy child included): no counterexample (24060 states, exhaustive)
+✓ P2 dispatches ≥ min_interval apart (both tiers): no counterexample (24060 states, exhaustive)
+✓ P3 daily caps (chores, passes): no counterexample (24060 states, exhaustive)
+✓ P4 stored counts = dispatches (count, pass_count): no counterexample (24060 states, exhaustive)
+✗ L1 (known limit, expect ✗) no rename of an id a session holds at rename time: COUNTEREXAMPLE (344 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    a session reads x
+    PK.claude renames x (x is held now)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (6384 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- live context: threads=2 graphs=2 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤9
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P1 at most one maintenance run alive (both tiers, agy child included): no counterexample (14704 states, exhaustive)
+✓ P2 dispatches ≥ min_interval apart (both tiers): no counterexample (14704 states, exhaustive)
+✓ P3 daily caps (chores, passes): no counterexample (14704 states, exhaustive)
+✓ P4 stored counts = dispatches (count, pass_count): no counterexample (14704 states, exhaustive)
+✗ L1 (known limit, expect ✗) no rename of an id a session holds at rename time: COUNTEREXAMPLE (344 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    a session reads x
+    PK.claude renames x (x is held now)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (5753 states explored)
+    T0 fast gate: pass (runner claude)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agent
+    agent exits (pass stamped) / or times out -> killpg; running cleared
+    T1 fast gate: pass (runner claude)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
+--- every feature at once: threads=2 graphs=1 interval=2 cooldown=4 maxDay=3 passMax=1 maxAge=2 ticks≤8
+    fixes: lock=true write=true gauge=true cmd=true agy=true
+✓ P1-P9 together: no counterexample (252366 states, exhaustive)
+✗ sanity (expect ✗): a pass and a chore both dispatched: COUNTEREXAMPLE (35468 states explored)
+    T0 fast gate: pass (runner agy)
+    T0 t=5: decide Tier.pass on g0 (gauge seen 5, judged 5)
+    T0 lock: DISPATCH Tier.pass on g0 at t=5
+    T0 spawned agy wrapper + agy
+    agy finishes, wrapper exits (pass stamped); running cleared
+    T1 fast gate: pass (runner agy)
+    tick
+    tick
+    T1 t=7: decide Tier.chore on g0 (gauge seen 5, judged 5)
+    T1 lock: DISPATCH Tier.chore on g0 at t=7
