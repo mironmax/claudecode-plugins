@@ -163,6 +163,9 @@ a load therefore depends on which projects happen to be loaded; R3 shows this.
 
 ## F6 — The editor never receives project-level live updates
 
+**Status:** fixed (unreleased) with project-bound subscriptions, checked in a
+Lean model first (`websocket/lean/Subscribe.lean`).
+
 **Where:** `visual-editor/backend/server.py:344` and `app.js:121` connect
 to `/ws` without a `session_id`. `mcp_http/rest.py:479` then registers a
 session with `project_path=None`. `mcp_http/websocket.py:74` delivers
@@ -172,8 +175,39 @@ project-level changes only when `session_project == project_path`.
 a Claude session's project write never reaches the editor, but the next
 user-level write does.
 
-**Also:** every editor (re)connect registers a session that lives 24 h, and
-each registration `fsync`s all live sessions (`session_manager.py:68-95`).
+**Second gap:** `store._broadcast` took a project change's project from the
+writer's session, so writes addressed by `project_path` (every editor write)
+were broadcast to nobody. Changes are now addressed by the graph written.
+
+**Fix:** on every (re)connect and selection the page sends
+`{"type":"subscribe","project_path","sub"}`; the server resolves the path with
+`safe_project_path`, binds the connection and replies `subscribed` with the
+same `sub`. A project change goes only to connections subscribed to it,
+decided right before each send. The page loads a selection once its own
+subscription is confirmed, applies a project change only if it names the
+confirmed root, and falls back to Refresh against an older server.
+
+**Model** (2 projects, ≤2 writes, ≤3 selections, ≤1 drop or restart, one page;
+W: never apply another project's change; R: never send a project change to a
+connection not subscribed to it; L: once delivered, a Live page shows the
+latest version; F: the page shows the selected graph):
+- code before the fix: W, R, F hold; L fails — F6 itself;
+- naive design (subscribe, load at once, apply any change): W fails (an old
+  project's change applied after a switch) and L fails (a write between load
+  and subscribe is lost);
+- deciding once per broadcast instead of per send: R fails;
+- without loading on close when a restart brings up an older server: F fails;
+- as shipped: W, R, L, F hold (25,902 states, exhaustive), also against an
+  older server.
+
+**Also found:** the editor's proxy kept the page's socket open after the
+memory server closed, so the page showed Live and received nothing (fixed:
+either side closing closes both). Still open: every editor (re)connect
+registers a session that lives 24 h, and each registration `fsync`s all live
+sessions (`session_manager.py:68-95`).
+
+Tests: `tests/test_ws_subscriptions.py`, `visual-editor/tests/test_api.py`
+(`EditorProxyTests`), `visual-editor/tests/test_ui.mjs`.
 
 ## F7 — Compaction and refill churn
 

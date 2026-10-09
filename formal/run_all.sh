@@ -30,6 +30,7 @@ run sessions/evidence/repro-fork.log         $PY sessions/repro/repro_fork.py
 run sessions/evidence/repro-fork-unbound.log $PY sessions/repro/repro_fork_unbound.py
 run sessions/evidence/repro-saver-amplified.log timeout 120 $PY sessions/repro/repro_saver_death.py amplified
 run sessions/evidence/repro-saver-default.log   timeout 120 $PY sessions/repro/repro_saver_death.py default
+run websocket/evidence/model.log             lean --run websocket/lean/Subscribe.lean
 run websocket/evidence/repro.log             $PY websocket/repro/repro_ws.py
 run compaction/evidence/search.log           $PY compaction/repro/thrash_search.py
 run security/evidence/repro.log              $PY security/repro/repro_csrf.py

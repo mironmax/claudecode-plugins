@@ -12,8 +12,9 @@ file:line references are in [FINDINGS.md](FINDINGS.md).
 reload lets disk win, logs what it drops, and the two paths that triggered
 it without anyone asking (the visual editor, cross-site pages) are gone.
 F11 was found later and fixed in v0.10.1; F5 and F8 in v0.10.2.
-F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 and F7
-remain open.
+F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 is fixed on
+the development branch (project-bound editor subscriptions, modelled first).
+F7 remains open.
 
 ## Method
 
@@ -47,7 +48,7 @@ randomized search over the real compactor instead of a model.
 | F3 | Forced reload discards unsaved in-memory state | Lean BFS | reproduced | medium-low |
 | F4 | Saver thread dies permanently on a session-dict race (no lock, no `try`) | reading + stress | fixed, 0.9.44 | medium |
 | F5 | Rename re-points or drops cross-level edges (4 variants) | Lean enumeration | fixed, 0.10.2 | medium |
-| F6 | The visual editor never receives project-level live updates | reading | reproduced | low |
+| F6 | The visual editor never receives project-level live updates | reading; fix checked in Lean | fixed, unreleased | low |
 | F7 | Compaction and refill churn: a node archived on one tick is re-promoted on the next | randomized search over the real compactor | reproduced | low |
 | F8 | A fork shares its live parent's KG session; the parent's hooks resolve to another session | Lean BFS | fixed, 0.10.2 | medium-low |
 | F9 | Cross-site GETs with side effects (`reload=true`, `session_bootstrap`) | reading + test | fixed, 0.9.44 | low |
