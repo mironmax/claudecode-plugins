@@ -23,6 +23,8 @@ Covers:
   5. rename carries view times; editor writes are never refused but do
      count as another writer
   6. the MCP handler: the refusal text shows the node and the retry succeeds
+  7. a full read does not license dropping notes: a write that leaves stored
+     notes out is refused once with them marked; the same write again goes through
 """
 
 import asyncio
@@ -253,6 +255,52 @@ def test_handler():
     store.shutdown()
 
 
+def test_dropped_notes():
+    print("7. a write that leaves stored notes out")
+    store, sm = fresh()
+    a, b = sm.register(None)["session_id"], sm.register(None)["session_id"]
+    cases = [f"case {i}" for i in range(6)]
+    put(store, b, "lesson", notes=cases)
+    tick()
+    read(store, sm, a, "lesson")
+    err = put(store, a, "lesson", notes=["my new case"])
+    check("a full reader sending only its new case is refused",
+          isinstance(err, NodeConflictError) and "removes 6 of the 6" in err.reason, err)
+    check("the refusal names the notes it would remove", err is not None and err.dropped == cases)
+    check("nothing was lost", notes_of(store, "lesson") == cases)
+    check("adding a case to the full list goes through", put(store, a, "lesson", notes=cases + ["my new case"]) is None)
+    err = put(store, a, "lesson", notes=cases[2:] + ["my new case"])
+    check("trimming is refused the first time", isinstance(err, NodeConflictError) and err.dropped == cases[:2], err)
+    check("a different shrinking write is refused again",
+          isinstance(put(store, a, "lesson", notes=cases[3:]), NodeConflictError))
+    check("the same write sent twice goes through",
+          put(store, a, "lesson", notes=cases[3:]) is None and notes_of(store, "lesson") == cases[3:])
+    check("a gist-only put never drops notes", put(store, a, "lesson", gist="sharper gist") is None)
+    store.shutdown()
+
+    import mcp.types as types
+    import mcp_streamable_server as srv
+    store, sm = fresh()
+    srv.store, srv.session_manager = store, sm
+    handler = srv.create_mcp_server().get_request_handler("tools/call").handler
+    ctx = SimpleNamespace(transport=SimpleNamespace(headers={}))
+
+    def call(name, **arguments):
+        params = types.CallToolRequestParams(name=name, arguments=arguments)
+        return asyncio.run(handler(ctx, params)).content[0].text
+
+    a = sm.register(None)["session_id"]
+    call("kg_put_node", session_id=a, level="user", id="kept", gist="g", notes=["old one", "old two"])
+    tick()
+    text = call("kg_put_node", session_id=a, level="user", id="kept", gist="g", notes=["old two", "new"])
+    check("the handler marks the note the write removes",
+          text.startswith("NOT WRITTEN") and "- old one   [your write removes this]" in text
+          and "send the same write again" in text, text[:300])
+    text = call("kg_put_node", session_id=a, level="user", id="kept", gist="g", notes=["old two", "new"])
+    check("and saves the repeat", "saved" in text and notes_of(store, "kept") == ["old two", "new"], text[:120])
+    store.shutdown()
+
+
 def main():
     test_lost_update()
     test_no_false_conflicts()
@@ -260,6 +308,7 @@ def main():
     test_render_window()
     test_rename_and_editor()
     test_handler()
+    test_dropped_notes()
     print(f"\n{_PASS} passed, {_FAIL} failed")
     return 1 if _FAIL else 0
 

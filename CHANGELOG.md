@@ -4,9 +4,10 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
-Release class: minor (RELEASING.md rule 4). A setup default changes, and so does model-facing text (the Antigravity rule, a `kg_useful` parameter description, two operational lines in kg-core and kg-maintain); the rest would fit a patch.
+Release class: minor (RELEASING.md rule 4). A setup default changes, and so does model-facing text (the Antigravity rule, a `kg_useful` parameter description, two operational lines in kg-core and kg-maintain), and `kg_put_node` now refuses once a write that drops stored notes; the rest would fit a patch.
 
 ### Changed
+- **`kg_put_node` refuses, once, a write that leaves out stored notes.** Notes sent with a write replace the stored list, so a model that sent only its new case after a full read silently deleted the lesson's history. The write is now refused with the notes it would remove marked; the same write sent again is taken as intended, so merging or trimming notes still works.
 - **Background upkeep is opt-in in `kg setup`.** It spends quota, so its question now defaults to No, and `kg setup --yes` applies it only when named (`--only upkeep`). `--plan` marks it. Every other item still defaults to yes.
 - **`kg_useful`'s `ids` parameter states the real limits:** five per session as guidance, ten as the hard cap, as its description already said; it read "session budget: 5 total".
 - **The Antigravity rule no longer says maintenance and history scouting are out of scope.** Both have worked in Antigravity since 0.11.0; the stale sentence could make the model decline `/kg-scout`.

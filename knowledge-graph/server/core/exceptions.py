@@ -26,11 +26,12 @@ class NodeConflictError(KGError):
 
     Carries the node as it stands, so the caller can merge and write again.
     """
-    def __init__(self, level: str, node_id: str, node: dict, reason: str):
+    def __init__(self, level: str, node_id: str, node: dict, reason: str, dropped: list | None = None):
         self.level = level
         self.node_id = node_id
         self.node = node
         self.reason = reason
+        self.dropped = dropped or []
         super().__init__(f"Node '{node_id}' not written: {reason}")
 
 

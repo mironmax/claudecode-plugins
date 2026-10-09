@@ -3,7 +3,7 @@
 
 Each test runs the real kg and server in a sandbox HOME with its own port,
 state and storage. Stubbed only to decide when things happen: kg's start
-window (15 s, 20 s for the unit) is cut short, as on a machine where the
+window (15 s, 20 s for the unit) runs out at once, as on a machine where the
 server takes longer than that; systemctl is a shell script.
 """
 
@@ -54,7 +54,7 @@ class Box:
         """kg start where the server needs longer than kg waits for it."""
         code = (f"import sys; sys.path.insert(0, {str(KG.parent)!r}); import kg\n"
                 "real = kg.wait\n"
-                "kg.wait = lambda pred, s: real(pred, 0.3 if s in (15, 20) else s)\n"
+                "kg.wait = lambda pred, s: False if s in (15, 20) else real(pred, s)\n"
                 "sys.exit(kg.start())\n")
         return subprocess.run([sys.executable, "-c", code], env=self.env,
                               capture_output=True, text=True, timeout=60)

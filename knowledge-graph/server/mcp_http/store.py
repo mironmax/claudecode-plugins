@@ -127,6 +127,9 @@ class MultiProjectGraphStore:
         # judgement, not use, so they neither stamp recency nor promote. The
         # flag is kept on the session record too, so a restart keeps it.
         self._maintenance_sessions: set[str] = session_manager.maintenance_ids()
+        # (session, level, node) -> the notes list of a write refused for
+        # removing stored notes; the same write sent again goes through.
+        self._drop_pending: dict[tuple, tuple] = {}
         self._persistence: dict[str, GraphPersistence] = {}
 
         # Thread safety
@@ -838,7 +841,11 @@ class MultiProjectGraphStore:
           - another session changed the node after this session last saw it;
           - the write replaces stored notes or touches this session has never
             read in their current form (it saw only the gist, in a preload or
-            a recall), whoever wrote them.
+            a recall), whoever wrote them;
+          - the write leaves out stored notes this session did read: a model
+            that sends only its new case wipes the lesson's history. Refused
+            once with the notes it would remove; the same write sent again is
+            taken as intended (merging or trimming notes).
         A session's own write and a refusal both count as a full read, so the
         retry goes through. Caller holds the lock. View times are recorded
         from before each render, so a write landing mid-render is never
@@ -858,6 +865,14 @@ class MultiProjectGraphStore:
             if sent is not None and stored and sent != stored and unread:
                 raise NodeConflictError(level, node_id, dict(node),
                                         f"this write replaces {field} this session has not read")
+        stored = node.get("notes") or []
+        dropped = [n for n in stored if n not in notes] if notes is not None else []
+        key = (session_id, level, node_id)
+        if dropped and self._drop_pending.pop(key, None) != tuple(notes):
+            self._drop_pending[key] = tuple(notes)
+            raise NodeConflictError(level, node_id, dict(node),
+                                    f"this write removes {len(dropped)} of the {len(stored)} stored notes",
+                                    dropped=dropped)
 
     def _near_duplicate(self, graph_key: str, node_id: str, gist: str) -> dict | None:
         """Best near-duplicate candidate for a freshly CREATED node, or None.
