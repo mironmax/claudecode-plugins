@@ -54,8 +54,8 @@ built-in auto-memory off (`claude-automemory`) and the quota gauge in the
 status line (`claude-gauge`). It also suggests `upkeep`, which switches on
 background maintenance chores and so spends quota. A `kg` missing from PATH
 is reported with the fix (`uv tool update-shell`). Every changed file is
-backed up first. The interactive prompt defaults to yes, and `--yes` without
-`--only` applies every offered item, `upkeep` included.
+backed up first. `upkeep` is opt-in: its prompt defaults to No, and `--yes`
+applies it only when named in `--only`; every other prompt defaults to yes.
 
 An agent installing it: without `uv`, ask before running the bootstrap, which
 installs uv and kg-memory, then runs `kg setup` interactively when a terminal

@@ -9,7 +9,7 @@ Follow this when a user asks you to install or repair the knowledge-graph memory
 2. See what setup would change: `kg setup --plan`. Each line has a key in
    brackets. Show the list to the user and ask which items to apply. Point
    out `upkeep`: it switches on background maintenance, which spends the
-   user's quota while it is spare.
+   user's quota while it is spare, so `--yes` applies it only when named.
 3. Apply only what the user agreed to: `kg setup --yes --only KEY,KEY`. Every
    file it edits is backed up under `~/.local/state/knowledge-graph/backups/`.
    If your harness refuses to run it (it edits harness settings), ask the user

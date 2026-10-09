@@ -4,7 +4,13 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Changed
+- **Background upkeep is opt-in in `kg setup`.** It spends quota, so its question now defaults to No, and `kg setup --yes` applies it only when named (`--only upkeep`). `--plan` marks it. Every other item still defaults to yes.
+- **The Antigravity rule no longer says maintenance and history scouting are out of scope.** Both have worked in Antigravity since 0.11.0; the stale sentence could make the model decline `/kg-scout`. Model-facing text, so this belongs to a minor release.
+
 ### Fixed
+- **The visual editor follows the server's port and refuses cross-site requests.** Its live-update proxy always connected to port 8765, so with another `KG_HTTP_PORT` live updates came from the wrong server (or none); it now follows `MCP_SERVER_URL`, as REST already did. Its CORS origins follow `EDITOR_PORT` instead of a fixed 8766. And like the memory server since 0.9.44, it refuses requests a browser marks as cross-site, so a web page can no longer make it promote a node through the proxy.
+- **A start through the systemd unit clears an old start error.** The hooks read `last_start_error` as "down and failing" and stop trying to start the server; only a start without the unit cleared it. A start through the unit now clears it on success and records the failure, pointing at the journal, when it fails.
 - **`kg logs` reads the journal under the systemd service.** The service's server logs to stderr, which systemd keeps in the journal, but `kg logs` tailed the file only a server started by `kg start` writes, so it showed a stale log or none. With the unit enabled it now runs `journalctl --user -u kg-memory.service`.
 - **Re-running the install script upgrades kg.** `uv tool install` succeeds on an installed tool without upgrading it, so the script's upgrade fallback never ran. It now uses `uv tool install --upgrade`.
 
