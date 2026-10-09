@@ -579,6 +579,29 @@ class HTTPSessionManager:
         return since, dict(data.get("seen_at", {}))
 
     @_locked
+    def pending_marks(self, session_id: str) -> tuple[float, dict]:
+        """The push/sync mark and the view times that replies queued for
+        delivery will commit: (latest mark, {node id: view time})."""
+        # Position of `at` in each method's signature, for positional calls.
+        at_index = {"mark_pushed": 1, "mark_synced": 1, "note_viewed": 2, "mark_seen": 3}
+        data = self._sessions.get(session_id) or {}
+        mark, seen = 0.0, {}
+        for item in data.get("agy_pending") or []:
+            for effect in item["effects"]:
+                method, args, kwargs = effect["method"], effect["args"], effect["kwargs"]
+                if method not in at_index:
+                    continue
+                at = kwargs.get("at", args[at_index[method]] if len(args) > at_index[method] else None)
+                if at is None:
+                    continue
+                if method in ("mark_pushed", "mark_synced"):
+                    mark = max(mark, at)
+                else:
+                    for nid in kwargs.get("node_ids", args[1] if len(args) > 1 else []):
+                        seen[nid] = max(seen.get(nid, 0), at)
+        return mark, seen
+
+    @_locked
     def mark_pushed(self, session_id: str, at: float) -> None:
         """Move the push mark to `at`: a deferred reply carrying a notice was delivered."""
         data = self._sessions.get(session_id)

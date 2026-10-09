@@ -1,0 +1,14 @@
+$ python3 cross-session/repro/repro_foreign.py
+F35a deploy-steps written before S started; a maintenance pass renamed it; S's next reply: no notice
+   ok
+F35b kg_sync listed cache-policy: True; F re-sent it unchanged; S's next reply: no notice
+   ok
+F35c shell-quoting (user level, written by F before S started, archived) read by a session in another project; S's next reply: no notice
+   ok
+F36 S read cache-policy v1; F wrote v2; S renamed it to cache-rules. Push: - cache-rules (updated): cache headers per route: v2, F moved them to the edge; kg_sync: 'Updates from other sessions:'
+   ok
+F37 Antigravity: a kg_search reply is queued, a kg_put_node reply goes inline, then the hook delivers the queued one; replies carrying cache-policy's notice: 1
+   ok
+F38 the hook's curl gave up (exit 28, printed 0 bytes); push window claimed: True; cache-policy seen_at >= F's write: True; S's write on its v1 view: written
+   BUG: the lost hook reply used up the push and marked the change seen; the older view overwrites F's gist
+RESULT: FAIL F38

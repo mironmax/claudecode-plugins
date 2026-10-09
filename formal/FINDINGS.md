@@ -788,3 +788,147 @@ length that can be a character off, and refill may then set aside a node that
 would fit (`B3`, 3 of 20,000 random graphs). Compaction's return value counts
 nodes its own resurrection pass brought back (`compactor.py:131-132`), so its
 log line over-reports; the store uses it only as a flag.
+
+---
+
+## Cross-session awareness: the push and `kg_sync` (F35–F38)
+
+Model: `cross-session/lean/Foreign.lean`, one observing session S. F (same
+project), G (another project), a maintenance pass M and S itself write, rename
+or re-put a node unchanged, promote archived nodes by reading them, and S
+reads, syncs and receives notices while compaction archives. Hook and tool
+replies claim at once (Claude Code, Codex); a hook reply can be lost after the
+server answered; Antigravity defers every mark to delivery (one queued reply
+at a time, inline or refused replies too). Every handler is `async` with no
+`await` (`mcp_streamable_server.py:452-823`, `rest.py:282-379`), so each one
+is an atomic step. Timestamps are kept as ranks, so each scope is finite and
+searched to the end: one node per scope (project, user) with every step, and
+two nodes with K=1 for the overflow pointer; 5,013–47,567 states per run,
+about 100 s in all. Reproduction: `cross-session/repro/repro_foreign.py`,
+against the MCP app, the REST hook routes served by uvicorn and called with
+the hook's own `curl --max-time 1`, and Antigravity's queue. Test:
+`tests/test_foreign_writes.py`, "only writes, each once" (6 of its 8 checks
+fail on the code before). Line numbers at `1d03171`.
+
+Invariants: a push never shows the session its own write (X-own), a
+maintenance session's write (X-maint), an archived node (X-arch) or a
+user-level write from another project (X-proj); it shows only writes made
+inside its window (X-new) and no write twice (X-once); every qualifying write
+is received or still listed by `kg_sync` (X-cover: nothing falls between the
+push window and the sync watermark); `seen_at` never covers a write the
+session did not receive (X-mark: a dropped or refused reply consumes nothing).
+
+### F35 — A version bump without a write was pushed as another session's write
+
+**Status:** fixed (unreleased). Tests: "a maintenance rename of an older node
+is not pushed as a write", "a promotion by another session's read is …",
+"an unchanged re-put after kg_sync listed the write is not pushed again".
+
+**Where:** `mcp_http/foreign.py:36-50` took the nodes of `get_sync_diff`
+(`store.py:1571-1572`: any version bump since the window opened) and filtered
+on `seen_at` and the writer only. A rename (`store.py:1205-1212`), a
+`put_node` re-sending the stored content (`:733-736`, bump at `:778`) and
+another session's read of an archived node (`:1517-1526`) bump the version
+and keep `_written`.
+
+**Trace (2 steps):** F renames a node written before S started; S's next reply
+announces it as "new". When the renamer is a maintenance pass, `_written.by`
+still names the original writer, so the maintenance filter does not apply.
+A second trace (4 steps): `kg_sync` lists F's write, F re-sends the node
+unchanged, and the next reply pushes the same write again.
+
+**Reproduced:** a maintenance rename made `deploy-runbook (new)` appear in S's
+`kg_search` reply; a re-put pushed `cache-policy` after `kg_sync` had listed
+it; a read from another project promoted an archived user node, which S was
+told about as new. Severity: low. A pass renaming several nodes fills the
+three push slots with old nodes and pushes real writes to "+N more".
+
+**Fix:** a node is pushed only when its `_written` stamp falls inside the
+window and names another session. X-new holds in every scope.
+
+### F36 — A session's own rename hid another session's change for good
+
+**Status:** fixed (unreleased). Tests: "kg_sync lists another session's write
+the session renamed afterwards", "and the push shows it".
+
+**Where:** `get_sync_diff` (`store.py:1571-1572`) skipped a node whose latest
+version bump was the session's own, whoever wrote its content.
+
+**Trace (2 steps):** F writes n; S renames n. `kg_sync` answers "No updates
+from other sessions", and no push ever shows F's change. **Reproduced** with
+`kg_read`, a write by F, `kg_rename_node` by S, then `kg_search` and
+`kg_sync`. The stale-view guard still refuses S's next write to the node, so
+nothing is overwritten; the change is only never reported. Severity: low.
+
+**Fix:** a node whose content another session wrote after the watermark is
+listed whoever bumped its version last. X-cover holds in every scope.
+
+### F37 — Antigravity: two replies carried the same change
+
+**Status:** fixed (unreleased). Tests: "a reply rendered before it is
+delivered does not repeat it", "nor does one after its delivery".
+
+**Where:** since F14's fix the notice in a deferred reply claims nothing
+(`foreign.py:28-34`); its marks commit on delivery. A reply rendered while an
+earlier one waits in the queue opens the same window.
+
+**Trace (4 steps):** F writes n; S's search reply is queued carrying n; S's
+next reply is small enough to go inline and shows n again; the hook delivers
+the queued one. **Reproduced:** two delivered replies carried
+`cache-policy`'s notice. Severity: very low (one repeated gist line).
+
+**Fix:** a notice counts the push, sync and view marks of replies already
+queued as made (`HTTPSessionManager.pending_marks`). A queued reply is
+delivered or replayed after a compaction, never dropped; a refused reply is
+never queued, so it still changes nothing. X-once holds with QMAX=1.
+
+### F38 — A hook reply the client gave up on still uses up the push
+
+**Status:** open, for a decision. Reproduced.
+
+**Where:** `hooks/kg-remind.sh:29` and `hooks/kg-tool-event.sh:21` call the
+server with `curl --max-time 1` and print nothing on a timeout. The handler
+(`rest.py:282-306`) runs to the end anyway: `foreign.notice` claims the
+window (`foreign.py:30`) and marks the shown nodes seen (`:63`). The server
+cannot tell that nobody read the reply.
+
+**Trace (2 steps):** F writes n; S's hook reply showing n is lost. n is never
+pushed (the window moved), and its `seen_at` covers F's write, so the
+stale-view guard lets a gist-only write built on S's older view through.
+
+**Reproduced:** another thread holds `store.lock` for 1.5 s, as the saver does
+while it saves or compacts (see "Optimisation candidates" above); the hook's
+curl exits 28 having printed nothing; `pushed_ts` moved, `seen_at` covers F's
+write, and S's gist-only `kg_put_node` built on v1 overwrote F's gist.
+`kg_sync` still lists the change, and a write that replaces notes is still
+refused (`read_at` is not touched). Severity: low; it needs a hook round trip
+over one second, which a long save or a large full read on the event loop
+can cause.
+
+**Options:** (a) on the hook path, move the window but mark nothing seen: a
+lost reply then costs only the announcement (`kg_sync` keeps it), and a
+delivered one costs one refusal round trip if the session then rewrites the
+node gist-only; recall dedup also stops counting pushed gists. (b) An
+acknowledgement from the hook script after it prints, as Antigravity has:
+exact, but it needs a pending-notice record per session and a second request
+per hook. (c) Skip the notice when the handler has already run close to a
+second: cheap, but blind to time the request spent queued before the handler
+started. (d) A longer curl timeout: fewer losses, a slower prompt when the
+server is busy. (e) Accept it and document that `kg_sync` is the record.
+
+### Checked and holds (within bounds)
+
+- X-own, X-maint, X-arch and X-proj hold in every scope, on the code before
+  the fixes. X-maint relies on F29: the maintenance flag survives a restart.
+- Overflow: with two nodes and K=1 the newest is shown and the rest stay
+  listed by `kg_sync`; no change falls between the push window and the sync
+  watermark when every reply is delivered (X-cover, X-mark).
+- Antigravity: a refused reply changes nothing (F14 holds), and a queued
+  notice's marks never let a write built on an older view through (X-mark).
+
+**Not modelled, suspected:** a maintenance session that expired (24 h idle)
+before a restart is no longer known as maintenance (`maintenance_ids` reads
+live session records), so its project-level writes would pass the filter for
+a session whose window still covers them; that needs the session to make no
+notice-bearing call for a day while staying alive. A crash loses the push and
+seen marks made since the last sessions save, so a change can be pushed again.

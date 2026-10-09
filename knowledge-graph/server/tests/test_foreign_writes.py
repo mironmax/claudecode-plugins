@@ -164,6 +164,51 @@ def main():
         text = foreign.notice(store, session_manager, b) or ""
         check("a user-level write from the same project still is",
               "same-project-lesson" in text, text)
+
+        print("only writes, each once (formal F35-F37):")
+        store.put_node(level="project", node_id="old-deploy-steps", gist="Old steps", session_id=a)
+        store.put_node(level="user", node_id="old-archived-tip", gist="Old tip", session_id=a)
+        store.graphs["user"]["nodes"]["old-archived-tip"]["_archived"] = True
+        time.sleep(0.01)
+        c = session_manager.register(project)["session_id"]
+        time.sleep(0.01)
+        store.rename_node("old-deploy-steps", "old-deploy-runbook", session_id=chore)
+        check("a maintenance rename of an older node is not pushed as a write",
+              foreign.notice(store, session_manager, c) is None)
+        store.read_node("old-archived-tip", level="user", session_id=elsewhere)
+        check("a promotion by another session's read is not pushed as a write",
+              foreign.notice(store, session_manager, c) is None)
+        store.put_node(level="project", node_id="synced-node", gist="Listed", session_id=a)
+        session_manager.mark_synced(c, at=time.time())
+        time.sleep(0.01)
+        store.put_node(level="project", node_id="synced-node", gist="Listed", session_id=a)
+        check("an unchanged re-put after kg_sync listed the write is not pushed again",
+              foreign.notice(store, session_manager, c) is None)
+
+        store.put_node(level="project", node_id="masked-node", gist="v1", session_id=a)
+        session_manager.note_viewed(c, ["masked-node"], at=time.time())
+        session_manager.mark_synced(c, at=time.time())
+        time.sleep(0.01)
+        store.put_node(level="project", node_id="masked-node", gist="v2 by a", session_id=a)
+        time.sleep(0.01)
+        store.rename_node("masked-node", "masked-node-renamed", session_id=c)
+        diff = store.get_sync_diff(c, session_manager.get_sync_ts(c))
+        check("kg_sync lists another session's write the session renamed afterwards",
+              "masked-node-renamed" in diff["project"]["nodes"], list(diff["project"]["nodes"]))
+        text = foreign.notice(store, session_manager, c) or ""
+        check("and the push shows it", "masked-node-renamed (updated): v2 by a" in text, text)
+
+        from mcp_http.delivery import DeferredView, apply_effects
+        store.put_node(level="project", node_id="queued-change", gist="Q", session_id=a)
+        view = DeferredView(session_manager)
+        text = foreign.notice(store, view, c) or ""
+        session_manager.queue_context(c, text, "kg_search", view.effects)
+        check("a deferred reply carries the change", "queued-change (new)" in text, text)
+        check("a reply rendered before it is delivered does not repeat it",
+              foreign.notice(store, DeferredView(session_manager), c) is None)
+        apply_effects(session_manager, session_manager.lookup(c)["agy_pending"].pop()["effects"])
+        check("nor does one after its delivery",
+              foreign.notice(store, DeferredView(session_manager), c) is None)
     finally:
         shutil.rmtree(project, ignore_errors=True)
         shutil.rmtree(other, ignore_errors=True)
