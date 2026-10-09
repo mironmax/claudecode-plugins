@@ -58,8 +58,8 @@ backed up first. `upkeep` is opt-in: its prompt defaults to No, and `--yes`
 applies it only when named in `--only`; every other prompt defaults to yes.
 
 An agent installing it: without `uv`, ask before running the bootstrap, which
-installs uv and kg-memory, then runs `kg setup` interactively when a terminal
-is attached (`curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`).
+installs uv and kg-memory, then runs `kg setup` interactively when there is a
+terminal to ask in (`curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`).
 Show the user `kg setup --plan` (each line has a key in brackets) and pass
 `--yes` only for the items agreed in chat, e.g.
 `kg setup --yes --only claude-desktop`. If the harness refuses to run it, ask
@@ -96,8 +96,8 @@ kg editor [stop]          # graph editor at http://localhost:8766
   first's server.
 - A start that fails records why in `last_start_error`; hooks then report that
   cause instead of retrying. The next successful `kg start` clears it when kg
-  runs the server itself. Under the systemd unit, start failures are in the
-  journal, and a leftover `last_start_error` must be deleted by hand.
+  runs the server itself. Under the systemd unit the recorded cause points at
+  the journal, and the next successful `kg start`/`kg restart` clears it.
 - Ask before restarting mid-work: live sessions survive it, but a
   half-finished write in another session is still that session's business.
 

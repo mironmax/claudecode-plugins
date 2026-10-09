@@ -209,7 +209,7 @@ session in the same project, since every project shares the user graph.
 
 Thin hooks forward the harness's hook JSON to the server and print whatever
 ready-made hook output comes back. Every recall decision lives server-side,
-and a hook failure falls back to silence, so a hook can never break a session.
+and a hook failure never breaks the session: it prints nothing, a staged reminder, or the outage cause.
 The SessionStart hook also starts the server through `kg` when it is down, or
 offers the install when `kg` is missing. (Antigravity's hooks are listed under
 "The Harness Layer".)
@@ -510,12 +510,14 @@ and only *known* prompts enter the consistency check.
 
 4. **Decided on the server, written down.** Context arrives without being
    asked — preload, prompt and file recall, nudges, budget notices, other
-   sessions' writes — but every decision is made server-side and logged
-   (`recall.jsonl`, `useful.jsonl`, `chores.jsonl`), silences included.
-   Predictable, debuggable, measurable. `kg_sync` remains the explicit pull.
+   sessions' writes — but every decision is made server-side, and the ones
+   that shape what memory is used are logged: prompt and file recall in
+   `recall.jsonl` (silences included), credits in `useful.jsonl`, upkeep in
+   `chores.jsonl`. Predictable, debuggable, measurable. `kg_sync` remains the
+   explicit pull.
 
 5. **Local, plain, portable.** JSON files under one directory and one local
-   server process; no database, no external service, no API key. The entire
+   server process; no database, no hosted service, no API key. The entire
    memory can be read with a text editor, versioned with git, and moved with
    `cp`.
 

@@ -30,23 +30,23 @@ You don't operate the memory; the agent does. You mostly notice it in the answer
 - **Morning.** You open a session. The most useful memories are loaded before your first message; the agent reads the rest once and says *"I have recalled KG Memories"*.
 - **During work.** You ask about the deploy script, and the note about its one non-obvious flag arrives with your question. The agent reads a config file, and the memory that says "generated, edit the template instead" arrives with it.
 - **When something is learned.** The agent traces a failing test to a timezone assumption in a fixture, or you say you prefer small commits. It writes that down there and then. You can also just say "remember that…".
-- **When memory is wrong or missing.** Correct the agent as you would anyway. It updates the lesson, and if the memory existed but didn't surface, it reports the miss, which is what brings that memory back into view.
+- **When memory is wrong or missing.** Correct the agent as you would anyway. It updates the lesson. If the memory existed but didn't surface, the agent reads it back and reports the miss; the report is what keeps that memory from sinking again.
 - **Wrapping up.** Tell the agent you're wrapping up. It's the natural moment for it to write down what the session learned and credit the memories that actually helped, which keeps them on top.
 - **Over weeks.** Memories nobody uses sink into the archive; the ones that keep helping stay visible. When upkeep is overdue, the memory says so; `/kg-maintain` runs a bounded cleanup, or background upkeep does it for you.
 
 ## How mature it is
 
-**Solid.** kg-memory is built by one maintainer and has been in their daily use on real projects since spring 2026, across about 60 releases. Claude Code is the primary client. Codex CLI runs the same plugin against the same memory and is verified against real Codex sessions. Every change reaches `main` through a pull request with the test suite green in CI. The concurrent parts (parallel writes, session forks, renames, saves) were checked with formal models. Each defect the models found was reproduced against the real code; nine of the twelve are fixed, and the other three are documented with their reproductions ([formal/](formal/)). Saves are atomic, with a rolling backup and optional git history. Releases so far have carried existing memory forward, migrating stored data on load when its shape changed.
+**Solid.** kg-memory is built by one maintainer and has been in their daily use on real projects since spring 2026, across about 60 releases. Claude Code is the primary client. Codex CLI runs the same plugin against the same memory and is verified against real Codex sessions. Changes reach `main` through pull requests that run the test suite in CI. The concurrent parts (parallel writes, session forks, renames, saves) were checked with formal models. Each defect the models found was reproduced against the real code; nine of the twelve are fixed, and the other three are documented with their reproductions ([formal/](formal/)). Saves are atomic, with a rolling backup and optional git history. Releases so far have carried existing memory forward, migrating stored data on load when its shape changed.
 
-**Measured, within limits.** Every recall decision and every credit is logged locally, and a replay evaluator scores ranking changes against that record. Changes to scoring and budgets are replayed on copies of real memory graphs before release. What does not exist yet is a controlled benchmark of how much the memory improves an agent's results. The evidence so far is daily use and these logs, not a headline number.
+**Measured, within limits.** Every prompt and file recall decision and every credit is logged locally, and a replay evaluator scores ranking changes against that record. Recent scoring and budget changes were replayed on copies of real memory graphs before release. What does not exist yet is a controlled benchmark of how much the memory improves an agent's results. The evidence so far is daily use and these logs, not a headline number.
 
 **Still moving.** It is pre-1.0: minor releases still retune scoring, budgets and the instructions the agent follows, each recorded in the [changelog](CHANGELOG.md). Antigravity CLI support is experimental. Windows is not supported. The background service is set up on Linux (systemd); on macOS the agent's session start launches the server on demand. Two limits to know: projects are told apart by their folder name, so two projects in folders with the same name share one memory; and project folders must be inside your home directory.
 
 ### What it costs
 
-- **Context.** On a mature memory, what loads at session start plus the agent's one full read come to at most about 60,000 characters (roughly 15,000 tokens of English text).
+- **Context.** On a mature memory, what loads at session start plus the agent's one full read come to about 60,000 characters by design (roughly 15,000 tokens of English text); more only while the memory's current entries alone overflow that budget, until a maintenance pass tightens them.
 - **Quota.** Background upkeep runs short headless agent sessions on your subscription. That's why it's off until you switch it on, and why it runs only while your 5-hour and weekly limits have room to spare. `/kg-scout` also spends tokens, since it reads past sessions.
-- **Privacy.** Memories the agent reads, and those background upkeep works on, reach your model provider like any other context. The memory server itself sends nothing anywhere.
+- **Privacy.** Memories the agent reads, and those background upkeep works on, reach your model provider like any other context. The memory server sends no memory data anywhere on its own. (The visual editor's page loads its graph library from a CDN.)
 
 ## Install
 
@@ -65,7 +65,7 @@ Afterwards:
 - **If you use Claude Desktop**, fully quit and reopen it.
 - Run `kg doctor` to check that everything is connected, then start a new session.
 
-`kg update` keeps it current; `kg uninstall` reverses setup and keeps your memory.
+`kg update` keeps it current; `kg uninstall` reverses setup (marketplace auto-update stays on) and keeps your memory.
 
 ## Your first five minutes
 

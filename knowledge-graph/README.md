@@ -20,7 +20,7 @@ kg setup                      # asks before each change, backs up what it edits
 - **Codex CLI**, **Antigravity CLI** (experimental, with its tool grants) and **Claude Desktop**, when they are installed.
 - **Background upkeep**, opt-in: the server tends the graph in small headless runs while your quota is spare. Because it spends quota, its question defaults to No, and `--yes` applies it only when named (`kg setup --yes --only upkeep`).
 
-`kg setup --plan` lists the items with their keys and changes nothing; `kg setup --yes --only KEY,KEY` applies just those. Every file setup edits is backed up under `~/.local/state/knowledge-graph/backups/`. `kg doctor` checks everything later. `kg update` upgrades kg, then restarts the server on the new version and updates every installed plugin. `kg uninstall` reverses setup and leaves your memory in place.
+`kg setup --plan` lists the items with their keys and changes nothing; `kg setup --yes --only KEY,KEY` applies just those. Every file setup edits is backed up under `~/.local/state/knowledge-graph/backups/`. `kg doctor` checks everything later. `kg update` upgrades kg, then restarts the server on the new version and updates every installed plugin. `kg uninstall` reverses setup (marketplace auto-update stays on) and leaves your memory in place.
 
 Two steps stay with you: in Codex, run `/hooks` and trust the knowledge-graph hooks; fully quit and reopen Claude Desktop. Then start a new session.
 
@@ -39,14 +39,14 @@ With the harness hooks enabled, none of this needs to be asked for:
 - **Sessions hear each other.** When another session writes a node that could hold this session's lesson, its gist is appended to this session's next hook or write reply, so the agent updates the existing lesson instead of writing a duplicate.
 - **Maintenance signal.** Every read carries a `DEBT:` line per graph. It counts oversized gists, unconnected nodes, file pointers that no longer resolve and episodes waiting to be lifted into a principle, and weighs them by time since the graph was last tended and how actively it is used. When it reads HIGH, `/kg-maintain` runs a bounded pass, or the agent hands it to a maintenance subagent.
 - **Budget notices.** The server reads the session's own quota gauge (Claude Code's status-line file, the Codex rollout, Antigravity's `/usage`) and says once per window when to plan the wrap-up (80% of five hours) and when to wrap up now (90%), and 90/95% for the week.
-- **Background upkeep, if you switch it on.** The server can also pay debt down while you work. Each run is one kind of fix on one or two nodes the server picks itself, in a handful of tool calls. It runs as a detached headless agent whose MCP access is limited to its maintenance tools, so your session spends no context on it. Under Codex, shell and hosted web are also disabled and the filesystem is read-only. Every run and every refusal is logged. Runs can go through Claude Code, Codex or Antigravity, each gated on its own subscription's limits. `/kg-ops` has the switch and the gates.
+- **Background upkeep, if you switch it on.** The server can also pay debt down while you work. Each run is one kind of fix on one or two nodes the server picks itself (a cluster of up to five when lifting episodes into a lesson), in a handful of tool calls. It runs as a detached headless agent whose MCP access is limited to its maintenance tools, so your session spends no context on it. Under Codex, shell and hosted web are also disabled and the filesystem is read-only. Every run and every refusal is logged. Runs can go through Claude Code, Codex or Antigravity, each gated on its own subscription's limits. `/kg-ops` has the switch and the gates.
 
 ## Everyday use
 
 The agent does the remembering. A few habits make it work better:
 
 - **Say when you're wrapping up.** That's the natural moment for the agent to write down what the session learned and to endorse (`kg_useful`) the memories that helped. Endorsed memories stay on top.
-- **Correct it, and say when memory missed.** If you have to tell the agent something the graph already held, that miss is worth reporting. A miss is the only signal that brings an archived memory back into view.
+- **Correct it, and say when memory missed.** If you have to tell the agent something the graph already held, that miss is worth reporting. Reading the memory brings it back; the reported miss is what corrects the archival decision so it doesn't sink again.
 - **Prefer fresh sessions to long compactions.** Finishing a task cleanly and starting a new session works better than letting context compact. The graph keeps what matters.
 - **Seed and mine now and then.** `/kg-extract` maps a codebase into the graph; `/kg-scout` mines past sessions for lessons worth keeping.
 - **Look at it.** `kg editor` opens a browser view of the graph, with search, score explanations and editing ([guide](https://github.com/mironmax/kg-memory/blob/main/knowledge-graph/VISUAL_EDITOR_GUIDE.md)).

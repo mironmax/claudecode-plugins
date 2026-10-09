@@ -4,15 +4,20 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+Release class: minor (RELEASING.md rule 4). A setup default changes, and so does model-facing text (the Antigravity rule, two operational lines in kg-core and kg-maintain); the rest would fit a patch.
+
 ### Changed
 - **Background upkeep is opt-in in `kg setup`.** It spends quota, so its question now defaults to No, and `kg setup --yes` applies it only when named (`--only upkeep`). `--plan` marks it. Every other item still defaults to yes.
-- **The Antigravity rule no longer says maintenance and history scouting are out of scope.** Both have worked in Antigravity since 0.11.0; the stale sentence could make the model decline `/kg-scout`. Model-facing text, so this belongs to a minor release.
+- **The Antigravity rule no longer says maintenance and history scouting are out of scope.** Both have worked in Antigravity since 0.11.0; the stale sentence could make the model decline `/kg-scout`.
 
 ### Fixed
 - **The visual editor follows the server's port and refuses cross-site requests.** Its live-update proxy always connected to port 8765, so with another `KG_HTTP_PORT` live updates came from the wrong server (or none); it now follows `MCP_SERVER_URL`, as REST already did. Its CORS origins follow `EDITOR_PORT` instead of a fixed 8766. And like the memory server since 0.9.44, it refuses requests a browser marks as cross-site, so a web page can no longer make it promote a node through the proxy.
 - **A start through the systemd unit clears an old start error.** The hooks read `last_start_error` as "down and failing" and stop trying to start the server; only a start without the unit cleared it. A start through the unit now clears it on success and records the failure, pointing at the journal, when it fails.
-- **`kg logs` reads the journal under the systemd service.** The service's server logs to stderr, which systemd keeps in the journal, but `kg logs` tailed the file only a server started by `kg start` writes, so it showed a stale log or none. With the unit enabled it now runs `journalctl --user -u kg-memory.service`.
-- **Re-running the install script upgrades kg.** `uv tool install` succeeds on an installed tool without upgrading it, so the script's upgrade fallback never ran. It now uses `uv tool install --upgrade`.
+- **`kg logs` reads the journal under the systemd service.** The service's server logs to stderr, which systemd keeps in the journal, but `kg logs` tailed the file only a server started by `kg start` writes, so it showed a stale log or none. With the unit enabled it now runs `journalctl --user -u kg-memory.service` (the file, when `journalctl` is missing).
+- **Re-running the install script upgrades kg, and it no longer fails in an agent's shell.** `uv tool install` succeeds on an installed tool without upgrading it, so the script's upgrade fallback never ran; it now uses `uv tool install --upgrade`. And `/dev/tty` can exist without a controlling terminal, so the script tried to run `kg setup` there and exited with an error after installing; it now checks that the terminal opens, and otherwise says to run `kg setup` in a terminal.
+
+### Security
+- **Codex budget notices read only a rollout under home.** The quota gauge read the tail of whatever transcript path a hook request named. It now goes through the same containment as every other transcript read: a `.jsonl` file under the user's home.
 
 ### Documentation
 - The READMEs now lead with what the memory does for you, what a day with it looks like, and an honest account of its maturity and costs. Docs are aligned with the current source: what `kg setup` offers (auto-update, auto-memory off, the `kg gauge` status line, background upkeep) and how `kg update` and `kg uninstall` replace the manual plugin steps; `.mcp.json` launching `kg mcp`; logs under systemd; where environment variables take effect; Windows unsupported; macOS CI report-only; transport through `kg mcp` and all four clients in ARCHITECTURE.md; development paths through `cli/kg-dev`. The plugin README's links are absolute, so they work on PyPI.

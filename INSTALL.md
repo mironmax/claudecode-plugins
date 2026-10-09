@@ -4,8 +4,8 @@ Follow this when a user asks you to install or repair the knowledge-graph memory
 
 1. Install the command. With `uv` present: `uv tool install kg-memory`.
    Without it, ask the user before running the bootstrap, which installs uv
-   and kg-memory, then runs `kg setup` interactively when a terminal is
-   attached: `curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`.
+   and kg-memory, then runs `kg setup` interactively when there is a
+   terminal to ask in: `curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`.
 2. See what setup would change: `kg setup --plan`. Each line has a key in
    brackets. Show the list to the user and ask which items to apply. Point
    out `upkeep`: it switches on background maintenance, which spends the
