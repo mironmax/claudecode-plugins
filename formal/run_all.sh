@@ -52,6 +52,10 @@ run sessions/evidence/repro-saver-default.log   timeout 120 $PY sessions/repro/r
 run websocket/evidence/model.log             lean --run websocket/lean/Subscribe.lean
 run websocket/evidence/repro.log             $PY websocket/repro/repro_ws.py
 run compaction/evidence/search.log           $PY compaction/repro/thrash_search.py
+run compaction/evidence/model.log            lean --run compaction/lean/Compaction.lean
+run compaction/evidence/repro.log            $PY compaction/repro/repro_tick.py
+run compaction/evidence/tick-store-v1.log    $PY compaction/repro/tick_search.py store v1 20000
+run compaction/evidence/tick-store-v2.log    $PY compaction/repro/tick_search.py store v2 20000
 run security/evidence/repro.log              $PY security/repro/repro_csrf.py
 run delivery/evidence/model-paging.log       lean --run delivery/lean/Paging.lean
 run delivery/evidence/model-agy.log          lean --run delivery/lean/Agy.lean

@@ -211,6 +211,9 @@ Tests: `tests/test_ws_subscriptions.py`, `visual-editor/tests/test_api.py`
 
 ## F7 — Compaction and refill churn
 
+**Status:** fixed on the development branch; root cause pinned down by the
+compaction model (see "The compaction tick (F7, F33, F34)" below).
+
 **Where:** `core/compactor.py:31` and `:132`. The refill docstring claims
 no-thrash (`:146`); `store.py` `_maybe_compact` skips refill only on the
 *same* tick.
@@ -225,6 +228,18 @@ so the last (possibly large) node overshoots below the 0.8 target. Refill then
 uses the gap, and a just-archived small node often ranks top. The cost is an
 extra write-through and a node that flickers for one tick. Low severity; an
 efficiency and log-noise issue.
+
+**Root cause, precisely:** the overshoot is not itself the defect; refill
+exists to fill it. The defect is that `_maybe_compact` (`store.py:1906-1909`)
+skipped refill on the tick that archived, on the belief that it would undo
+the archive. It undid it anyway, one tick later, after the archived state had
+been written. The same counterexample also shows the ARCHIVED header (53
+characters) at work: archiving the first node of a small graph makes it
+larger, so compaction archives more than the gist sizes suggest. Refill stays
+under the fill ceiling and compaction acts only above the budget, so running
+both in one tick cannot thrash; the model checks this within its bounds.
+**Fix:** refill runs on the compacting tick as well. The tick now ends where
+the next one used to.
 
 ## F8 — A fork shares its live parent's KG session
 
@@ -671,3 +686,105 @@ match the path that granted the credit. **Open, by design or for a decision:**
 reads made before a late maintenance flag keep their effects; a maintenance
 write unarchives the node it edits; `_clean_orphaned_edges` keeps
 maintain→user edges contrary to its comment.
+
+---
+
+## The compaction tick (F7, F33, F34)
+
+Model: `compaction/lean/Compaction.lean`, the saver's per-graph tick on an
+idle graph (`_maybe_compact`, `store.py:1905-1911`, then `_prune_orphans`)
+with the real scorer reproduced exactly: tie-averaged percentiles in IEEE
+doubles, connectedness by neighbour state, the fresh tier, and the exact
+rendered size (a closed form that the reproduction checks against
+`estimate_graph`). The tick is deterministic, so the search enumerates graphs:
+2 and 3 nodes, any directed edges, budgets from 0.4 to 1.3 of the all-active
+size, every initial archived set; 6,477 graphs, each ticked from every start
+until its state repeats. Repeated state with a pass still acting is a cycle
+that runs forever. The orphan pass cannot act at this size; it only ever adds
+orphans, so it takes no part in a cycle. Reproduction:
+`compaction/repro/repro_tick.py` (a real store loading the model's graphs from
+disk, ticked as `_periodic_save` ticks). Randomized search over the real tick:
+`compaction/repro/tick_search.py`, 20,000 graphs of 4 to 14 nodes in two
+generators. Test: `tests/test_compaction_tick.py` (5 of 9 checks fail on the
+code before). Line numbers at `1d03171`.
+
+**Does F7 still happen on the current tick?** Yes. 0.13.0 added the fresh
+tier and rebalance, and the churn now has more sources. Store tick, first
+generator: a node archived on one tick and promoted on the next in 6,155 of
+20,000 graphs (4,217 compaction then refill, 1,938 compaction then rebalance,
+1,036 rebalance then rebalance); the legacy compact-else-refill sequence gives
+4,379, as in the original search (`evidence/tick-*-before.log`). The second generator
+(endorsements, part of the graph archived at the start, budgets up to 1.3 of
+the graph) gives 4,141.
+
+- **F7 — compaction then refill.** Root cause and fix above. In the model it
+  appears in 978 of 35,976 trajectories with the code and in none with the fix;
+  in the random search, in 4,217 and 1,369 graphs of the two generators before
+  and none after (`evidence/tick-store-v*.log`). The churn left after the fix
+  (2,828 and 3,102 graphs) is F33's: rebalance promotes a node compaction just
+  archived, and that count rose (1,938 to 2,828 in the first generator) because
+  the same swaps now come one tick sooner; before, rebalance only acted on the
+  tick after refill.
+- **F33 — Rebalance can swap the same nodes forever** (low-medium, not
+  measured on real graphs; `compactor.py:259-305`). Connectedness counts a
+  neighbour at 1.0 while it is active and 0.2 while archived
+  (`scorer.py:58-63`), so of two linked nodes the archived one looks better
+  connected than the active one. Rebalance compares the worst active node with
+  the best archived one by scores taken before the swap; the swap reverses
+  that comparison, and the 0.05 margin is far smaller than the shift (one
+  percentile step of connectedness is worth 0.4/(n−1)). Smallest case: two
+  80-character nodes linked both ways where only one fits, max 190. Every tick
+  makes three swaps and the active set alternates, forever; the reproduction
+  shows six writes in six ticks and the archived node changing at every tick
+  boundary. With three nodes on a cycle, three swaps can return to the start
+  within one tick, so the graph is rewritten unchanged every tick instead. Seen
+  in 1,015 of 20,000 random graphs (954 alternating, 61 rewritten unchanged);
+  in the model, in 6,041 trajectories. Each tick writes the graph file
+  (`fsync`), bumps the write generation and logs a rebalance line; when the
+  active set alternates, `kg_read` and the preload show a different node every
+  30 seconds and auto-commit records the flip. Compaction's resurrection pass
+  (`compactor.py:91-129`) uses the same before-the-move comparison. **Status:
+  reproduced, open: the fix is a choice of rebalance policy** (options below).
+- **F34 — A node stayed archived although the whole graph fit under the fill
+  ceiling** (very low; `compactor.py:170-226`). Promoting the last archived
+  node also removes the ARCHIVED header and its anchor, which neither refill's
+  trigger nor its per-node delta credits. A small graph could be over the
+  ceiling only because of them, so refill never started, or set its last node
+  aside as too big. Since archiving the first node adds the header, compaction
+  could also archive a further node because of it, and nothing brought them
+  back. Fix: refill first promotes the whole archive when the graph with every
+  node active fits under the ceiling (one exact measure, after a cheap bound).
+  In the model the stuck state appears in 4,880 trajectories before and none
+  after; refill stopping short at the last node, in 756 random graphs of the
+  second generator before and none after.
+
+**Options for F33** (none adopted; 1 and 2 are variants `post` and `pot` of
+the model, run with the F7 and F34 fixes):
+
+1. *Judge the swap after it.* Re-score the tentative swap and keep it only if
+   the promoted node still beats the demoted one by the margin. No cycle within
+   the bounds; 59 trajectories keep a one-off swap back of a node compaction
+   had just archived, and 46 a swap out and back within one tick. It keeps
+   rebalance's meaning (the best archived for the worst active) and costs one
+   extra scoring per tentative swap. Not proven to terminate in general.
+2. *A measure that must rise.* Keep a swap only if the summed score of the
+   active nodes, scored after the swap, rises by the margin. A function of the
+   state that strictly rises cannot cycle, so this terminates on any graph;
+   in the model, 361 trajectories keep a one-off swap back. It changes what
+   rebalance optimises: a swap that helps the promoted node but lowers its
+   neighbours may be refused.
+3. *Damp instead of decide.* Never swap back a node swapped out within the
+   last N ticks, or raise the margin. Cheap, but a hysteresis setting rather
+   than a fix: cycles longer than N ticks or wider than the margin remain.
+
+**Checked and holds (within the model's bounds, and in 40,000 random graphs
+on the real tick):** refill never ends above the fill ceiling; rebalance never
+ends above the budget; refill never sets off a compaction; with the F7 fix,
+compaction and refill never undo each other on a later tick. Compaction can end
+above the budget only when the remaining active nodes are all in the fresh
+tier, by design. **Residual:** refill's per-node delta prices a newly live
+edge at its from-side citation (`estimator.py:52-60`); where ids differ in
+length that can be a character off, and refill may then set aside a node that
+would fit (`B3`, 3 of 20,000 random graphs). Compaction's return value counts
+nodes its own resurrection pass brought back (`compactor.py:131-132`), so its
+log line over-reports; the store uses it only as a flag.

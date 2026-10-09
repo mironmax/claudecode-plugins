@@ -17,7 +17,9 @@ the development branch (project-bound editor subscriptions, modelled first).
 F13–F16, found by a second pass on delivery (paged reads and Antigravity's
 queue), and F17–F23, from the dispatcher's pass tier, runners and budget
 notices, F24–F26, from the server lifecycle, and F27–F32, from usefulness
-accounting, are fixed there too. F7 remains open.
+accounting, are fixed there too. The compaction model pinned down F7's root
+cause; F7 and F34 are fixed there. F33 (rebalance can cycle forever) is
+reproduced and open: its fix is a choice of rebalance policy.
 
 ## Open work
 
@@ -25,8 +27,6 @@ A second pass started on the parts added since 0.11 that no model covered
 yet. Delivery (F13–F16) and the editor's subscriptions (F6) are done. Still
 to be modelled and reproduced, each in its own directory:
 
-- `compaction/`: a Lean model of the per-tick archive / refill / rebalance /
-  orphan sequence and the root cause of F7's one-tick churn;
 - `cross-session/`: the push of other sessions' writes and `kg_sync`
   (each change pushed once, never to its writer, nothing falling between the
   push window and the sync watermark);
@@ -54,8 +54,9 @@ fails, so a CI job would need expected outcomes per model and reproduction.
    (see F5).
 
 Not everything went through Lean. F4 and F10 came from the questions the
-modelling raised, such as "which threads touch this dict?". F7 used a
-randomized search over the real compactor instead of a model.
+modelling raised, such as "which threads touch this dict?". F7 was first found
+by a randomized search over the real compactor; the compaction model later
+gave its root cause.
 
 ## Results
 
@@ -67,7 +68,7 @@ randomized search over the real compactor instead of a model.
 | F4 | Saver thread dies permanently on a session-dict race (no lock, no `try`) | reading + stress | fixed, 0.9.44 | medium |
 | F5 | Rename re-points or drops cross-level edges (4 variants) | Lean enumeration | fixed, 0.10.2 | medium |
 | F6 | The visual editor never receives project-level live updates | reading; fix checked in Lean | fixed, unreleased | low |
-| F7 | Compaction and refill churn: a node archived on one tick is re-promoted on the next | randomized search over the real compactor | reproduced | low |
+| F7 | Compaction and refill churn: a node archived on one tick is re-promoted on the next | randomized search; root cause by Lean enumeration | fixed, unreleased | low |
 | F8 | A fork shares its live parent's KG session; the parent's hooks resolve to another session | Lean BFS | fixed, 0.10.2 | medium-low |
 | F9 | Cross-site GETs with side effects (`reload=true`, `session_bootstrap`) | reading + test | fixed, 0.9.44 | low |
 | F10 | The maintenance pass tier skips the "never rename a node a live session holds" rule; `_live_seen` fails open | reading | fixed, 0.9.44 | medium-low |
@@ -93,6 +94,8 @@ randomized search over the real compactor instead of a model.
 | F30 | A maintenance tidy turns the author's own next case into a note credit | Lean BFS + reproduction | fixed, unreleased | low |
 | F31 | A crash keeps a vote but loses its ledger entry | Lean BFS + reproduction | fixed, unreleased | low |
 | F32 | An `instance-of` edge in the maintain graph credits a user lesson | reading + reproduction | fixed, unreleased | very low |
+| F33 | Rebalance can swap the same nodes forever, rewriting the graph every tick | Lean enumeration + reproduction | reproduced, open (policy) | low-medium |
+| F34 | A node stays archived although the whole graph fits under the fill ceiling | Lean enumeration + reproduction | fixed, unreleased | very low |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.
@@ -100,7 +103,7 @@ FINDINGS.md so they need not be re-checked.
 ## Honesty notes
 
 - "No counterexample" means none **within the stated bounds**: ≤3 threads,
-  ≤9 clock ticks, ≤3 Claude sessions, 2 ids, and so on. No unbounded
+  ≤9 clock ticks, ≤3 Claude sessions, 2 ids, ≤3 graph nodes, and so on. No unbounded
   proofs were attempted.
 - A model is a claim about the code. Each step cites the lines it mirrors,
   so check those citations when reviewing.
@@ -115,7 +118,7 @@ curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh
 ../knowledge-graph/cli/kg-dev version     # builds ../knowledge-graph/server/venv on first use
 
 PYTHON="$(realpath ../knowledge-graph/server/venv/bin/python)" ./run_all.sh
-                      # ~1 min; rewrites <concern>/evidence/*.log
+                      # ~30 min, most in the compaction searches; rewrites <concern>/evidence/*.log
 ```
 
 Each model can also be run on its own, e.g. `lean --run rename/lean/Rename.lean`.
