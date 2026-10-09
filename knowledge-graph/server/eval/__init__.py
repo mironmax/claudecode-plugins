@@ -5,7 +5,7 @@ Read-only on everything it is pointed at: the recall decision log
 a storage root, including their git history. Nothing here starts the server
 or touches a graph the server could hold in memory.
 
-    cd knowledge-graph/server && ./venv/bin/python -m eval --root ~/.knowledge-graph
+    cd knowledge-graph/server && python3 -m eval --root ~/.knowledge-graph
 
 Add --transcripts to read private local transcripts and describe activity
 after recall. Without it, no transcript inventory or read takes place.

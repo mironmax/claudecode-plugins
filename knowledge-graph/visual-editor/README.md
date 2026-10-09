@@ -49,9 +49,9 @@ visual-editor/
 |---|---|---|
 | `EDITOR_PORT` | `8766` | Frontend + API port |
 | `EDITOR_HOST` | `127.0.0.1` | Bind address |
-| `MCP_SERVER_URL` | `http://127.0.0.1:8765` | Where to proxy |
+| `MCP_SERVER_URL` | `http://127.0.0.1:8765` | Where to proxy REST requests; the WebSocket proxy always connects to `ws://127.0.0.1:8765/ws` |
 
-If you change `EDITOR_PORT`, the frontend's WebSocket URL auto-derives from `window.location` so the page stays self-consistent. CORS in `server.py` is set up for same-origin only — exposing on a different port and accessing from another origin would need an entry there.
+If you change `EDITOR_PORT`, the frontend's WebSocket URL auto-derives from `window.location` so the page stays self-consistent. CORS in `server.py` allows only `http://localhost:8766` and `http://127.0.0.1:8766`, whatever `EDITOR_PORT` is — accessing the editor from another origin would need an entry there.
 
 ## API Endpoints (Backend)
 

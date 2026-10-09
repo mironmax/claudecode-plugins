@@ -33,7 +33,7 @@ every prompt.
 | [instrument-matrix.md](instrument-matrix.md) | The plugin's jobs against the harnesses: the cheapest instrument for each job, or the gap |
 | [proposal.md](proposal.md) | Proposal: the deciding question, the core/adapter line, maintenance and budget, open questions |
 | [antigravity-mapping.md](antigravity-mapping.md) | Proposal: each lesson of the Codex integration mapped to Antigravity, the adapter sketch, the MCP read-path problem, open questions |
-| [tools/antigravity-probe/](tools/antigravity-probe/README.md) | The mock model and hook logger used for the Antigravity runs, to repeat them on a new version |
+| [tools/antigravity-probe/](tools/antigravity-probe/README.md) | The mock model and hook logger used for the Antigravity runs, to repeat them on a new version, plus the plugin staging and native smoke scripts |
 
 ## Verification levels
 

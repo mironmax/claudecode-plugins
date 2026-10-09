@@ -9,7 +9,8 @@ kg editor        # starts the memory server and the editor if needed, opens http
 kg editor stop
 ```
 
-Logs: `~/.local/state/knowledge-graph/visual_editor.log`.
+Logs: `~/.local/state/knowledge-graph/visual_editor.log` (in `port-<N>/` there
+when the memory server uses another `KG_HTTP_PORT`).
 
 ---
 
@@ -46,7 +47,8 @@ The selected entry is highlighted with a blue left border. The header shows whic
 Projects come from the memory server's stored graphs and their project-path
 metadata, so projects used only by Codex appear too. A project whose directory
 is missing is shown as unavailable. The editor falls back to Claude history
-only when talking to an older server without the projects endpoint.
+only when the server lacks the projects endpoint (an older server) or cannot
+be reached.
 
 ---
 
@@ -168,7 +170,7 @@ Common relationship types: `depends-on`, `implements`, `extends`, `uses`, `insta
 | Select node | Left-click |
 | Pan | Click + drag on background |
 | Zoom | Scroll wheel, or +/− buttons |
-| Reset zoom | ⟲ button |
+| Reset zoom | the Reset zoom button |
 | Context menu | Right-click node |
 | Move node (temp) | Drag node |
 
@@ -216,7 +218,7 @@ Then reload the browser tab.
 **Graph not loading / empty**
 - Check you selected a graph in the left panel
 - For project graphs: capture some project memory first, then refresh. Check that the stored project directory still exists and that the editor can reach the server's `/api/projects` endpoint
-- Check logs: `~/.local/state/knowledge-graph/visual_editor.log`
+- Check logs: `~/.local/state/knowledge-graph/visual_editor.log` (or `port-<N>/visual_editor.log`)
 
 **Changes not appearing**
 - Check the connection status indicator

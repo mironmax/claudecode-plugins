@@ -28,9 +28,12 @@ Recipes for agents. Each: diagnose → act → verify → undo where it applies.
 - The plugins (Claude Code, Codex, Antigravity) are thin: hooks, skills, the
   `kg mcp` entry. They need `kg`; without it their SessionStart hook asks the
   agent to offer the install (below).
-- Logs and state: `~/.local/state/knowledge-graph/` (`mcp_server.log`,
-  `server.pid`, `last_start_error` when a start failed, `backups/` from setup).
-  A server on another `KG_HTTP_PORT` keeps its own in `port-<N>/` there.
+- Logs and state: `~/.local/state/knowledge-graph/` (`server.pid`,
+  `last_start_error` when a start failed, `backups/` from setup, and
+  `mcp_server.log` when kg started the server itself). Under the systemd unit
+  the log is in the journal: `kg logs` reads it there
+  (`journalctl --user -u kg-memory`). A server on another `KG_HTTP_PORT`
+  keeps its own state in `port-<N>/` there.
 - Data: `~/.knowledge-graph/` (plain JSON — `user.json`,
   `projects/<slug>/graph.json`, `sessions.json`, plus `maintain.json`: the
   maintenance agent's own craft memory, never preloaded or searched). Survives
@@ -43,13 +46,20 @@ uv tool install kg-memory     # uv: https://docs.astral.sh/uv/
 kg setup                      # asks before each change; --plan shows them first
 ```
 
-`kg setup` checks every piece and fixes what the user accepts: the `kg`
-command on PATH, the systemd user service (Linux), the server, and for each
-installed harness its plugin, permissions and settings (Claude Code, Codex,
-Antigravity, Claude Desktop). Every changed file is backed up first.
+`kg setup` checks every piece and fixes what the user accepts: the systemd
+user service (Linux), the server, and for each installed harness its plugin,
+permissions and settings (Claude Code, Codex, Antigravity, Claude Desktop).
+For Claude Code that includes marketplace auto-update (`claude-autoupdate`),
+built-in auto-memory off (`claude-automemory`) and the quota gauge in the
+status line (`claude-gauge`). It also suggests `upkeep`, which switches on
+background maintenance chores and so spends quota. A `kg` missing from PATH
+is reported with the fix (`uv tool update-shell`). Every changed file is
+backed up first. The interactive prompt defaults to yes, and `--yes` without
+`--only` applies every offered item, `upkeep` included.
 
 An agent installing it: without `uv`, ask before running the bootstrap, which
-installs uv first (`curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`).
+installs uv and kg-memory, then runs `kg setup` interactively when a terminal
+is attached (`curl -LsSf https://raw.githubusercontent.com/mironmax/kg-memory/main/install.sh | sh`).
 Show the user `kg setup --plan` (each line has a key in brackets) and pass
 `--yes` only for the items agreed in chat, e.g.
 `kg setup --yes --only claude-desktop`. If the harness refuses to run it, ask
@@ -76,7 +86,7 @@ new session.
 ## Server lifecycle
 
 ```bash
-kg start | stop | restart | status | logs [-f] | commit
+kg start | stop | restart | status | logs [-f] | commit | version
 kg editor [stop]          # graph editor at http://localhost:8766
 ```
 
@@ -85,7 +95,9 @@ kg editor [stop]          # graph editor at http://localhost:8766
   process itself. Concurrent starts are serialised: the second finds the
   first's server.
 - A start that fails records why in `last_start_error`; hooks then report that
-  cause instead of retrying. The next successful `kg start` clears it.
+  cause instead of retrying. The next successful `kg start` clears it when kg
+  runs the server itself. Under the systemd unit, start failures are in the
+  journal, and a leftover `last_start_error` must be deleted by hand.
 - Ask before restarting mid-work: live sessions survive it, but a
   half-finished write in another session is still that session's business.
 
@@ -99,8 +111,9 @@ kg editor [stop]          # graph editor at http://localhost:8766
 
 Desktop's "Add custom connector" dialog cannot reach a local server (those
 connectors are contacted from Anthropic's cloud). `kg setup` writes Desktop's
-config instead: `{"command": "~/.local/bin/kg", "args": ["mcp"]}` as an
-absolute path, since Desktop spawns without a shell. An older entry that ran
+config instead, under the `knowledge-graph` key: `{"command":
+"<home>/.local/bin/kg", "args": ["mcp"]}` with the path expanded (or the `kg`
+found on PATH), since Desktop spawns without a shell. An older entry that ran
 the npx `mcp-remote` bridge is replaced; Node is no longer needed.
 
 - The user then **fully quits** Desktop and reopens it. Cowork sessions
@@ -111,10 +124,20 @@ the npx `mcp-remote` bridge is replaced; Node is no longer needed.
 
 ## Configuration
 
-Env vars (shell rc, or the systemd unit), then `kg restart`:
-`KG_HTTP_PORT` (8765) · `KG_STORAGE_ROOT` (`~/.knowledge-graph`) ·
-`KG_SAVE_INTERVAL` (30s) · `KG_AUTOCOMMIT_INTERVAL` (900s, 0 disables) ·
-`KG_ORPHAN_GRACE_DAYS` (see `server/core/constants.py`).
+Env vars: `KG_HTTP_PORT` (8765) · `KG_HTTP_HOST` (127.0.0.1) ·
+`KG_STORAGE_ROOT` (`~/.knowledge-graph`) · `KG_SAVE_INTERVAL` (30s) ·
+`KG_AUTOCOMMIT_INTERVAL` (900s, 0 disables) · `KG_ORPHAN_GRACE_DAYS` (365) ·
+`KG_LOG_LEVEL` (INFO).
+
+Where they take effect depends on what runs the server:
+
+- **systemd unit**: `kg setup` copied `PATH`, `CODEX_HOME` and every `KG_*`
+  from its own environment into `~/.config/systemd/user/kg-memory.service`;
+  shell rc changes never reach it, and rerunning setup does not refresh an
+  existing unit. Edit its `Environment=` lines, then
+  `systemctl --user daemon-reload && kg restart`.
+- **Otherwise**: the server inherits the environment of whatever started it
+  (`kg start`, `kg mcp`, a hook). Set them in the shell rc, then `kg restart`.
 Render budgets are fixed by design — no knob. Don't edit the bundled
 `.mcp.json` (overwritten on update).
 
@@ -127,16 +150,19 @@ remaining budget.
 
 - **Diagnose**: `jq . ~/.claude/last-limits.json` — missing file or stale
   `updated_at` means no status line is persisting the reading.
-- **Act**: install `recommended-setup/statusline.sh` from the repo
-  (`github.com/mironmax/kg-memory`) to `~/.claude/statusline.sh`,
-  `chmod +x`, and register it in `~/.claude/settings.json`:
-  `"statusLine": {"type": "command", "command": "~/.claude/statusline.sh"}`.
-  Needs `jq`. Then tell the agent the file exists — a KG node is the cheapest
+- **Act**: `kg setup --only claude-gauge` points the status line at
+  `kg gauge`, wrapping an existing status-line command (`kg gauge --wrap
+  '<command>'`) so it keeps rendering, or installing a minimal quota line.
+  The fuller alternative is `recommended-setup/statusline.sh` from the repo
+  (`github.com/mironmax/kg-memory`), which needs `jq` and writes the same
+  file. Then tell the agent the file exists — a KG node is the cheapest
   home (rides the preload); a short `~/.claude/CLAUDE.md` section also works.
 - **Verify**: `jq . ~/.claude/last-limits.json` after one render — expect
   `five_hour_pct`, `seven_day_pct`, `*_resets_at` (epoch), `*_seen_at` (epoch),
   `context_pct`, `updated_at`.
-- **Undo**: remove the `statusLine` key from settings.
+- **Undo**: `kg uninstall` gives back the status line the gauge wrapped (or
+  removes the minimal one); for `statusline.sh`, remove the `statusLine` key
+  from settings.
 
 Reading it: `five_hour_pct`/`seven_day_pct` are **account-global** (valid for
 every session incl. background/scheduled); `context_pct` belongs to whichever
@@ -161,18 +187,23 @@ server's environment. Antigravity's own self-read: `agy -p /usage
 ## Maintenance chores (activity-triggered gardening)
 
 The server can run small maintenance chores while you work: one debt category,
-one or two nodes it names itself, a detached headless agent, ~6 tool calls. It
+one or two nodes it names itself (a lift chore takes a cluster of two to five),
+a detached headless agent, six or seven tool calls (about ten for a lift). It
 fires on a prompt arriving, because that is the only signal that reliably means
-"machine awake and this graph in use" — the systemd tick's gate needs the quota
-gauge fresh AND usage low, and those two are almost never true together.
+"machine awake and this graph in use": a timer's gate needs the quota gauge
+fresh AND usage low, and those two are almost never true together.
 
 **Off unless switched on** — it spends your quota.
 
-- **Enable**: `cp <plugin>/chores/chores.example.json ~/.knowledge-graph/chores.json`
-  and set `"enabled": true`. `KG_CHORES=1` in the server's environment does the
+- **Enable**: `kg setup --only upkeep` (writes `"enabled": true` into
+  `~/.knowledge-graph/chores.json`, starting from `chores/chores.example.json`),
+  or edit that file by hand. `KG_CHORES=1` in the server's environment does the
   same. Config is re-read when the file changes; no restart needed.
-- **Two tiers.** A *chore* is the small unit above. A *pass* is the full
-  `/kg-maintain` runbook, dispatched the same way but on a different trigger:
+- **Two tiers.** A *chore* is the small unit above. A *pass* is the
+  `/kg-maintain` runbook's structural work (entity consolidation, gists, ids,
+  unconnected nodes, merges, notes hygiene; not the recurring-principles
+  category, and its allowlist has no `kg_useful`, so it cannot credit),
+  dispatched the same way but on a different trigger:
   **time since the last stamped pass** (`pass_interval_days`, default 21) on a
   graph you are using — never on debt, because chores drive debt down to the
   formula's floor and a groomed graph would otherwise never qualify again.
@@ -236,8 +267,10 @@ gauge fresh AND usage low, and those two are almost never true together.
   chore's own stamp — so a later audit can check how the touched nodes fared.
 - **Tune**: `min_interval_s` (global spacing, default 45 min),
   `graph_cooldown_s` (6 h), `max_per_day` (8), `debt_floor` (0.12),
-  `max_5h`/`max_7d` (55/80 — deliberately stricter than the scheduled pass,
-  because a chore fires while you are working), `timeout_s` (420).
+  `max_5h`/`max_7d` (55/80 — looser than a pass's 40/70 because a chore is
+  small), `gauge_max_age_s` (5400: an older gauge reading refuses outright),
+  `timeout_s` (420), `"model"` for the Claude runner (default
+  `claude-sonnet-5`).
 - **Safety**: a chore never renames a node a recently-active session is
   holding (that would turn its next read into a NOT FOUND; gist and edge work
   is safe and only demotes such nodes), never touches one an earlier pass
@@ -251,11 +284,11 @@ gauge fresh AND usage low, and those two are almost never true together.
 - **Disable**: set `"enabled": false` (or delete the config). A chore already
   running finishes.
 
-The scheduled `kg-maintain.timer` keeps one job: dormant graphs, whose projects
-nobody has opened, are never reached by an activity trigger. Note its prompt and
-`~/.config/kg-maintain/settings.json` predate v0.9.35 — no id refinement, no
-`kg_rename_node` in the allowlist — so if you keep it, bring them in line with
-`chores/pass-settings.json` and the pass prompt in `core/chores.py`.
+Dormant graphs, whose projects nobody opens, are never reached by an activity
+trigger; run `/kg-maintain` there by hand. kg ships no timer. A hand-made
+`kg-maintain.timer` from before 0.9.37 still works, but its prompt and settings
+predate `kg_rename_node`; bring them in line with `chores/pass-settings.json`
+and the pass prompt in `core/chores.py`, or retire it.
 
 ## Renaming nodes (and why never by hand)
 
@@ -267,8 +300,10 @@ every other graph refers to. Changing one is a graph-wide operation:
 That carries the node's creation time, endorsements, archival state and
 version history, re-keys its edges in both directions, follows cross-level
 edges into project graphs that are **not currently loaded**, and updates live
-sessions' seen/preload state. It refuses a target that already exists and one
-over six words, and reports any project graph it could not rewrite.
+sessions' seen/preload state. It refuses a target that already exists, a
+target of seven or more words, and a rename that would make some project's
+edge reach a different node (it names the projects involved), and reports any
+project graph it could not rewrite.
 
 **Never** emulate it with `kg_put_node` under a new name plus
 `kg_delete_node` of the old one. That drops the timestamps, the endorsements
@@ -286,9 +321,10 @@ editing the JSON under a live server is overwritten on the next save):
       -H 'Content-Type: application/json' \
       -d '{"old_id":"<old>","new_id":"<new>","level":"user"}'
 
-Check the response's `skipped_graphs` — a non-empty list names project graphs
-that were left alone because they own a node by that id, or already have one
-named like the target.
+Check the response's `skipped_graphs`: each `{graph, reason}` entry names a
+project graph left alone, typically because it owns a node by that id
+(`local-node`). A rename that would collide is refused before anything is
+written.
 
 ## Documents point into memory, never the reverse
 
@@ -305,9 +341,10 @@ than minting a dated node per letter.
 - Crash protection is built in: atomic writes + one rolling backup beside
   each graph, named by replacing the extension: `user.prev` for `user.json`,
   `graph.prev` for a project's `graph.json`.
-  Restore: `cp ~/.knowledge-graph/user.prev ~/.knowledge-graph/user.json`
-  (same pattern per project graph). Restart not required, but force a reload
-  (below) if the server was up during the copy.
+  Restore: `kg stop`, then `cp ~/.knowledge-graph/user.prev
+  ~/.knowledge-graph/user.json` (same pattern per project graph), then
+  `kg start`. Stopping first keeps a background save from overwriting the
+  restored file.
 - Versioned history: `git init` inside `~/.knowledge-graph` (gitignore
   `*.prev`, `*.tmp`) — the server then auto-commits every 15 min and on
   shutdown; `kg commit` forces one.
@@ -334,7 +371,7 @@ than minting a dated node per letter.
   searches and `rg --files` are not tracked.
 - **`-32000` / "failed to reconnect"** → the server process died; the code
   is generic. Read `~/.local/state/knowledge-graph/last_start_error` (cause,
-  time, log path), then `kg logs`. A `KG PREFLIGHT:` line names an
+  time, log path), then `kg logs` (the journal under the systemd unit). A `KG PREFLIGHT:` line names an
   incompatible dependency: `kg update` (or `uv tool install --reinstall
   kg-memory`) re-resolves the environment. An OS Python upgrade that broke
   the tool environment has the same remedy.
@@ -350,13 +387,15 @@ than minting a dated node per letter.
   `~/Library/Application Support/Claude/` (macOS); `kg setup --only
   claude-desktop` repairs it. Then full quit + reopen.
 - **Log lines that are fine**: `Healed N corrupt node(s) on load` (self-repair
-  did its job) · `over budget but all N active nodes within grace —
-  compaction deferred` (informational stall notice).
+  did its job) · `over budget (…) but all N active nodes are in the fresh
+  tier — compaction deferred` (informational stall notice).
 
 ## Uninstall
 
-`kg uninstall` (`--plan` first) reverses what setup did: the service,
-permissions, settings and the Desktop entry, backing up each file it changes. Remove the
-plugins in each harness (`/plugin uninstall knowledge-graph@maxim-plugins`;
-`codex plugin remove knowledge-graph@maxim-plugins`), then `uv tool uninstall
-kg-memory`. Shared data in `~/.knowledge-graph/` is preserved.
+`kg uninstall` (`--plan` first; an agent passes `--yes` once the user
+agrees) reverses what setup did, backing up each file it changes: it stops the
+server, removes the service, the Claude Code, Codex and Antigravity plugins,
+the tool permissions and the Desktop entry, gives back the status line the
+gauge wrapped, turns Claude Code's auto-memory back on and switches upkeep off. Then
+`uv tool uninstall kg-memory` removes the command. Shared data in
+`~/.knowledge-graph/` is preserved.

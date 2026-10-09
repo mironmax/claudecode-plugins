@@ -197,9 +197,10 @@ exactly when the usage gate is shut, and the machine is suspended the rest of
 the time.
 
 A **chore** is the same work re-cut: ONE category, one or two targets the
-server names up front, and no orientation at all. The server computes every
-debt factor already, so choosing what to do is free; what remains is five or
-six tool calls. It is dispatched on the signal that actually correlates with
+server names up front (a lift takes a cluster of two to five), and no
+orientation at all. The server computes every debt factor already, so choosing
+what to do is free; what remains is six or seven tool calls (about ten for a
+lift). It is dispatched on the signal that actually correlates with
 opportunity — a prompt arriving — as a detached headless agent, so it costs
 the live session no context.
 
@@ -257,7 +258,7 @@ is context to weigh them.
 Not when debt says so — debt cannot answer this question. Chores pay down
 exactly the terms debt counts, and the deficit factor bottoms out at the
 formula's own constant: a groomed, fully-active graph caps at **0.25**, under
-the 0.3 the scheduled dispatcher selects on. Left on debt alone, a
+the 0.3 MED threshold. Left on debt alone, a
 well-chored graph would never see a pass again, and the two structural
 categories would never happen on it at all. A health metric says the state is
 correct; it never says there is work left.
@@ -345,9 +346,12 @@ legible; the line's raw numbers let you sanity-check the verdict.
 
 # Operational safety
 
-- kg_read output is budget-guaranteed inline; a "degraded to fit" note means
-  the graph carries more anchors/edges than the ceiling — a prune-pass cue.
+- kg_read output fits its budget; a reply longer than the client keeps whole
+  arrives in parts (`kg_read(session_id, more=true)` for the next). A
+  "degraded to fit" note means the graph carries more anchors/edges than the
+  ceiling — a prune-pass cue.
 - Project renamed? The graph slug follows via alias detection; if a project
   graph looks unexpectedly empty, check ~/.knowledge-graph/projects/ for the
   old name.
-- Server restarts are safe (PID-validated, setsid, write-through persistence).
+- Server restarts are safe: persistence is write-through, and `kg mcp` keeps
+  sessions' tools connected across the restart.

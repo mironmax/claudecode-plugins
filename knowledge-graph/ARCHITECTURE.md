@@ -33,9 +33,10 @@ third, **maintain**, is the maintenance agent's own craft memory and is never
 shown to a working session. The working currency of a session is **gists +
 edges**; notes are depth on demand, one targeted read away.
 
-The memory is harness-neutral. Claude Code and Codex CLI run the same plugin
-against the same local server; what differs between them is confined to one
-module (see "The Harness Layer").
+The memory is harness-neutral. Claude Code and Codex CLI run the same plugin,
+Antigravity CLI (experimental) a native package, and Claude Desktop the tools
+alone, all against one local server. Harness differences live in
+`mcp_http/harness.py`, plus the Antigravity adapter (see "The Harness Layer").
 
 #### Core Principles
 
@@ -48,7 +49,7 @@ module (see "The Harness Layer").
 2. **Automatic Pruning & Evolution**  
    - Archival system based on usage, connectivity, recency
    - Auto-compaction when the size budget is reached
-   - Self-cleaning (orphan node removal after grace period)
+   - Self-cleaning (orphaned nodes deleted after 365 days unrecalled, `KG_ORPHAN_GRACE_DAYS`)
    - Knowledge graph evolves like living memory
 
 3. **LLM-Native Format**
@@ -60,9 +61,10 @@ module (see "The Harness Layer").
 
 4. **Dual-Mode Access**
    - **Preloaded**: the SessionStart hook injects a compact core of the graph
-     before the first turn — zero tool calls; one full `kg_read` renders
-     everything the preload had to drop
-   - **Read on demand**: `kg_read(id)` / `kg_read(ids=[...])` retrieves full content (promotes archived nodes)
+     before the first turn — zero tool calls; one full `kg_read`, followed
+     through its parts with `more=true`, renders everything the preload had
+     to drop
+   - **Read on demand**: `kg_read(id)` / `kg_read(ids=[...])` retrieves full content (promotes archived nodes, except in a maintenance session)
    - **Memory traces**: Edges to archived nodes guide discovery
    - Sequential reading surfaces "hidden" knowledge
 
@@ -73,15 +75,17 @@ module (see "The Harness Layer").
      Harness records (task notifications, image-paste placeholders, dragged
      paths) carry no user intent and stay silent
    - **Recall at the file**: when a tool reads or edits a file (Read, Edit,
-     Write, MultiEdit, NotebookEdit, Codex's apply_patch, and shell commands
-     that plainly read one),
+     Write, MultiEdit, NotebookEdit, Codex's apply_patch, Antigravity's
+     view_file and file-edit tools, and shell commands that plainly read one;
+     the grammar lives in `core/file_requests.py`),
      the unseen nodes whose touches name it ride the tool hook's output —
      archived ones too, without promoting them
    - **Capture on proven re-derivation**: tool traffic (Read/WebFetch/WebSearch)
      is counted per target; an uncovered file read in a second distinct session
-     earns a one-time capture nudge — first reads never do
+     (or a URL or query fetched twice) earns a capture nudge, at most once a
+     day per target — first reads never do
    - **Maintenance by declared debt**: every read renders a per-graph `DEBT:`
-     line (wear × staleness × activity); `/kg-maintain` is the bounded pass
+     line (staleness × activity × wear, wear including long or dated ids); `/kg-maintain` is the bounded pass
      that pays it down and stamps itself, resetting the clock
 
 #### Why This Works
@@ -94,12 +98,13 @@ module (see "The Harness Layer").
 - The rendering is node-centric: clusters render together (hub first), each node's relationships indented beneath it, every edge cited once at its first-rendered endpoint — the graph reads as connected knowledge paragraphs, not sections to join by id
 
 **When memory grows beyond limit:**
-- The newest nodes form a fresh tier: by creation time, newest first, while their lines fit in 30% of the level's budget (`FRESH_BUDGET_RATIO`). They are unscored, never archived, and first back when archived; a window by budget rather than days follows each project's pace. Between the fill ceiling and the budget, rebalance swaps the best archived node for the worst active one when it wins by the resurrection margin, so ranking changes apply without the graph crossing a threshold.
-- Archival scores nodes by 0.25×recency + 0.40×connectedness + 0.35×usefulness, a weighted sum of percentiles (`core/scorer.py`). Usefulness is the count of explicit `kg_useful` endorsements, each decaying with a 90-day half-life: the one term an agent controls, and the only one that can say "this was needed" rather than "this was touched". Two credits share the same stamps and decay: a repeat (a later `instance-of` case under an older lesson, dated on the case's day) and a maintenance credit (a pass props up a lesson it judges should stay in view, 1–3 stamps per node, 15 per pass, recorded on `_credited_ts`; a credited orphan returns to the archive, where its score decides). Neither is use: the evaluator drops both, and a credited lesson stays only if sessions go on to endorse it. Recency is the latest of the last write, the last full read and the latest of these stamps: any credit is recent use as of its stamp, since a gist that works never needs the full read and a right standing rule never gets rewritten. A maintenance pass's own reads and rewrites keep the activity time they found
+- The newest nodes form a fresh tier: by creation time, newest first, while their render cost (the node's line plus the edge citations it brings live) fits in 30% of the level's budget (`FRESH_BUDGET_RATIO`). They are unscored, never archived, and first back when archived; a window by budget rather than days follows each project's pace. Between the fill ceiling and the budget, on a tick that neither archived nor refilled, rebalance swaps the best archived node for the worst active one when it wins by the resurrection margin, at most three swaps per tick (`REBALANCE_MAX_SWAPS`), reverting any swap that would cross the budget. Ranking changes apply without the graph crossing a threshold.
+- Archival scores nodes by 0.25×recency + 0.40×connectedness + 0.35×usefulness, a weighted sum of percentiles (`core/scorer.py`). Usefulness is the decayed sum of a node's usefulness stamps (`_useful_ts`, 90-day half-life): the one term an agent controls, and the only one that can say "this was needed" rather than "this was touched". Explicit `kg_useful` endorsements write most of them. Three credits share the same stamps and decay: a repeat (a later `instance-of` case under an older lesson, dated on the case's day), a note credit (a case added as a note to a lesson another session wrote counts as that session's endorsement, once per node), and a maintenance credit (a pass props up a lesson it judges should stay in view, 1–3 stamps per node, 15 per pass, recorded on `_credited_ts`; a credited orphan returns to the archive, where its score decides). Repeats and maintenance credits are not use: the evaluator drops both, and a credited lesson stays only if sessions go on to endorse it. Recency is the latest of the last write, the last full node read (`kg_read` by id) and the latest of these stamps: any credit is recent use as of its stamp, since a gist that works never needs the full read and a right standing rule never gets rewritten. A maintenance pass's own reads and rewrites keep the activity time they found
 - Connectedness weights edges by neighbour state: an edge to an active node counts full (1.0), to an archived node `ARCHIVED_EDGE_WEIGHT` (0.2), to an orphaned node 0 — then `in × 0.66 + out × 0.33`. The reduced-but-nonzero archived weight lets a cluster that archived together still be resurfaced by refill (a member isn't scored as fully disconnected just because its neighbours archived too)
-- Connectedness also has a floor of `0.5 × log1p(total incoming + outgoing neighbours)`, preserving hubs while their neighbours are archived. Orphan selection uses the same archival score, including endorsements, rather than active-edge count alone.
+- Connectedness also has a floor of `0.5 × log1p(incident edges)`, counting every edge whatever its far end, and is the larger of the weighted degree and that floor; this preserves hubs while their neighbours are archived.
+- When archived anchor lines outgrow 30% of the level budget (`ARCHIVED_BUDGET_RATIO`), the lowest-scored archived nodes become orphaned: invisible in reads, still searchable, rescued back to archived when a neighbour is promoted. Orphan selection uses the same archival score, including endorsements, rather than active-edge count alone.
 - Archive nodes until graph is under `COMPACTION_TARGET_RATIO` (0.8) of the char budget
-- Run a resurrection pass: any pre-existing archived node that outscores a just-archived node by ≥0.05 is restored to active
+- Run a resurrection pass: the best-scored archived node replaces a just-archived one when it leads by ≥0.05 and the swap stays within budget
 - `kg_read(session_id, id)` retrieves full content and promotes archived nodes
 
 **When memory sits *under* the fill ceiling (reverse refill):**
@@ -129,42 +134,29 @@ module (see "The Harness Layer").
 ### System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│           Agent sessions (Claude Code, Codex CLI)             │
-│  Session A (project-a)    Session B (project-b)    Session C │
-└────────────┬──────────────────────┬───────────────────┬──────┘
-             │                      │                   │
-             │ HTTP MCP (stateless) │                   │
-             └──────────┬───────────┘                   │
-                        ↓                               │
-             ┌──────────────────────────────┐          │
-             │  MCP Streamable HTTP Server  │          │
-             │  (mcp_streamable_server.py)  │          │
-             │                              │          │
-             │  Endpoints:                  │          │
-             │  - / (MCP protocol)          │◄─────────┘
-             │  - /api/* (REST: editor,     │
-             │    hook brains, debt survey) │
-             │  - /health (status)          │
-             └──────────┬───────────────────┘
-                        │
-                        ↓
-             ┌──────────────────────────────┐
-             │  MultiProjectGraphStore      │
-             │  - User graph (singleton)    │
-             │  - Project graphs (N)        │
-             │  - Write-through persistence │
-             │  - Auto-compact (22K chars)  │
-             │  - Self-heal on load/write   │
-             └──────────┬───────────────────┘
-                        │
-                ┌───────┴────────┐
-                ↓                ↓
-      ┌─────────────────┐  ┌──────────────────────────┐
-      │  user.json      │  │  project graphs           │
-      │  ~/.knowledge-  │  │  ~/.knowledge-graph/      │
-      │  graph/         │  │  projects/<slug>/graph.json│
-      └─────────────────┘  └──────────────────────────┘
+ Claude Code · Codex CLI · Antigravity CLI · Claude Desktop      Browser
+        │ MCP over stdio              │ hooks (JSON)               │
+        ↓                             │                            ↓
+ ┌──────────────────────┐             │                ┌──────────────────────┐
+ │ kg mcp (stdio shim)  │             │                │ Visual editor :8766  │
+ │ cli/mcp_shim.py      │             │                │ (kg editor)          │
+ └──────────┬───────────┘             │                └──────────┬───────────┘
+            │ one POST per message    │                           │ REST + /ws
+            ↓                         ↓                           ↓
+ ┌───────────────────────────────────────────────────────────────────────────┐
+ │  Memory server :8765  (mcp_streamable_server.py)                          │
+ │  /           MCP protocol, stateless HTTP, JSON responses                 │
+ │  /api/*      hook endpoints, editor REST, debt survey, projects           │
+ │  /ws         live updates for the editor          /health   status        │
+ └──────────────────────────────────┬────────────────────────────────────────┘
+                                    ↓
+ ┌───────────────────────────────────────────────────────────────────────────┐
+ │  MultiProjectGraphStore: user graph, project graphs, maintain graph;      │
+ │  write-through persistence, compaction (22K chars per level),             │
+ │  self-heal on load/write; one server per storage directory (flock)        │
+ └──────────────────────────────────┬────────────────────────────────────────┘
+                                    ↓
+   ~/.knowledge-graph/  user.json · maintain.json · projects/<slug>/graph.json
 ```
 
 ---
@@ -173,11 +165,15 @@ module (see "The Harness Layer").
 
 Two transports, each matched to its client:
 
-- **Stateless HTTP (MCP protocol)** for agents, from any harness. Each request
-  is independent; graph sessions are application-level (the `session_id`
-  returned by `kg_read`), not transport-level. This matches how the Claude
-  Code and Codex MCP clients actually speak, keeps the mental model simple,
-  and makes every interaction visible in logs.
+- **MCP for agents, from any harness.** Claude Code, Codex, Antigravity and
+  Claude Desktop launch `kg mcp` (`cli/mcp_shim.py`), a stdio shim that
+  starts the server when it is down and forwards each JSON-RPC message as one
+  POST to the server's stateless HTTP endpoint. Only a refused connection is
+  retried, so a write never lands twice, and a server restart never
+  disconnects the tools. Graph sessions are application-level (the
+  `session_id` returned by `kg_read`), not transport-level, which keeps the
+  mental model simple and makes every interaction visible in logs. Hooks talk
+  to `/api/*` directly.
 - **WebSocket** for the visual editor, where we control the client and a live
   view needs push: user-graph mutations arrive live. Project notifications
   still need project-bound subscriptions (F6); the editor uses **Refresh** for them.
@@ -199,50 +195,30 @@ Cross-session awareness for agents is **pushed, with an explicit pull
 behind it**. A session assumes it works alone: measured on parallel runs, no
 session ever called `kg_sync` unprompted, and five concurrent sessions wrote
 one lesson as four nodes. So the server says it instead (`mcp_http/foreign.py`):
-on hook replies and on `kg_put_node`/`kg_search` replies it appends up to three
-gists of nodes other sessions wrote since this session last looked, plus a
-count and a pointer to `kg_sync` for the rest. Each change is pushed once
-(the window is claimed atomically), never the session's own writes, nor a node
-already read as it stands. Only writes that could hold this session's lesson
+on prompt and tool hook replies (Claude Code, Codex) and on
+`kg_put_node`/`kg_search` replies it appends up to three gists of nodes other
+sessions wrote since this session last looked, plus a count and a pointer to
+`kg_sync` for the rest. Each change is pushed once (the window is claimed
+atomically), never the session's own writes, an archived node, or a node this
+session has seen since that write. Only writes that could hold this session's lesson
 qualify: none from a maintenance session, and user-level ones only from a
 session in the same project, since every project shares the user graph.
 `kg_sync(session_id)` still returns the full diff since the last sync.
 
-### Transport Architecture
-
-```
-┌─────────────────┐         ┌──────────────┐
-│ Agents (Claude  │         │ Visual Editor│
-│ Code, Codex)    │         │  (Browser)   │
-└────────┬────────┘         └──────┬───────┘
-         │                         │
-   Stateless HTTP            WebSocket
-   (MCP protocol)         (Real-time push)
-         │                         │
-         └────────► Server ◄───────┘
-                      ↓
-           MultiProjectGraphStore
-                      ↓
-              Broadcast updates
-              (store → WebSocket clients)
-```
-
-**Both patterns coexist:**
-- MCP tools: other sessions' writes pushed on replies; full diff via `kg_sync()`
-- Visual editor: Implicit updates via WebSocket (push)
-- Same underlying store, different transport needs
-
 ### The Ambient Loop (hooks × server)
 
-Three thin bash hooks post their raw stdin JSON to the server and print
-whatever ready-made hook output comes back — every decision lives server-side,
-the hook layer parses nothing and can never break a session:
+Thin hooks forward the harness's hook JSON to the server and print whatever
+ready-made hook output comes back. Every recall decision lives server-side,
+and a hook failure falls back to silence, so a hook can never break a session.
+The SessionStart hook also starts the server through `kg` when it is down, or
+offers the install when `kg` is missing. (Antigravity's hooks are listed under
+"The Harness Layer".)
 
 | Hook | Endpoint | Server decides |
 |------|----------|----------------|
-| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | compact-core preload within each harness's hook ceiling, in the unit that client counts (Claude Code ≤9,500 UTF-16 units of its 10,000; Codex ≤9,000 UTF-8 bytes of its 10,000; measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week; a recovered session still bound to another Claude sid is cloned, not moved, since that session may still be running); compact resets the session's context state (seen-set, preload set, full-read flag; view times stay for stale-write protection) and re-renders the core, since the summary kept only part of it; every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
-| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), run through the shared search core (subtokens, stems, bigrams, field-weighted, sharpened IDF — ubiquitous words carry no signal), seen-deduped, corroboration threshold plus an evidence gate (a hit speaks only corroborated, near-unique, or named by the node's id/gist — lexical strays stay silent), hits injected in evidence-quality order: unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools |
-| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | file recall (`mcp_http/file_recall.py`): the file a tool touched is looked up in a touches reverse index (user + project graph, rebuilt only when that graph's write generation moves; `path:12-40 (anchor)`, `./`, `~` and absolute touches normalise to the file they name), unseen nodes injected as gist lines — archived included, never promoted — at most 3 within 1,200 chars, ranked by node score then recency, marked seen via `file`, throttled per session (3 per 10 min); Bash counts only for `cat`/`head`/`tail`/`less`/`sed -n`/`grep`/`jq` operands that exist as files; `apply_patch` for every file its patch adds, updates, deletes or moves to. Otherwise, for Read/WebFetch/WebSearch (and, under Codex, which has no Read tool, shell reads): per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap). A covered file never nudges. The hook fires for every tool, so other sessions' writes reach a session whatever tools its work runs through |
+| SessionStart (`kg-autostart.sh`) | `GET /api/session_bootstrap` | starts the server through `kg` if needed (hook side); compact-core preload within each harness's hook ceiling, in the unit that client counts (Claude Code ≤9,500 UTF-16 units of its 10,000; Codex ≤9,000 UTF-8 bytes of its 10,000; measured), seeds the session's seen-set; binds the Claude session id and reuses the existing KG session for ANY source except `clear` (seen-set + full-read state preserved — recovered from the transcript's own KG markers when resume/fork mints a new Claude sid; source-agnostic on purpose, `fork` arrived unannounced and re-preloaded for a week; a recovered session still bound to another Claude sid is cloned, not moved, since that session may still be running); compact resets the session's context state (seen-set, preload set, full-read flag; view times stay for stale-write protection) and re-renders the core, since the summary kept only part of it; every other reused source gets only a continuity note (the transcript still holds the original preload — re-rendering would duplicate); `clear` starts fresh |
+| UserPromptSubmit (`kg-remind.sh`) | `POST /api/prompt_context` | full-read nudge until the loud `kg_read` happens; then prompt-matched recall — gated to the humanly-typed part of the prompt (task notifications and image/path placeholders stay silent; path tokens reduce to basenames), run through the shared search core (subtokens, stems, bigrams, field-weighted, sharpened IDF — ubiquitous words carry no signal), seen-deduped, corroboration threshold plus an evidence gate (a hit speaks only corroborated, near-unique, or named by the node's id/gist — lexical strays stay silent), hits injected in evidence-quality order: unseen gists + seen id-anchors + connection edges, marked seen so no gist injects twice; `{}` falls back to staged reminder pools. The same request dispatches background upkeep off-thread and appends budget notices and other sessions' writes |
+| PostToolUse (`kg-tool-event.sh`) | `POST /api/tool_event` | file recall (`mcp_http/file_recall.py`): the file a tool touched is looked up in a touches reverse index (user + project graph, rebuilt only when that graph's write generation moves; `path:12-40 (anchor)`, `./`, `~` and absolute touches normalise to the file they name), unseen nodes injected as gist lines — archived included, never promoted — at most 3 within 1,200 chars, ranked by node score then recency, marked seen via `file`, throttled per session (3 per 10 min); Bash counts only for `cat`/`head`/`tail`/`less`/`sed -n`/`grep`/`jq`/`nl`/`rg` operands that exist as files; `apply_patch` for every file its patch adds, updates, deletes or moves to. Otherwise, for Read/WebFetch/WebSearch (and, under Codex, which has no Read tool, shell reads): per-target counters (`tool_events.json`); capture nudge only for an uncovered target re-derived across sessions, throttled (session gap, per-session cap, per-target daily cap). A covered file never nudges. The hook fires for every tool, so other sessions' writes reach a session whatever tools its work runs through |
 
 Both recall channels log every decision to `recall.jsonl`, silences
 included: prompt recall under its own reasons with the prompt's terms, file
@@ -270,8 +246,8 @@ nudge.
 
 Maintenance closes the loop. `kg_read` and the preload render a `DEBT:` line
 per graph (`core/debt.py`: staleness since the last stamped pass × active
-days × oversized/unconnected/smeared/dangling/lift wear, raw factors printed
-for sanity-checking; *smeared* = an entity re-described across many nodes'
+days × oversized/unconnected/long-id/smeared/dangling/lift wear, raw factors
+printed for sanity-checking; *long id* = over five words or carrying a date; *smeared* = an entity re-described across many nodes'
 id+gist while one undated node plausibly owns it — the pass consolidates one
 such entity per run, prose mentions becoming edges; *dangling* = `touches`
 entries that no longer resolve, a stat per entry and never a walk; *lift* =
@@ -296,10 +272,14 @@ context out. Harness detection and capability declarations live in
 `mcp_http/harness.py`: which harness sent an event, told apart structurally
 (a hook's `transcript_path` — Codex writes `rollout-*.jsonl` under
 `$CODEX_HOME/sessions` — or an MCP call's User-Agent, `codex-mcp-client/…`),
-and the few things that differ per harness: the preload budget, whether shell
-reads count as reads, and the hint a Codex session gets when the plugin's
+and a `Profile` of what differs per harness: the preload limit and the unit
+the client counts it in (UTF-16 units or UTF-8 bytes), the size of one paged
+reply part, whether shell reads count as reads and whether the hook's shell
+directory can be trusted, and the hint a Codex session gets when the plugin's
 hooks have never reached the server (Codex keeps plugin hooks off until the
-user trusts them in `/hooks`). The hook scripts and `hooks.json` are shared
+user trusts them in `/hooks`). MCP calls carry the client's name in the
+User-Agent the `kg mcp` shim builds from `clientInfo`; Antigravity is also
+recognised by its transcript path and the conversation id in MCP `_meta`. The hook scripts and `hooks.json` are shared
 unchanged; Codex reads the same `.claude-plugin/` manifest.
 The measured rollout completion format is parsed in `mcp_http/shell_context.py`
 when the profile says the hook's shell cwd is not trustworthy.
@@ -313,7 +293,10 @@ The gauge belongs to the runner, not to
 the harness that sent the prompt: a chore run through Codex spends the
 ChatGPT plan's windows (the latest quota event across recently written
 rollouts, including resumed sessions in old date directories) and is gated on
-them; one run through Claude Code reads `~/.claude/last-limits.json`.
+them; one run through Claude Code reads `~/.claude/last-limits.json`. The
+Antigravity runner (`mcp_http/agy_chore.py`) gates on a live `agy -p /usage`
+reading, runs a tool-less `kg-maintainer` agent in its own workspace, and
+refuses while paid credits could be spent.
 Chores fire on a prompt arriving, off the request thread, at most one at a
 time, re-deciding on fresh state inside a lock.
 
@@ -327,10 +310,12 @@ resolved targets feed file recall and capture counters, including explicit
 
 Antigravity CLI (experimental) has its own native package beside the
 Claude Code/Codex files: root `plugin.json`, `hooks.json` and
-`mcp_config.json`, and `hooks/kg-agy.py`, which only relays hook JSON to
-`/api/antigravity/hook/<event>`. Its MCP results are truncated above about
-10 KB, so `mcp_http/antigravity.py` returns small replies inline and queues
-larger ones per conversation for the next `PreInvocation` hook
+`mcp_config.json`, and `hooks/kg-agy.sh`, which runs `hooks/kg-agy.py`: it
+relays hook JSON to `/api/antigravity/hook/<event>`, starts the server on
+`SessionStart`, and acknowledges delivered chunks. Its MCP results are
+truncated above about 10 KB, so `mcp_http/antigravity.py` returns replies up
+to 3,500 UTF-8 bytes inline and queues larger ones per conversation for the
+next `PreInvocation` hook, in chunks of up to 40,000 bytes
 (`mcp_http/delivery.py`). Every effect of a queued reply, session or graph,
 waits in a `DeferredView` until the hook acknowledges the final chunk.
 Compaction fires no hook; a new `CHECKPOINT` row in the transcript triggers
@@ -346,8 +331,10 @@ against real use:
 
 ```
 cd knowledge-graph/server
-./venv/bin/python -m eval [--root DIR] [--since T] [--until T] [--variant NAME]... [--json]
+python3 -m eval [--root DIR] [--since T] [--until T] [--variant NAME]... [--json]
 ```
+
+The evaluator uses only the standard library, so any Python 3.10+ runs it.
 
 It reports, overall and per project: fire rate, payload size, the route by
 which endorsed nodes reached the session, the share of endorsements that were
@@ -430,18 +417,28 @@ and only *known* prompts enter the consistency check.
 ### File Structure
 
 ```
-~/.knowledge-graph/
-  ├── user.json                          # Cross-project insights (singleton)
-  ├── maintain.json                      # The maintenance agent's own lessons
-  ├── sessions.json                      # Session registry
-  ├── chores.json / chore_state.json     # Chore switch + settings / spacing and counts
-  ├── chores.jsonl                       # Every chore decision, refusals included
+~/.knowledge-graph/                      # KG_STORAGE_ROOT; one server holds it (flock)
+  ├── user.json  (+ user.prev)           # Cross-project insights (singleton)
+  ├── maintain.json  (+ maintain.prev)   # The maintenance agent's own lessons
+  ├── sessions.json                      # Sessions: seen-sets, view times, pending read
+  │                                      #   parts, Antigravity delivery queues
+  ├── aliases.json                       # Old project slugs after a project folder rename
+  ├── chores.json / chore_state.json     # Upkeep switch + settings / spacing and counts
+  ├── chores.jsonl                       # Every upkeep decision, refusals included (+ .prev)
   ├── recall.jsonl                       # Recall decisions, prompt and file (+ .prev)
-  ├── useful.jsonl                       # Endorsements with their route (+ .prev)
+  ├── useful.jsonl                       # Endorsements and credits with their route (+ .prev)
+  ├── agy-runner/                        # Workspace of the Antigravity maintenance runner
+  ├── .git/                              # Optional: enables periodic auto-commit
   └── projects/
       └── <slug>/
-          ├── graph.json                 # Project-specific knowledge
+          ├── graph.json  (+ graph.prev) # Project-specific knowledge
           └── tool_events.json           # Read/fetch counters (capture nudges, DEBT activity)
+
+~/.local/state/knowledge-graph/          # Runtime state of the kg command (port-<N>/ for
+  ├── server.pid · start.lock            #   a server on another port)
+  ├── last_start_error                   # Why the last start failed, read by the hooks
+  ├── mcp_server.log                     # When kg started the server (systemd: the journal)
+  └── backups/                           # Files kg setup / uninstall changed
 ```
 
 **Centralized storage.** All graphs live under `~/.knowledge-graph/` — one place to inspect, back up, and version everything, with project isolation via slug-based subdirectories. A single directory holding all accumulated knowledge is also what makes the whole memory portable: copy it and every project's context moves with it.
@@ -469,6 +466,7 @@ and only *known* prompts enter the consistency check.
 
 ### Completed
 
+- **The `kg` command** — published on PyPI as `kg-memory`: `kg setup` connects every installed harness item by item with backups, `kg doctor` checks, `kg update` upgrades kg, the server and the plugins together, `kg uninstall` reverses setup and keeps the memory; `kg mcp` is the stdio shim every harness connects through (`cli/`).
 - **Visual Editor** — D3.js graph with server-owned projects, ranked search, score inspection, node/edge editing, and live user-graph updates. Project changes require Refresh; ID renames use `kg_rename_node`. Run with `kg editor`.
 - **Scout Skill** (`/kg-scout`) — Mine conversation history for patterns and insights, backfill knowledge graph from past sessions.
 - **Extract Skill** (`/kg-extract`) — Map codebase architecture into the graph, generate compressed knowledge nodes linked to file paths.
@@ -476,17 +474,21 @@ and only *known* prompts enter the consistency check.
 - **Ambient recall & capture** — prompt-matched gist injection per prompt and re-derivation capture nudges on tool traffic; all decisions server-side behind thin hooks (see "The Ambient Loop").
 - **Retrieval evaluation** — `python -m eval` replays logged recall decisions under ranking variants and scores them by endorsements (see "Retrieval evaluation harness").
 - **Maintenance debt** — per-graph `DEBT:` line, disk-wide survey endpoint, and `/kg-maintain` as a bounded, resumable, self-stamping pass.
-- **Activity-triggered maintenance** — chores and the full pass dispatched as detached headless agents on a prompt arriving, gated on the runner's own quota.
-- **Second harness** — Codex CLI runs the plugin unchanged; the harness layer holds what differs.
+- **Activity-triggered maintenance** — chores and the full pass dispatched as detached headless agents on a prompt arriving, gated on the runner's own quota (Claude Code, Codex or Antigravity).
+- **More harnesses** — Codex CLI runs the plugin unchanged, Antigravity CLI through a native package (experimental), Claude Desktop through the tools alone; the harness layer holds what differs.
+- **Cross-session awareness** — other sessions' relevant writes are pushed on hook and write replies; a repeat (`instance-of`) credits the lesson it repeats.
+- **Delivery sized per client** — the preload measured in each client's own unit, long reads paged so nothing is cut, and only what a part showed counts as seen.
+- **Budget notices** — the server reads each session's own quota gauge and says when to plan the wrap-up and when to wrap up now (`mcp_http/budget.py`).
+- **User-only sessions** — a session without a project folder (Desktop chat, the home directory) opens user memory alone and can attach a project later.
 - **Formal checking** — Lean models and real-code reproductions of the concurrent and stateful parts (`formal/` at the repository root), each fix with a regression test.
 
 ### Planned Features
-- More harnesses (Cursor is unimplemented; Antigravity is experimental — see `docs/harnesses/`)
+- More harnesses (Cursor is unimplemented — see `docs/harnesses/`), and Antigravity out of experimental
 - Collaborative editing (multi-user visual editor)
 - Import/export (share graph snippets)
 - Analytics (graph metrics, usage patterns)
 - Plugin ecosystem (custom archival/scoring algorithms)
-- Team memory (shared pools, role agents — see the KG Teams design direction)
+- Team memory (shared pools, role agents)
 
 ---
 
@@ -506,12 +508,16 @@ and only *known* prompts enter the consistency check.
    remains searchable until its deletion grace period expires. Reads promote
    what matters back up.
 
-4. **Explicit over implicit.** Sync happens when the agent asks; every
-   interaction is a visible tool call. Predictable, debuggable, log-readable.
+4. **Decided on the server, written down.** Context arrives without being
+   asked — preload, prompt and file recall, nudges, budget notices, other
+   sessions' writes — but every decision is made server-side and logged
+   (`recall.jsonl`, `useful.jsonl`, `chores.jsonl`), silences included.
+   Predictable, debuggable, measurable. `kg_sync` remains the explicit pull.
 
-5. **Local, plain, portable.** JSON files under one directory, no services, no
-   external APIs. The entire memory can be read with a text editor, versioned
-   with git, and moved with `cp`.
+5. **Local, plain, portable.** JSON files under one directory and one local
+   server process; no database, no external service, no API key. The entire
+   memory can be read with a text editor, versioned with git, and moved with
+   `cp`.
 
 6. **Evolution over perfection.** The graph is a garden: capture continuously,
    maintain lightly, let scoring and refill adapt what's active to how the
@@ -519,5 +525,5 @@ and only *known* prompts enter the consistency check.
 
 ---
 
-**Architecture Status:** Stable (MCP, visual editor, skills, centralized storage, harness layer).
+**Architecture Status:** Stable (MCP, `kg` command, visual editor, skills, centralized storage, harness layer); Antigravity adapter experimental.
 For the canonical plugin version, see [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json).

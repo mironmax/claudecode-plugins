@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+- **`kg logs` reads the journal under the systemd service.** The service's server logs to stderr, which systemd keeps in the journal, but `kg logs` tailed the file only a server started by `kg start` writes, so it showed a stale log or none. With the unit enabled it now runs `journalctl --user -u kg-memory.service`.
+- **Re-running the install script upgrades kg.** `uv tool install` succeeds on an installed tool without upgrading it, so the script's upgrade fallback never ran. It now uses `uv tool install --upgrade`.
+
+### Documentation
+- The READMEs now lead with what the memory does for you, what a day with it looks like, and an honest account of its maturity and costs. Docs are aligned with the current source: what `kg setup` offers (auto-update, auto-memory off, the `kg gauge` status line, background upkeep) and how `kg update` and `kg uninstall` replace the manual plugin steps; `.mcp.json` launching `kg mcp`; logs under systemd; where environment variables take effect; Windows unsupported; macOS CI report-only; transport through `kg mcp` and all four clients in ARCHITECTURE.md; development paths through `cli/kg-dev`. The plugin README's links are absolute, so they work on PyPI.
+- The kg-core and kg-maintain skills drop two stale operational lines: a connection failure is no longer "the server warming up" (`kg mcp` starts it), and a long `kg_read` arrives in parts (`more=true`). Skill examples pass the required `session_id`.
+
 ## [0.14.0] - 2026-10-08
 
 Memory that reaches every client whole, and maintenance that can keep a lesson in view. Long reads arrive in parts instead of being cut, which lets each session hold more memory (22,000 characters per level, 50,000 per read), the preload fits each client as that client counts, and a maintenance pass can now prop up a lesson it judges should stay visible; every credit, an endorsement included, counts as recent use.

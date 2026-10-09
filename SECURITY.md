@@ -20,12 +20,12 @@ Session IDs track context and project scope, not authorization. A first
 schema calls for one. These guards prevent accidental scope/state mistakes,
 not access by another local process.
 
-Web content is *outside* the boundary, and the server defends against the two
+Web content is *outside* the boundary, and the server defends against the
 browser-side paths that could otherwise cross it:
 
 - **DNS rebinding** — all HTTP/WebSocket requests must carry a local `Host` header
   (`localhost`, `127.0.0.1`, `::1`, or the explicitly configured bind host);
-  others are rejected with `421`.
+  others are rejected with `421` (a WebSocket upgrade is closed with code `1008`).
 - **Cross-site requests** (a page cannot read the response, but a GET or simple
   POST still has side effects) — HTTP requests with `Sec-Fetch-Site: cross-site`
   or a non-local `Origin` are rejected with `403`.
@@ -34,8 +34,10 @@ browser-side paths that could otherwise cross it:
 
 Non-browser clients send neither `Origin` nor `Sec-Fetch-Site` and are allowed.
 
-Node IDs, edge endpoints, and relationship types are validated at the write
-boundary. Gists, notes and touches remain arbitrary text; the visual editor
+Paths that arrive in requests are contained: a project path must resolve
+inside the user's home directory, and a transcript path a hook names is read
+only as a `.jsonl` file under home. Node IDs, edge endpoints, and relationship
+types are validated at the write boundary. Gists, notes and touches remain arbitrary text; the visual editor
 escapes text when rendering it. Memory delivered to an agent is still model
 input and should be treated according to its source.
 

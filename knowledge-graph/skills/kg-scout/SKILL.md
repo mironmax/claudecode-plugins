@@ -193,8 +193,8 @@ transcript path. For Antigravity, read the conversation's
 
 Use standard memory tools:
 ```
-kg_put_node(level="user", id="...", gist="...", notes=["mined from session {id}, {date}"])
-kg_put_edge(level="project", from="...", to="...", rel="...")
+kg_put_node(session_id, level="user", id="...", gist="...", notes=["mined from session {id}, {date}"])
+kg_put_edge(session_id, level="project", from="...", to="...", rel="...")
 ```
 
 Always:
