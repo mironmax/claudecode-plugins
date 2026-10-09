@@ -9,7 +9,7 @@ if ! command -v uv >/dev/null 2>&1; then
     PATH="$HOME/.local/bin:$PATH"
 fi
 
-uv tool install kg-memory || uv tool upgrade kg-memory
+uv tool install --upgrade kg-memory   # a re-run upgrades
 KG="$(command -v kg || echo "$HOME/.local/bin/kg")"
 
 # Piped into sh, stdin is this script: setup asks its questions on the terminal.

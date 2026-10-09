@@ -96,6 +96,20 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.box.kg("stop").returncode, 0)
         self.assertEqual(self.box.kg("status").returncode, 1)
 
+    def test_logs_read_the_journal_when_the_unit_owns_the_server(self):
+        bin_dir = self.box.home / "bin"
+        bin_dir.mkdir()
+        for name, body in (("systemctl", 'echo enabled'), ("journalctl", 'echo "journal $*"')):
+            script = bin_dir / name
+            script.write_text(f"#!/bin/sh\n{body}\n")
+            script.chmod(0o755)
+        self.box.env["PATH"] = f"{bin_dir}:{self.box.env['PATH']}"
+        self.box.write(".config/systemd/user/kg-memory.service",
+                       f'[Service]\nEnvironment="KG_HTTP_PORT={self.box.port}"\n')
+        shown = self.box.kg("logs")
+        self.assertEqual(shown.stdout.strip(), "journal --user -u kg-memory.service -n 50 --no-pager")
+        self.assertEqual(self.box.kg("logs", "-f").stdout.strip(), "journal --user -u kg-memory.service -f")
+
     def test_a_second_server_on_the_same_storage_refuses(self):
         self.assertEqual(self.box.kg("start").returncode, 0)
         second = dict(self.box.env, KG_HTTP_PORT=str(free_port()),
