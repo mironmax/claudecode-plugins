@@ -1,14 +1,14 @@
 $ python3 cross-session/repro/repro_foreign.py
-FX1a deploy-steps written before S started; a maintenance pass renamed it; S's next reply: - deploy-runbook (new): deploy steps: build, migrate, roll out
+F35a deploy-steps written before S started; a maintenance pass renamed it; S's next reply: - deploy-runbook (new): deploy steps: build, migrate, roll out
    BUG: an old node, only renamed by a maintenance pass, is announced as a new write by another session
-FX1b kg_sync listed cache-policy: True; F re-sent it unchanged; S's next reply: - cache-policy (new): cache headers per route: v1
+F35b kg_sync listed cache-policy: True; F re-sent it unchanged; S's next reply: - cache-policy (new): cache headers per route: v1
    BUG: the write kg_sync already listed is pushed again
-FX1c shell-quoting (user level, written by F before S started, archived) read by a session in another project; S's next reply: - shell-quoting (new): quote every variable in shell scripts
+F35c shell-quoting (user level, written by F before S started, archived) read by a session in another project; S's next reply: - shell-quoting (new): quote every variable in shell scripts
    BUG: a promotion is announced as a new write by another session
-FX2 S read cache-policy v1; F wrote v2; S renamed it to cache-rules. Push: none; kg_sync: 'No updates from other sessions'
+F36 S read cache-policy v1; F wrote v2; S renamed it to cache-rules. Push: none; kg_sync: 'No updates from other sessions'
    BUG: F's change is never reported: S's own rename hides it from kg_sync and from the push
-FX3 Antigravity: a kg_search reply is queued, a kg_put_node reply goes inline, then the hook delivers the queued one; replies carrying cache-policy's notice: 2
+F37 Antigravity: a kg_search reply is queued, a kg_put_node reply goes inline, then the hook delivers the queued one; replies carrying cache-policy's notice: 2
    BUG: one change is pushed twice
-FX4 the hook's curl gave up (exit 28, printed 0 bytes); push window claimed: True; cache-policy seen_at >= F's write: True; S's write on its v1 view: written
+F38 the hook's curl gave up (exit 28, printed 0 bytes); push window claimed: True; cache-policy seen_at >= F's write: True; S's write on its v1 view: written
    BUG: the lost hook reply used up the push and marked the change seen; the older view overwrites F's gist
-RESULT: FAIL FX1a, FX1b, FX1c, FX2, FX3, FX4
+RESULT: FAIL F35a, F35b, F35c, F36, F37, F38

@@ -7,20 +7,20 @@ conversation metadata; the REST hook routes (rest.create_rest_api), served by
 uvicorn on a free port and called with the hook's own `curl --max-time 1`;
 foreign.notice, HTTPSessionManager, MultiProjectGraphStore and Antigravity's
 delivery queue. Stubbed: compaction's decision to archive a node (the flag is
-set directly), and the slow moment in FX4 (another thread holds store.lock
+set directly), and the slow moment in F38 (another thread holds store.lock
 for 1.5 s, as the saver thread does while it saves or compacts).
 
-  FX1a A maintenance pass renames a node written before S started; S's next
+  F35a A maintenance pass renames a node written before S started; S's next
        reply announces it as a new write by another session.
-  FX1b kg_sync lists F's write; F re-sends the node unchanged; the next reply
+  F35b kg_sync lists F's write; F re-sends the node unchanged; the next reply
        pushes the same write again.
-  FX1c A session in another project reads an archived user node, promoting it;
+  F35c A session in another project reads an archived user node, promoting it;
        S's next reply announces the old node as new.
-  FX2  F changes a node S had read; S renames it. Neither kg_sync nor any push
+  F36  F changes a node S had read; S renames it. Neither kg_sync nor any push
        ever reports F's change.
-  FX3  Antigravity: a queued reply and an inline reply rendered before the
+  F37  Antigravity: a queued reply and an inline reply rendered before the
        queued one is delivered both carry the same change.
-  FX4  A hook reply the client gave up on (curl --max-time 1) still claims the
+  F38  A hook reply the client gave up on (curl --max-time 1) still claims the
        push window and marks the node seen: the change is never pushed, and a
        gist-only write built on the older view goes through.
 
@@ -149,12 +149,12 @@ async def fx1a():
     tick()
     reply = await w.call("kg_search", {"session_id": s, "query": "unrelated topic"})
     line = pushed(reply, "deploy-runbook")
-    print(f"FX1a deploy-steps written before S started; a maintenance pass renamed it; "
+    print(f"F35a deploy-steps written before S started; a maintenance pass renamed it; "
           f"S's next reply: {line or 'no notice'}")
     ok = line is None
     print("   " + ("ok" if ok else "BUG: an old node, only renamed by a maintenance pass, "
                                   "is announced as a new write by another session"))
-    RESULTS["FX1a"] = ok
+    RESULTS["F35a"] = ok
     w.close()
 
 
@@ -175,11 +175,11 @@ async def fx1b():
     tick()
     reply = await w.call("kg_search", {"session_id": s, "query": "unrelated topic"})
     line = pushed(reply, "cache-policy")
-    print(f"FX1b kg_sync listed cache-policy: {listed}; F re-sent it unchanged; "
+    print(f"F35b kg_sync listed cache-policy: {listed}; F re-sent it unchanged; "
           f"S's next reply: {line or 'no notice'}")
     ok = listed and line is None
     print("   " + ("ok" if ok else "BUG: the write kg_sync already listed is pushed again"))
-    RESULTS["FX1b"] = ok
+    RESULTS["F35b"] = ok
     w.close()
 
 
@@ -196,11 +196,11 @@ async def fx1c():
     tick()
     reply = await w.call("kg_search", {"session_id": s, "query": "unrelated topic"})
     line = pushed(reply, "shell-quoting")
-    print(f"FX1c shell-quoting (user level, written by F before S started, archived) read by "
+    print(f"F35c shell-quoting (user level, written by F before S started, archived) read by "
           f"a session in another project; S's next reply: {line or 'no notice'}")
     ok = line is None
     print("   " + ("ok" if ok else "BUG: a promotion is announced as a new write by another session"))
-    RESULTS["FX1c"] = ok
+    RESULTS["F35c"] = ok
     w.close()
 
 
@@ -221,12 +221,12 @@ async def fx2():
     reply = await w.call("kg_search", {"session_id": s, "query": "unrelated topic"})
     sync = await w.call("kg_sync", {"session_id": s})
     seen = "cache-rules" in sync or pushed(reply, "cache-rules") is not None
-    print(f"FX2 S read cache-policy v1; F wrote v2; S renamed it to cache-rules. "
+    print(f"F36 S read cache-policy v1; F wrote v2; S renamed it to cache-rules. "
           f"Push: {pushed(reply, 'cache-rules') or 'none'}; kg_sync: {sync.splitlines()[0]!r}")
     ok = seen
     print("   " + ("ok" if ok else "BUG: F's change is never reported: S's own rename hides it "
                                   "from kg_sync and from the push"))
-    RESULTS["FX2"] = ok
+    RESULTS["F36"] = ok
     w.close()
 
 
@@ -248,11 +248,11 @@ async def fx3():
                                          "gist": "S's own lesson"}, cid="conv-a")
     texts = [small] + await w.agy_drain()
     copies = sum(pushed(t, "cache-policy") is not None for t in texts)
-    print(f"FX3 Antigravity: a kg_search reply is queued, a kg_put_node reply goes inline, then "
+    print(f"F37 Antigravity: a kg_search reply is queued, a kg_put_node reply goes inline, then "
           f"the hook delivers the queued one; replies carrying cache-policy's notice: {copies}")
     ok = copies == 1
     print("   " + ("ok" if ok else "BUG: one change is pushed twice"))
-    RESULTS["FX3"] = ok
+    RESULTS["F37"] = ok
     w.close()
 
 
@@ -306,20 +306,20 @@ async def fx4():
     reply = await w.call("kg_put_node", {"session_id": s, "level": "project", "id": "cache-policy",
                                          "gist": "cache headers per route: v1, plus S's change"})
     accepted = "saved" in reply
-    print(f"FX4 the hook's curl gave up (exit {hook.returncode}, printed {len(hook.stdout)} bytes); "
+    print(f"F38 the hook's curl gave up (exit {hook.returncode}, printed {len(hook.stdout)} bytes); "
           f"push window claimed: {claimed}; cache-policy seen_at >= F's write: {seen >= written}; "
           f"S's write on its v1 view: {'written' if accepted else 'refused'}")
     ok = not (seen >= written) and not accepted
     print("   " + ("ok" if ok else "BUG: the lost hook reply used up the push and marked the change "
                                   "seen; the older view overwrites F's gist"))
-    RESULTS["FX4"] = ok
+    RESULTS["F38"] = ok
     w.close()
 
 
 async def main():
     only = sys.argv[1:]
-    for name, case in (("FX1a", fx1a), ("FX1b", fx1b), ("FX1c", fx1c), ("FX2", fx2),
-                       ("FX3", fx3), ("FX4", fx4)):
+    for name, case in (("F35a", fx1a), ("F35b", fx1b), ("F35c", fx1c), ("F36", fx2),
+                       ("F37", fx3), ("F38", fx4)):
         if not only or name in only:
             await case()
     failed = [k for k, v in RESULTS.items() if not v]

@@ -165,7 +165,7 @@ def main():
         check("a user-level write from the same project still is",
               "same-project-lesson" in text, text)
 
-        print("only writes, each once (formal FX1-FX3):")
+        print("only writes, each once (formal F35-F37):")
         store.put_node(level="project", node_id="old-deploy-steps", gist="Old steps", session_id=a)
         store.put_node(level="user", node_id="old-archived-tip", gist="Old tip", session_id=a)
         store.graphs["user"]["nodes"]["old-archived-tip"]["_archived"] = True

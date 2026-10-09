@@ -15,24 +15,24 @@ F11 was found later and fixed in v0.10.1; F5 and F8 in v0.10.2.
 F12 (a fork taking an unbound session) was fixed in v0.11.0. F6 is fixed on
 the development branch (project-bound editor subscriptions, modelled first).
 F13–F16, found by a second pass on delivery (paged reads and Antigravity's
-queue), and F17–F23, from the dispatcher's pass tier, runners and budget
-notices, F24–F26, from the server lifecycle, and F27–F32, from usefulness
-accounting, are fixed there too. The compaction model pinned down F7's root
-cause; F7 and F34 are fixed there. F33 (rebalance can cycle forever) is
-reproduced and open: its fix is a choice of rebalance policy.
+queue), F17–F23, from the dispatcher's pass tier, runners and budget notices,
+F24–F26, from the server lifecycle, and F27–F32, from usefulness accounting,
+are fixed there too. The compaction model pinned down F7's root cause; F7 and
+F34 are fixed. The cross-session model found F35–F38; F35–F37 are fixed.
+F33 (rebalance can cycle forever) and F38 (a hook reply lost to its timeout
+still uses up the push) are reproduced and open: each fix is a choice of
+behaviour, with the options in FINDINGS.md.
 
 ## Open work
 
-A second pass started on the parts added since 0.11 that no model covered
-yet. Delivery (F13–F16) and the editor's subscriptions (F6) are done. Still
-to be modelled and reproduced, each in its own directory:
+The second pass covered every part added since 0.11: delivery (F13–F16), the
+editor's subscriptions (F6), dispatch and budget notices (F17–F23), the
+lifecycle (F24–F26), credits (F27–F32), the compaction tick (F7, F33, F34) and
+cross-session awareness (F35–F38). Left:
 
-- `cross-session/`: the push of other sessions' writes and `kg_sync`
-  (each change pushed once, never to its writer, nothing falling between the
-  push window and the sync watermark);
-
-The models are not yet run in CI; `run_all.sh` prints results but never
-fails, so a CI job would need expected outcomes per model and reproduction.
+- decisions on F33 and F38;
+- running the models in CI. `run_all.sh` prints results but never fails, so a
+  CI job would need expected outcomes per model and reproduction.
 
 ## Method
 
@@ -96,6 +96,10 @@ gave its root cause.
 | F32 | An `instance-of` edge in the maintain graph credits a user lesson | reading + reproduction | fixed, unreleased | very low |
 | F33 | Rebalance can swap the same nodes forever, rewriting the graph every tick | Lean enumeration + reproduction | reproduced, open (policy) | low-medium |
 | F34 | A node stays archived although the whole graph fits under the fill ceiling | Lean enumeration + reproduction | fixed, unreleased | very low |
+| F35 | A rename, an unchanged re-put or a promotion is pushed as another session's write | Lean BFS + reproduction | fixed, unreleased | low |
+| F36 | A session's own rename hides another session's change from `kg_sync` and the push | Lean BFS + reproduction | fixed, unreleased | low |
+| F37 | Antigravity: a queued and an inline reply both carry the same change | Lean BFS + reproduction | fixed, unreleased | very low |
+| F38 | A hook reply lost to the hook's one-second timeout still uses up the push and marks the change seen | Lean BFS + reproduction | reproduced, open | low |
 
 Several suspicions were checked and found to hold. They are listed in
 FINDINGS.md so they need not be re-checked.

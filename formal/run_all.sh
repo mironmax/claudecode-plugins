@@ -61,5 +61,7 @@ run delivery/evidence/model-paging.log       lean --run delivery/lean/Paging.lea
 run delivery/evidence/model-agy.log          lean --run delivery/lean/Agy.lean
 run delivery/evidence/repro-paging-after.log $PY delivery/repro/repro_paging.py
 run delivery/evidence/repro-agy-after.log    $PY delivery/repro/repro_agy.py
+run cross-session/evidence/model.log         lean --run cross-session/lean/Foreign.lean
+run cross-session/evidence/repro-after.log   $PY cross-session/repro/repro_foreign.py
 run concurrent-writes/evidence/model.log     lean --run concurrent-writes/lean/Writes.lean
 run concurrent-writes/evidence/repro-after.log $PY concurrent-writes/repro/repro_lost_update.py
