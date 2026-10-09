@@ -1583,21 +1583,32 @@ class MultiProjectGraphStore:
                     "edges": {},
                 }
 
+                nodes = self.graphs[graph_key]["nodes"]
                 for key, ver in versions.items():
-                    if ver["ts"] > start_ts and ver.get("session") != session_id:
-                        if key.startswith("node:"):
-                            node_id = key.split(":", 1)[1]
-                            if node_id in self.graphs[graph_key]["nodes"]:
-                                updates["nodes"][node_id] = self.graphs[graph_key]["nodes"][node_id]
-                        elif key.startswith("edge:"):
-                            # Parse edge key
-                            edge_part = key.split(":", 1)[1]
-                            # Find matching edge
-                            for edge in self.graphs[graph_key]["edges"].values():
-                                edge_id = f"{edge['from']}->{edge['to']}:{edge['rel']}"
-                                if edge_part == edge_id:
-                                    updates["edges"][edge_id] = edge
-                                    break
+                    if ver["ts"] <= start_ts:
+                        continue
+                    if key.startswith("node:"):
+                        node_id = key.split(":", 1)[1]
+                        node = nodes.get(node_id)
+                        if node is None:
+                            continue
+                        # Another session's write since start_ts stays listed
+                        # when this session's own rename or re-put bumped the
+                        # version after it.
+                        written = node.get(WRITTEN_FIELD) or {}
+                        foreign_write = (written.get("ts", 0) > start_ts
+                                         and written.get("by") != session_id)
+                        if ver.get("session") != session_id or foreign_write:
+                            updates["nodes"][node_id] = node
+                    elif key.startswith("edge:") and ver.get("session") != session_id:
+                        # Parse edge key
+                        edge_part = key.split(":", 1)[1]
+                        # Find matching edge
+                        for edge in self.graphs[graph_key]["edges"].values():
+                            edge_id = f"{edge['from']}->{edge['to']}:{edge['rel']}"
+                            if edge_part == edge_id:
+                                updates["edges"][edge_id] = edge
+                                break
 
                 return updates
 

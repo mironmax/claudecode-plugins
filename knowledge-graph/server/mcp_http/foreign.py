@@ -30,19 +30,29 @@ def notice(store, session_manager, session_id: str | None) -> str | None:
     window = session_manager.claim_push_window(session_id, now, claim=not deferred)
     if window is None:
         return None
+    since, seen_at = window
     if deferred:
         session_manager.mark_pushed(session_id, now)
-    since, seen_at = window
+        # Replies already queued are delivered or replayed, never dropped:
+        # what they will show is not pushed a second time.
+        pending_since, pending_seen = session_manager.pending_marks(session_id)
+        since = max(since, pending_since)
+        for nid, at in pending_seen.items():
+            seen_at[nid] = max(seen_at.get(nid, 0), at)
     diff = store.get_sync_diff(session_id, since)
     own = session_manager.lookup(session_id) or {}
 
     changed = []
     for level in ("project", "user"):
         for nid, node in diff[level]["nodes"].items():
-            written = (node.get("_written") or {}).get("ts", 0)
+            stamp = node.get("_written") or {}
+            written, writer = stamp.get("ts", 0), stamp.get("by")
+            # The diff also lists a rename, a promotion or an unchanged re-put:
+            # a new version, but no write since this session last looked.
+            if written <= since or writer == session_id:
+                continue
             if node.get("_archived") or seen_at.get(nid, 0) >= written:
                 continue  # archived, or already read as it stands now
-            writer = (node.get("_written") or {}).get("by")
             if store.is_maintenance(writer):
                 continue
             if level == "user" and not _same_project(session_manager, writer, own):
