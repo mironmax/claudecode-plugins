@@ -372,7 +372,7 @@ def create_mcp_server() -> Server:
                         "ids": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Node IDs that helped, or that should have been surfaced and were not (session budget: 5 total)"
+                            "description": "Node IDs that helped, or that should have been surfaced and were not (guidance: 5 per session; hard cap: 10)"
                         },
                         "credits": {
                             "type": "integer",
