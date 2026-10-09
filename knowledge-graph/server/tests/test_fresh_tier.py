@@ -195,9 +195,10 @@ def test_rebalance_and_refill_with_fresh():
     check("active fresh node never swapped out", all(out != "newer" for _, out in swaps), swaps)
 
     # refill: with room for one promotion, the archived fresh node wins over a liked one
+    # (star is large, so the whole archive does not fit and refill has to choose)
     nodes = {
         "anchor": node("anchor"),
-        "star": node("star", archived=True, likes=3),
+        "star": node("star", gist="g" * 200, archived=True, likes=3),
         "newest": node("newest", archived=True, ts=time.time()),
     }
     sc = NodeScorer(line("newest", "g" * 60))

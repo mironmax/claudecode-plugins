@@ -1,0 +1,26 @@
+$ python3 compaction/repro/tick_search.py legacy v2 20000    # at 1d03171, before the fix
+20000 random graphs (v2), 10 idle ticks each, through the legacy compact-else-refill sequence
+C1: 1521 graphs
+C1 compact->refill: 1521 graphs
+C1 compact->rebalance: 0 graphs
+C1 rebalance->refill: 0 graphs
+C1 rebalance->rebalance: 0 graphs
+F: 1521 graphs
+R: 0 graphs
+C2: 0 graphs
+C2 cycle: 0 graphs
+C2 cycle in one tick: 0 graphs
+C2 cycle across ticks: 0 graphs
+B1: 0 graphs
+B2: 0 graphs
+B3: 4 graphs
+B3 last: 703 graphs
+B4: 0 graphs
+B5: 0 graphs
+first C1 compact->refill:
+   seed=1 max_chars=1015 ceiling=812 hits=['C1', 'C1 compact->refill', 'F']
+      tick 0: {'archived': ['n2', 'n5', 'n1', 'n4']} -> 675 chars
+      tick 1: {'refilled': ['n1']} -> 712 chars
+first B3:
+   seed=258 max_chars=1876 ceiling=1500 hits=['B3']
+      tick 0: {'refilled': ['n12', 'n0', 'n4']} -> 1463 chars

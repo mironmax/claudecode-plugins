@@ -195,8 +195,9 @@ FILE_RECALL_REASON = "file_recall"  # recall.jsonl reason; outcome says what hap
 # created a dead band: a graph at 0.62-0.79 of budget had real headroom but refill
 # never fired, so graphs settled there permanently with most nodes stranded in the
 # archive. The no-thrash guarantee never needed the dead band — it comes from the
-# ceiling (0.8) sitting below the archive threshold (1.0), plus _maybe_compact
-# skipping refill on any tick that just archived.
+# ceiling (0.8) sitting below the archive threshold (1.0). _maybe_compact runs
+# refill on a tick that archived as well, so compaction's overshoot below the
+# ceiling is filled in the same tick instead of flickering for one.
 # Archived nodes budget: max fraction of the per-level char budget that archived
 # anchor lines may occupy. When exceeded, lowest-scored archived nodes are
 # demoted to orphaned (invisible in kg_read).

@@ -1905,7 +1905,7 @@ class MultiProjectGraphStore:
     def _maybe_compact(self, graph_key: str):
         """Compact graph if over token limit. Caller must hold lock.
 
-        Passes (at most one of compact/refill/rebalance acts per call):
+        Passes (rebalance runs only when neither compaction nor refill acted):
           Pass 1: archive lowest-scored active nodes until active tokens ≤ max_tokens.
           Pass 1r: refill — if active tokens sit under the fill ceiling, promote the
                    highest-scored archived nodes back up to use the headroom.
@@ -1918,10 +1918,13 @@ class MultiProjectGraphStore:
         versions = self._versions[graph_key]
 
         archived = self.compactor.compact_if_needed(nodes, edges, versions, label=graph_key)
-        # Never refill on a tick that just archived: compaction lands at the same
-        # ceiling refill fills to, so running both would partially undo the archive
-        # in the same call. Skipping keeps "one of compact/refill acts per tick".
-        refilled = [] if archived else self.compactor.refill_if_room(nodes, edges, versions)
+        # Refill runs on a tick that archived, too. Compaction archives whole nodes
+        # until the graph is under the fill ceiling, so its last one can land it well
+        # below. Skipping refill here only moved filling that gap to the next tick:
+        # a node archived and written now was promoted again then (formal F7).
+        # Refill stays under the ceiling, below the budget compaction acts on, so
+        # the two cannot undo each other on any later tick.
+        refilled = self.compactor.refill_if_room(nodes, edges, versions)
         swapped = [] if archived or refilled else self.compactor.rebalance(nodes, edges, versions)
         orphaned = self.compactor.orphan_archived_if_needed(nodes, edges, versions)
 

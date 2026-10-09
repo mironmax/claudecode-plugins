@@ -150,6 +150,10 @@ def plan_level(nodes: dict, edges: dict, include_archived: bool = False) -> dict
     }
 
 
+# Heads the archived anchors whenever a level has any; charged like every line.
+ARCHIVED_HEADER = "ARCHIVED (use kg_read with id to view full content):"
+
+
 def level_body_lines(plan: dict) -> list[str]:
     """Flatten a plan into the exact body lines kg_read renders (no header,
     no health line — those are wrapper text owned by the formatter)."""
@@ -160,6 +164,6 @@ def level_body_lines(plan: dict) -> list[str]:
             lines.append(node_line)
             lines.extend(citation for _e, citation in citations)
     if plan["archived"]:
-        lines.append("ARCHIVED (use kg_read with id to view full content):")
+        lines.append(ARCHIVED_HEADER)
         lines.extend(anchor for _nid, anchor in plan["archived"])
     return lines

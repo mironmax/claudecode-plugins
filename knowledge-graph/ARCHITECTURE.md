@@ -110,7 +110,8 @@ alone, all against one local server. Harness differences live in
 **When memory sits *under* the fill ceiling (reverse refill):**
 - Compaction only moves nodes down; a separate refill pass (`refill_if_room`) moves them back up so headroom isn't wasted
 - A single threshold governs refill: it acts whenever the rendered size is below `COMPACTION_TARGET_RATIO` (0.8 × budget) and fills up to that same ceiling — one number is both trigger and target, so headroom can never sit unused between two thresholds.
-- No-thrash comes from the ceiling (0.8) sitting below the archive threshold (1.0) — a refill can never push the graph into an immediate archive — plus the store skipping refill on any tick that just archived
+- No-thrash comes from the ceiling (0.8) sitting below the archive threshold (1.0) — a refill can never push the graph into an immediate archive. Refill also runs on a tick that archived, so compaction's overshoot below the ceiling is filled at once instead of a just-archived node coming back on the next tick
+- When the graph with every node active fits under the ceiling, the whole archive comes back at once: emptying the archive also drops its section header and anchors, which no per-node fit check credits
 - A top-scored candidate too large for the remaining headroom is *skipped*, not allowed to block smaller candidates behind it (the fit check uses an exact O(degree) promotion delta, so walking past blockers is cheap)
 
 **Edges as resurfacing "strings" (render == charge):**

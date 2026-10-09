@@ -10,6 +10,7 @@ from .constants import (
     REBALANCE_MAX_SWAPS,
 )
 from .estimator import CharEstimator
+from .render import ARCHIVED_HEADER
 from .scorer import NodeScorer
 
 logger = logging.getLogger(__name__)
@@ -146,8 +147,14 @@ class Compactor:
         lower trigger — an earlier 0.6 low-water mark created a dead band (0.6–0.8 of
         budget) where graphs settled permanently with headroom unused and most nodes
         stranded archived. No-thrash is guaranteed by the ceiling sitting below the
-        archive threshold (1.0×max) and by the store skipping refill on any tick that
-        just archived.
+        archive threshold (1.0×max). The store runs refill on a tick that archived
+        too, so compaction's overshoot below the ceiling is filled at once.
+
+        The whole archive first. Promoting the last archived node also drops the
+        ARCHIVED header and every anchor, which no per-node delta credits: a small
+        graph can be over the ceiling only because of them, or set its last node
+        aside as too big, while the graph with every node active fits. So when the
+        whole archive fits under the ceiling, it all comes back at once.
 
         Iterative re-scoring. Promotion is not a fixed-order sweep: promoting a node
         makes ITS edges to other archived nodes become full-weight "live" strings, which
@@ -170,6 +177,9 @@ class Compactor:
         estimated_chars = self.estimator.estimate_graph(nodes, edges, include_archived=False)
 
         fill_ceiling = int(self.max_chars * COMPACTION_TARGET_RATIO)
+        whole = self._promote_whole_archive(nodes, edges, estimated_chars, fill_ceiling)
+        if whole:
+            return whole
         if estimated_chars >= fill_ceiling:
             return []
 
@@ -249,6 +259,31 @@ class Compactor:
         if promoted:
             logger.info(f"Refill: promoted {len(promoted)} archived node(s) to use spare budget, now {estimated_chars} chars")
         return promoted
+
+    def _promote_whole_archive(self, nodes: dict, edges: dict, estimated_chars: int,
+                               fill_ceiling: int) -> list[str]:
+        """Promote every archived node if the graph with all of them active fits
+        under the fill ceiling (see refill_if_room). Returns them, or []."""
+        archived = [nid for nid, n in nodes.items()
+                    if n.get("_archived") and "_orphaned_ts" not in n]
+        if not archived:
+            return []
+        # Cheap bound first: each node swaps its anchor for its line and the
+        # ARCHIVED header goes; edges coming live only add.
+        floor = estimated_chars - (len(ARCHIVED_HEADER) + 1) + sum(
+            self.estimator.estimate_node(nid, nodes[nid]) - self.estimator.estimate_archived(nid)
+            for nid in archived)
+        if floor > fill_ceiling:
+            return []
+        for nid in archived:
+            nodes[nid]["_archived"] = False
+        size = self.estimator.estimate_graph(nodes, edges, include_archived=False)
+        if size > fill_ceiling:
+            for nid in archived:
+                nodes[nid]["_archived"] = True
+            return []
+        logger.info(f"Refill: promoted the whole archive ({len(archived)} node(s)), now {size} chars")
+        return archived
 
     def _candidate_scores(self, nodes: dict, edges: dict, versions: dict) -> dict[str, float]:
         """Unified-pool scores, with fresh-tier nodes ranked above any score."""
