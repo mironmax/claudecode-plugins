@@ -153,6 +153,22 @@ def main():
         check("another session's case still is", res["note_credited"])
         store.shutdown()
 
+        print("a tidy of a lesson with no recorded author:")
+        store, sm = fresh()
+        chore = sm.register(project)["session_id"]
+        other = sm.register(project)["session_id"]
+        store.mark_maintenance(chore)
+        store.put_node("user", "legacy", "a lesson", notes=["case 1"])
+        store.graphs["user"]["nodes"]["legacy"].pop("_written", None)   # written before authorship was kept
+        sm.note_viewed(chore, ["legacy"], at=time.time(), full=True)
+        store.put_node("user", "legacy", "a lesson, tidied", notes=["case 1"], session_id=chore)
+        check("records no empty author", "author" not in store.graphs["user"]["nodes"]["legacy"]["_written"])
+        sm.note_viewed(other, ["legacy"], at=time.time(), full=True)
+        res = store.put_node("user", "legacy", "a lesson, tidied", notes=["case 1", "case 2"],
+                             session_id=other)
+        check("a working session's next case is a credit", res["note_credited"])
+        store.shutdown()
+
         print("a crash keeps vote and ledger together:")
         store, sm = fresh()
         work = sm.register(project)["session_id"]

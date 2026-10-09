@@ -762,7 +762,7 @@ class MultiProjectGraphStore:
                 node["_created_ts"] = now
             if changed:
                 node[WRITTEN_FIELD] = {"ts": now, "by": session_id}
-                if session_id in self._maintenance_sessions and not is_new:
+                if session_id in self._maintenance_sessions and not is_new and author is not None:
                     node[WRITTEN_FIELD]["author"] = author
 
             # If updating archived node, unarchive it
