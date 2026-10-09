@@ -124,8 +124,9 @@ class MultiProjectGraphStore:
         self._versions: dict[str, dict] = {}
         self._progress: dict[str, dict] = {}
         # Sessions doing maintenance (a pass or a chore): their full reads are
-        # judgement, not use, so they neither stamp recency nor promote.
-        self._maintenance_sessions: set[str] = set()
+        # judgement, not use, so they neither stamp recency nor promote. The
+        # flag is kept on the session record too, so a restart keeps it.
+        self._maintenance_sessions: set[str] = session_manager.maintenance_ids()
         self._persistence: dict[str, GraphPersistence] = {}
 
         # Thread safety
@@ -596,6 +597,10 @@ class MultiProjectGraphStore:
                 self._write_through(graph_key)
             if maintenance:
                 session["maintenance_credits"] = credited
+            if accepted:
+                # The stamps are on disk already (write-through); the ledger
+                # that refuses a second vote must not wait for the saver.
+                self.session_manager.save_sessions()
 
         log_path = get_storage_root() / USEFUL_LOG_NAME
         for rec in records:
@@ -738,9 +743,13 @@ class MultiProjectGraphStore:
             # A case added to a lesson another session wrote is that lesson
             # recognised again — measured: 44% of such updates carried no
             # kg_useful, so the recognition went uncounted.
+            # A maintenance write keeps the lesson's author ("author"), so its
+            # tidy does not make the author's own next case a credit.
+            written = node.get(WRITTEN_FIELD) or {}
+            author = written.get("author", written.get("by"))
             note_credit = (not is_new and bool(session_id) and notes is not None
                            and len(notes) > len(node.get("notes") or [])
-                           and (node.get(WRITTEN_FIELD) or {}).get("by") not in (None, session_id))
+                           and author not in (None, session_id))
             node["gist"] = gist
             if notes is not None:
                 node["notes"] = notes
@@ -753,6 +762,8 @@ class MultiProjectGraphStore:
                 node["_created_ts"] = now
             if changed:
                 node[WRITTEN_FIELD] = {"ts": now, "by": session_id}
+                if session_id in self._maintenance_sessions and not is_new:
+                    node[WRITTEN_FIELD]["author"] = author
 
             # If updating archived node, unarchive it
             if "_archived" in node:
@@ -810,6 +821,7 @@ class MultiProjectGraphStore:
         liked.append(node_id)
         self.dirty[graph_key] = True
         self._write_through(graph_key)
+        self.session_manager.save_sessions()
         append_jsonl(get_storage_root() / USEFUL_LOG_NAME, {
             "ts": round(now, 3), "kg_session": session_id, "claude_session": session.get("claude_sid"),
             "project": session.get("project_path"), "id": node_id, "level": level, "via": "note",
@@ -1034,7 +1046,9 @@ class MultiProjectGraphStore:
 
         Returns the useful.jsonl record to append after the lock, or None.
         """
-        user_nodes = self.graphs.get("user", {}).get("nodes") if graph_key != "user" else None
+        # Only a project case reaches up to a user lesson, as on load (the
+        # maintain graph's edges never reach the user graph's lessons).
+        user_nodes = self.graphs.get("user", {}).get("nodes") if is_project_namespace(graph_key) else None
         done = recurrence.credit_edge({"from": from_ref, "to": to_ref, "rel": LIFT_EDGE_REL},
                                       self.graphs[graph_key]["nodes"], user_nodes)
         if not done:
@@ -1189,11 +1203,13 @@ class MultiProjectGraphStore:
                         touched.add(gk)
 
             # Version history follows the name.
+            # Re-keyed before the bump, so a maintenance rename carries the
+            # node's activity time (used_ts) instead of reading an empty entry.
             versions = self._versions[graph_key]
             old_ver = versions.pop(version_key_node(old_id), None)
-            self._bump_version(graph_key, version_key_node(new_id), session_id)
             if old_ver:
-                versions[version_key_node(new_id)]["v"] = old_ver.get("v", 0) + 1
+                versions[version_key_node(new_id)] = old_ver
+            self._bump_version(graph_key, version_key_node(new_id), session_id)
 
             for gk in touched:
                 self.dirty[gk] = True
@@ -1204,8 +1220,10 @@ class MultiProjectGraphStore:
                               if resolved_level == "user" else (0, []))
             rewired += swept
 
-            # Sessions already holding the old id in their seen/preload sets.
-            self.session_manager.rename_node_ref(old_id, new_id)
+            # Sessions already holding the old id in their seen/preload sets
+            # and vote ledgers; saved so a crash cannot split vote from ledger.
+            if self.session_manager.rename_node_ref(old_id, new_id):
+                self.session_manager.save_sessions()
 
             self._broadcast(
                 {"type": "node_renamed", "level": resolved_level, "old_id": old_id,
@@ -1741,6 +1759,7 @@ class MultiProjectGraphStore:
         opens the session, before any kg_progress could flag it."""
         with self.lock:
             self._maintenance_sessions.add(session_id)
+            self.session_manager.mark_maintenance(session_id)
 
     def is_maintenance(self, session_id: str | None) -> bool:
         """Whether the session is a maintenance pass or chore."""
@@ -1752,6 +1771,7 @@ class MultiProjectGraphStore:
         from core.debt import MAINTAIN_TASK_ID
         if session_id and task_id in (MAINTAIN_TASK_ID, CHORE_TASK_ID):
             self._maintenance_sessions.add(session_id)
+            self.session_manager.mark_maintenance(session_id)
 
     def get_progress(self, task_id: str, level: str = "user", session_id: str | None = None) -> dict:
         """Read persistent progress for a task from _meta.progress."""

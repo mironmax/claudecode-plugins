@@ -1,0 +1,30 @@
+$ python3 credits/repro/repro_credits.py
+== X1: a rename lets a session vote twice for one node
+     after the rename: A's second vote accepted=False, M's second credit accepted=False, node stamps=4
+ok  X1: a session's vote follows the node through a rename
+ok  X1: a pass's credit follows the node through a rename
+== X2: a maintenance rename resets the node's activity time
+     recency after the pass's rewrite: the write time; after the pass's rename: the write time
+ok  X2: a maintenance rewrite keeps the node's previous activity time
+ok  X2: a maintenance rename keeps the node's previous activity time
+== X3: a server restart forgets that a session is maintenance
+     after a restart: session restored=True, maintenance=True
+ok  X3: restart: the session stays maintenance
+     after a crash: session restored=True, maintenance=True
+ok  X3: crash: the session stays maintenance
+== X4: a maintenance tidy turns the author's next case into a note credit
+ok  X4: the author's own case is not a credit after a maintenance tidy
+ok  X4-control: another session's case credited=True
+== X5: a crash keeps the vote and loses the ledger entry
+     after the crash: second vote accepted=False, node stamps=1
+ok  X5: a vote and its ledger entry survive a crash together
+== X6: an instance-of edge in the maintain graph credits a user lesson
+     user lesson stamps after put_edge at level maintain: 0
+ok  X6: put_edge and the load agree: the maintain graph credits no user lesson
+== checked, holds
+ok  H1: 12 threads: A holds 10 distinct votes (cap 10), M 15 credits on 5 nodes (cap 15), node stamps 25 = votes + credits
+ok  H2: (user stamps, project stamps, recurrence log lines) over 6 reloads and a restart: [(1, 1, 2), (1, 1, 2), (1, 1, 2), (1, 1, 2), (1, 1, 2), (1, 1, 2)]
+ok  H3: a session flagged before its read: no stamp, no promotion
+     late flag: the read before it promoted=True stamped=True and stays so; the session is maintenance from the flag on=True
+ok  H4: vias in order: ['note', 'recurrence', 'maintenance', 'search']
+RESULT: all hold

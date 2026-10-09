@@ -287,6 +287,20 @@ class HTTPSessionManager:
         return self._sessions.get(session_id)
 
     @_locked
+    def mark_maintenance(self, session_id: str) -> None:
+        """Record on the session that it is a maintenance pass or chore, and
+        save at once: the store's in-memory set starts empty after a restart."""
+        session = self._sessions.get(session_id)
+        if session is not None and not session.get("maintenance"):
+            session["maintenance"] = True
+            self.save_sessions()
+
+    @_locked
+    def maintenance_ids(self) -> set[str]:
+        """Sessions recorded as maintenance (see mark_maintenance)."""
+        return {sid for sid, s in self._sessions.items() if s.get("maintenance")}
+
+    @_locked
     def ensure_session(self, session_id: str) -> None:
         """
         Re-register a session if it was lost (e.g. server restart).
@@ -462,6 +476,12 @@ class HTTPSessionManager:
                 session[field] = list(dict.fromkeys(
                     new_id if nid == old_id else nid for nid in ids
                 ))
+                touched += 1
+            # One vote per node per session: the ledger names the node too.
+            # Not deduped: its length is what the like cap counts.
+            liked = session.get("liked_ids")
+            if liked and old_id in liked:
+                session["liked_ids"] = [new_id if nid == old_id else nid for nid in liked]
                 touched += 1
             seen_via = session.get("seen_via")
             if seen_via and old_id in seen_via:
