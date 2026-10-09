@@ -1,0 +1,169 @@
+$ lean --run cross-session/lean/Foreign.lean
+Bounds: one observer S; F, G, M and S itself act; one node per scope (two in
+the overflow scope); every interleaving of the scope's steps, searched to the
+end (canonical timestamps keep the space finite).
+--- project node, every step, every reply delivered (K=1, fixWindow=false, fixMask=false)
+    10030 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✗ X-new     only a write made inside the window: COUNTEREXAMPLE (2 steps)
+    F renames or re-puts unchanged n0 (version bumped, _written kept)
+    S hook or tool reply: push window (2,4] shows [n0]
+✓ X-once    no write pushed twice: no counterexample
+✗ X-cover   every qualifying write is received or still listed by kg_sync: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S renames n0 (version bumped, _written kept)
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S hook or tool reply: push window (2,4] shows [n0]
+--- project node + fixWindow (K=1, fixWindow=true, fixMask=false)
+    5457 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✓ X-new     only a write made inside the window: no counterexample
+✓ X-once    no write pushed twice: no counterexample
+✗ X-cover   every qualifying write is received or still listed by kg_sync: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S renames n0 (version bumped, _written kept)
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S hook or tool reply: push window (2,4] shows [n0]
+--- project node + fixWindow + fixMask (K=1, fixWindow=true, fixMask=true)
+    5013 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✓ X-new     only a write made inside the window: no counterexample
+✓ X-once    no write pushed twice: no counterexample
+✓ X-cover   every qualifying write is received or still listed by kg_sync: no counterexample
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S hook or tool reply: push window (2,4] shows [n0]
+--- user node, every step, every reply delivered (K=1, fixWindow=false, fixMask=false)
+    17794 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✗ X-new     only a write made inside the window: COUNTEREXAMPLE (2 steps)
+    F renames or re-puts unchanged n1 (version bumped, _written kept)
+    S hook or tool reply: push window (2,4] shows [n1]
+✓ X-once    no write pushed twice: no counterexample
+✗ X-cover   every qualifying write is received or still listed by kg_sync: COUNTEREXAMPLE (2 steps)
+    F writes user n1
+    S renames n1 (version bumped, _written kept)
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes user n1
+    S hook or tool reply: push window (2,4] shows [n1]
+--- user node + fixWindow + fixMask (K=1, fixWindow=true, fixMask=true)
+    8745 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✓ X-new     only a write made inside the window: no counterexample
+✓ X-once    no write pushed twice: no counterexample
+✓ X-cover   every qualifying write is received or still listed by kg_sync: no counterexample
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes user n1
+    S hook or tool reply: push window (2,4] shows [n1]
+--- two nodes, K=1, writes, reads, kg_sync and notices (K=1, fixWindow=false, fixMask=false)
+    25441 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✓ X-new     only a write made inside the window: no counterexample
+✓ X-once    no write pushed twice: no counterexample
+✓ X-cover   every qualifying write is received or still listed by kg_sync: no counterexample
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S hook or tool reply: push window (2,4] shows [n0]
+--- two nodes, K=1 + fixWindow + fixMask (K=1, fixWindow=true, fixMask=true)
+    25441 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✓ X-new     only a write made inside the window: no counterexample
+✓ X-once    no write pushed twice: no counterexample
+✓ X-cover   every qualifying write is received or still listed by kg_sync: no counterexample
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S hook or tool reply: push window (2,4] shows [n0]
+--- project node + a hook reply lost after the server answered (K=1, fixWindow=true, fixMask=true)
+    5473 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✓ X-new     only a write made inside the window: no counterexample
+✓ X-once    no write pushed twice: no counterexample
+✓ X-cover   every qualifying write is received or still listed by kg_sync: no counterexample
+✗ X-mark    seen_at never covers a write S did not receive: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S hook reply with window (2,4] showing [n0] LOST (curl timed out)
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S hook or tool reply: push window (2,4] shows [n0]
+--- Antigravity deferred view, project node; S and F write, F renames (K=1, fixWindow=false, fixMask=false, fixPending=false)
+    47567 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✗ X-new     only a write made inside the window: COUNTEREXAMPLE (2 steps)
+    F renames or re-puts unchanged n0 (version bumped, _written kept)
+    S reply inline: push window (2,4] shows [n0]
+✗ X-once    no write pushed twice: COUNTEREXAMPLE (4 steps)
+    F writes project n0
+    S reply queued: push window (2,4] carries [n0]
+    S reply inline: push window (2,5] shows [n0]
+    hook delivers queued notice ([n0]); ack commits
+✓ X-cover   every qualifying write is received or still listed by kg_sync: no counterexample
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S reply inline: push window (2,4] shows [n0]
+--- Antigravity deferred view + fixWindow + fixMask (K=1, fixWindow=true, fixMask=true, fixPending=false)
+    19178 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✓ X-new     only a write made inside the window: no counterexample
+✗ X-once    no write pushed twice: COUNTEREXAMPLE (4 steps)
+    F writes project n0
+    S reply queued: push window (2,4] carries [n0]
+    S reply inline: push window (2,5] shows [n0]
+    hook delivers queued notice ([n0]); ack commits
+✓ X-cover   every qualifying write is received or still listed by kg_sync: no counterexample
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S reply inline: push window (2,4] shows [n0]
+--- Antigravity deferred view + all fixes (K=1, fixWindow=true, fixMask=true, fixPending=true)
+    12302 states, exhaustive
+✓ X-own     never pushed back to its writer: no counterexample
+✓ X-maint   never a maintenance session's write: no counterexample
+✓ X-arch    never an archived node: no counterexample
+✓ X-proj    user level only from S's project: no counterexample
+✓ X-new     only a write made inside the window: no counterexample
+✓ X-once    no write pushed twice: no counterexample
+✓ X-cover   every qualifying write is received or still listed by kg_sync: no counterexample
+✓ X-mark    seen_at never covers a write S did not receive: no counterexample
+✗ sanity (expect ✗): a foreign write is pushed: COUNTEREXAMPLE (2 steps)
+    F writes project n0
+    S reply inline: push window (2,4] shows [n0]
