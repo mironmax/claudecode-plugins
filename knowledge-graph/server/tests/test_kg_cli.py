@@ -96,16 +96,33 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(self.box.kg("stop").returncode, 0)
         self.assertEqual(self.box.kg("status").returncode, 1)
 
-    def test_logs_read_the_journal_when_the_unit_owns_the_server(self):
+    def fake_unit(self, systemctl_body: str = 'echo enabled') -> None:
+        """A systemd unit that owns this port, with fake systemctl/journalctl."""
         bin_dir = self.box.home / "bin"
-        bin_dir.mkdir()
-        for name, body in (("systemctl", 'echo enabled'), ("journalctl", 'echo "journal $*"')):
+        bin_dir.mkdir(exist_ok=True)
+        for name, body in (("systemctl", systemctl_body), ("journalctl", 'echo "journal $*"')):
             script = bin_dir / name
             script.write_text(f"#!/bin/sh\n{body}\n")
             script.chmod(0o755)
         self.box.env["PATH"] = f"{bin_dir}:{self.box.env['PATH']}"
         self.box.write(".config/systemd/user/kg-memory.service",
                        f'[Service]\nEnvironment="KG_HTTP_PORT={self.box.port}"\n')
+
+    def test_unit_starts_clear_or_record_the_start_error(self):
+        self.assertEqual(self.box.kg("start").returncode, 0)   # stands in for the unit's server
+        crumb = self.box.state / "last_start_error"
+        crumb.write_text("when: earlier\ncause: an old failure\n")
+        self.fake_unit('case "$2" in is-enabled) echo enabled;; '
+                       f'show) cat "{self.box.state}/server.pid";; '   # the unit's MainPID: not a stray
+                       'start) exit "$(cat "$HOME/fail" 2>/dev/null || echo 0)";; esac')
+        self.assertEqual(self.box.kg("start").returncode, 0)
+        self.assertFalse(crumb.exists())
+        self.box.write("fail", "1")
+        self.assertEqual(self.box.kg("start").returncode, 1)
+        self.assertIn("journalctl --user -u kg-memory.service", crumb.read_text())
+
+    def test_logs_read_the_journal_when_the_unit_owns_the_server(self):
+        self.fake_unit()
         shown = self.box.kg("logs")
         self.assertEqual(shown.stdout.strip(), "journal --user -u kg-memory.service -n 50 --no-pager")
         self.assertEqual(self.box.kg("logs", "-f").stdout.strip(), "journal --user -u kg-memory.service -f")
@@ -289,6 +306,16 @@ class SetupTests(unittest.TestCase):
         again = box.kg("doctor").stdout
         self.assertIn("kg tools pre-approved for every project", again)
         self.assertIn("kg tools granted", again)
+
+    def test_upkeep_is_opt_in(self):
+        box = Sandbox(self)
+        self.addCleanup(box.kg, "stop")
+        self.assertIn("[upkeep] Memory: background upkeep (opt-in: spends quota)", box.kg("setup", "--plan").stdout)
+        out = box.kg("setup", "--yes")   # everything offered, upkeep not named
+        self.assertIn("is opt-in: `kg setup --yes --only upkeep`", out.stdout)
+        self.assertFalse((box.home / ".knowledge-graph/chores.json").exists())
+        self.assertEqual(box.kg("setup", "--yes", "--only", "upkeep").returncode, 0)
+        self.assertTrue(json.loads((box.home / ".knowledge-graph/chores.json").read_text())["enabled"])
 
     def test_desktop_and_old_commands_move_to_kg(self):
         box = Sandbox(self)

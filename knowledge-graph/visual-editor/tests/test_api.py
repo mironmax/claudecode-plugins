@@ -274,6 +274,38 @@ class EditorTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("absent-node", response.json()["detail"])
         self.assertEqual((await self.client.get("/api/nodes/invalid/x/score")).status_code, 422)
 
+    async def test_cross_site_requests_are_refused(self):
+        # A cross-site <img> GET would otherwise promote the node through the proxy.
+        for headers in ({"Sec-Fetch-Site": "cross-site"}, {"Origin": "https://example.com"}):
+            response = await self.client.get("/api/nodes/user/signal-beta", headers=headers)
+            self.assertEqual(response.status_code, 403, headers)
+        self.assertTrue(self.graph["nodes"]["signal-beta"].get("_archived"))
+        same_origin = {"Sec-Fetch-Site": "same-origin", "Origin": "http://localhost:8766"}
+        self.assertEqual((await self.client.get("/api/health", headers=same_origin)).status_code, 200)
+
+
+class EditorConfigTests(unittest.TestCase):
+    def load(self, **env):
+        with patch.dict(os.environ, env):
+            spec = importlib.util.spec_from_file_location(
+                "visual_backend_config", SERVER.parent / "visual-editor/backend/server.py")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        return module
+
+    def cors_origins(self, module):
+        return next(m.kwargs["allow_origins"] for m in module.app.user_middleware
+                    if "allow_origins" in m.kwargs)
+
+    def test_defaults(self):
+        self.assertEqual(editor.MCP_WS_URL, "ws://127.0.0.1:8765/ws")
+        self.assertIn("http://localhost:8766", self.cors_origins(editor))
+
+    def test_ports_follow_the_environment(self):
+        module = self.load(MCP_SERVER_URL="http://127.0.0.1:8767/", EDITOR_PORT="8770")
+        self.assertEqual(module.MCP_WS_URL, "ws://127.0.0.1:8767/ws")
+        self.assertEqual(self.cors_origins(module), ["http://localhost:8770", "http://127.0.0.1:8770"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

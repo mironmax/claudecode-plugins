@@ -125,6 +125,9 @@ class Step:
     key = ""
     group = ""
     title = ""
+    # Opt-in: asked with No as the default, and skipped by --yes unless named
+    # in --only. For what spends the user's quota.
+    opt_in = False
 
     def check(self, ctx: Context) -> tuple[str, str]:
         raise NotImplementedError
@@ -705,6 +708,7 @@ class AgyPermissions(Step):
 
 class Upkeep(Step):
     key, group, title = "upkeep", "Memory", "background upkeep"
+    opt_in = True   # it spends quota
 
     def check(self, ctx):
         cfg = load_json(kg.STORAGE_ROOT / "chores.json")

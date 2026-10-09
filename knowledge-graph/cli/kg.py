@@ -112,10 +112,10 @@ def wait(predicate, seconds: float) -> bool:
     return predicate()
 
 
-def write_breadcrumb(cause: str) -> None:
+def write_breadcrumb(cause: str, log: object = LOG_FILE) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     BREADCRUMB.write_text(f"when: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                          f"cause: {cause}\nlog: {LOG_FILE}\n")
+                          f"cause: {cause}\nlog: {log}\n")
 
 
 def failure_cause() -> str:
@@ -154,12 +154,18 @@ def service_enabled() -> bool:
 
 def systemctl(action: str) -> int:
     out = subprocess.run(["systemctl", "--user", action, UNIT], capture_output=True, text=True)
+    journal = f"journalctl --user -u {UNIT}"
     if out.returncode:
         print(f"systemctl --user {action} {UNIT} failed: {out.stderr.strip()}")
+        if action != "stop":
+            write_breadcrumb(f"systemctl --user {action} {UNIT} failed", journal)
         return 1
     if action != "stop" and not wait(lambda: health() is not None, 20):
-        print(f"{UNIT} is {action}ed but the server does not answer: journalctl --user -u {UNIT}")
+        print(f"{UNIT} is {action}ed but the server does not answer: {journal}")
+        write_breadcrumb(f"{UNIT} {action}ed but the server does not answer", journal)
         return 1
+    if action != "stop":   # hooks read a leftover cause as "down and failing"
+        BREADCRUMB.unlink(missing_ok=True)
     print(f"Server {action}ed by {UNIT} (version {version()}).")
     return 0
 

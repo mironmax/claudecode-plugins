@@ -60,7 +60,8 @@ def setup(assume_yes: bool, only: set[str] | None, plan: bool) -> int:
         return 1 if manual else 0
     print("\nSetup would:")
     for step, _, _ in offered:
-        print(f"  [{step.key}] {step.group}: {step.title}")
+        note = " (opt-in: spends quota)" if step.opt_in else ""
+        print(f"  [{step.key}] {step.group}: {step.title}{note}")
     if plan:
         print("\nRun `kg setup` to choose, or `kg setup --yes [--only KEY,…]`.")
         return 0
@@ -70,7 +71,10 @@ def setup(assume_yes: bool, only: set[str] | None, plan: bool) -> int:
     failed = 0
     print()
     for step, _, detail in offered:
-        if not confirm(f"{step.group}: {step.title}", assume_yes):
+        if step.opt_in and assume_yes and not (only and step.key in only):
+            print(f"  – {step.group}: {step.title} is opt-in: `kg setup --yes --only {step.key}`")
+            continue
+        if not confirm(f"{step.group}: {step.title}", assume_yes, default=not step.opt_in):
             continue
         try:
             print(f"  ✓ {step.apply(ctx)}")
@@ -84,10 +88,11 @@ def setup(assume_yes: bool, only: set[str] | None, plan: bool) -> int:
     return 1 if failed else 0
 
 
-def confirm(question: str, assume_yes: bool) -> bool:
+def confirm(question: str, assume_yes: bool, default: bool = True) -> bool:
     if assume_yes:
         return True
-    return input(f"{question}? [Y/n] ").strip().lower() in ("", "y", "yes")
+    answer = input(f"{question}? {'[Y/n]' if default else '[y/N]'} ").strip().lower()
+    return answer in ("y", "yes") or (default and answer == "")
 
 
 def update(after_upgrade: bool) -> int:
