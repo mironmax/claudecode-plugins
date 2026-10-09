@@ -1,0 +1,246 @@
+$ lean --run compaction/lean/Compaction.lean
+6477 graphs, 35976 trajectories per variant (every start), each ticked to its fixpoint or cycle
+===== variant code
+✗ C1: 7053
+✗ C1 compact->refill: 978
+✗ C1 compact->rebalance: 864
+✗ C1 rebalance->refill: 22
+✗ C1 rebalance->rebalance: 6041
+✗ F: 6736
+✗ R: 6286
+✗ C2 cycle in one tick: 297
+✗ C2 cycle across ticks: 5744
+✓ B1: 0
+✓ B2: 0
+✓ B3: 0
+✗ B3 last: 4044
+✓ B4: 0
+✓ B5: 0
+✗ B6: 4880
+  first C1:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first C1 compact->refill:
+    max=163 ceiling=130 fresh budget=48; nodes n0(gist 20, read 1, created 1), n1(gist 200, read 2, created 2); edges n0->n1, n1->n0; start archived {}
+      tick 0: compact archives [n0, n1] -> archived {n0, n1}, 63 chars
+      tick 1: refill promotes [n0] -> archived {n1}, 123 chars
+      tick 2: nothing acts -> archived {n1}, 123 chars (= state after tick 1)
+  first C1 compact->rebalance:
+    max=190 ceiling=152 fresh budget=57; nodes n0(gist 80, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {}
+      tick 0: compact archives [n0, n1], resurrects [n1] -> archived {n0}, 183 chars
+      tick 1: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 183 chars
+      tick 2: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first C1 rebalance->refill:
+    max=378 ceiling=302 fresh budget=113; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 200, read 3, created 3); edges n0->n1, n0->n2, n1->n0, n2->n0, n2->n1; start archived {n0, n1}
+      tick 0: rebalance swaps n0 in/n2 out n1 in/n0 out n0 in/n1 out -> archived {n1, n2}, 158 chars
+      tick 1: refill promotes [n1] -> archived {n2}, 195 chars
+      tick 2: rebalance swaps n2 in/n1 out n1 in/n0 out n0 in/n2 out -> archived {n2}, 195 chars (= state after tick 1)
+  first C1 rebalance->rebalance:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first F:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first R:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first C2 cycle in one tick:
+    max=213 ceiling=170 fresh budget=63; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 20, read 3, created 3); edges n0->n1, n0->n2, n1->n0, n2->n0, n2->n1; start archived {n0}
+      tick 0: rebalance swaps n0 in/n2 out n2 in/n1 out n1 in/n0 out -> archived {n0}, 195 chars (= state after tick 0)
+  first C2 cycle across ticks:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first B3 last:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first B6:
+    max=119 ceiling=95 fresh budget=35; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: compact archives [n1] -> archived {n0, n1}, 63 chars
+      tick 1: nothing acts -> archived {n0, n1}, 63 chars (= state after tick 0)
+===== variant A
+✗ C1: 6142
+✓ C1 compact->refill: 0
+✗ C1 compact->rebalance: 962
+✗ C1 rebalance->refill: 22
+✗ C1 rebalance->rebalance: 6041
+✗ F: 5825
+✗ R: 6286
+✗ C2 cycle in one tick: 297
+✗ C2 cycle across ticks: 5744
+✓ B1: 0
+✓ B2: 0
+✓ B3: 0
+✗ B3 last: 4044
+✓ B4: 0
+✓ B5: 0
+✗ B6: 4880
+  first C1:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first C1 compact->rebalance:
+    max=190 ceiling=152 fresh budget=57; nodes n0(gist 80, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {}
+      tick 0: compact archives [n0, n1], resurrects [n1] -> archived {n0}, 183 chars
+      tick 1: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 183 chars
+      tick 2: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first C1 rebalance->refill:
+    max=378 ceiling=302 fresh budget=113; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 200, read 3, created 3); edges n0->n1, n0->n2, n1->n0, n2->n0, n2->n1; start archived {n0, n1}
+      tick 0: rebalance swaps n0 in/n2 out n1 in/n0 out n0 in/n1 out -> archived {n1, n2}, 158 chars
+      tick 1: refill promotes [n1] -> archived {n2}, 195 chars
+      tick 2: rebalance swaps n2 in/n1 out n1 in/n0 out n0 in/n2 out -> archived {n2}, 195 chars (= state after tick 1)
+  first C1 rebalance->rebalance:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first F:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first R:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first C2 cycle in one tick:
+    max=213 ceiling=170 fresh budget=63; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 20, read 3, created 3); edges n0->n1, n0->n2, n1->n0, n2->n0, n2->n1; start archived {n0}
+      tick 0: rebalance swaps n0 in/n2 out n2 in/n1 out n1 in/n0 out -> archived {n0}, 195 chars (= state after tick 0)
+  first C2 cycle across ticks:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first B3 last:
+    max=197 ceiling=157 fresh budget=59; nodes n0(gist 20, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first B6:
+    max=119 ceiling=95 fresh budget=35; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: compact archives [n1] -> archived {n0, n1}, 63 chars
+      tick 1: nothing acts -> archived {n0, n1}, 63 chars (= state after tick 0)
+===== variant A+B
+✗ C1: 4662
+✓ C1 compact->refill: 0
+✗ C1 compact->rebalance: 962
+✗ C1 rebalance->refill: 11
+✗ C1 rebalance->rebalance: 4571
+✗ F: 4438
+✗ R: 4694
+✗ C2 cycle in one tick: 214
+✗ C2 cycle across ticks: 4357
+✓ B1: 0
+✓ B2: 0
+✓ B3: 0
+✓ B3 last: 0
+✓ B4: 0
+✓ B5: 0
+✓ B6: 0
+  first C1:
+    max=326 ceiling=260 fresh budget=97; nodes n0(gist 20, read 1, created 1), n1(gist 200, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 303 chars (= state after tick 0)
+  first C1 compact->rebalance:
+    max=190 ceiling=152 fresh budget=57; nodes n0(gist 80, read 1, created 1), n1(gist 80, read 2, created 2); edges n0->n1, n1->n0; start archived {}
+      tick 0: compact archives [n0, n1], resurrects [n1] -> archived {n0}, 183 chars
+      tick 1: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 183 chars
+      tick 2: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 183 chars (= state after tick 0)
+  first C1 rebalance->refill:
+    max=378 ceiling=302 fresh budget=113; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 200, read 3, created 3); edges n0->n1, n0->n2, n1->n0, n2->n0, n2->n1; start archived {n0, n1}
+      tick 0: rebalance swaps n0 in/n2 out n1 in/n0 out n0 in/n1 out -> archived {n1, n2}, 158 chars
+      tick 1: refill promotes [n1] -> archived {n2}, 195 chars
+      tick 2: rebalance swaps n2 in/n1 out n1 in/n0 out n0 in/n2 out -> archived {n2}, 195 chars (= state after tick 1)
+  first C1 rebalance->rebalance:
+    max=326 ceiling=260 fresh budget=97; nodes n0(gist 20, read 1, created 1), n1(gist 200, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 303 chars (= state after tick 0)
+  first F:
+    max=326 ceiling=260 fresh budget=97; nodes n0(gist 20, read 1, created 1), n1(gist 200, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 303 chars (= state after tick 0)
+  first R:
+    max=326 ceiling=260 fresh budget=97; nodes n0(gist 20, read 1, created 1), n1(gist 200, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 303 chars (= state after tick 0)
+  first C2 cycle in one tick:
+    max=163 ceiling=130 fresh budget=48; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 20, read 3, created 3); edges n0->n1, n1->n0, n1->n2, n2->n0; start archived {n0}
+      tick 0: compact archives [n1] -> archived {n0, n1}, 128 chars
+      tick 1: rebalance swaps n0 in/n2 out n1 in/n0 out n2 in/n1 out -> archived {n0, n1}, 128 chars (= state after tick 0)
+  first C2 cycle across ticks:
+    max=326 ceiling=260 fresh budget=97; nodes n0(gist 20, read 1, created 1), n1(gist 200, read 2, created 2); edges n0->n1, n1->n0; start archived {n0}
+      tick 0: rebalance swaps n0 in/n1 out n1 in/n0 out n0 in/n1 out -> archived {n1}, 123 chars
+      tick 1: rebalance swaps n1 in/n0 out n0 in/n1 out n1 in/n0 out -> archived {n0}, 303 chars (= state after tick 0)
+===== variant A+B+post
+✗ C1: 59
+✓ C1 compact->refill: 0
+✗ C1 compact->rebalance: 59
+✓ C1 rebalance->refill: 0
+✓ C1 rebalance->rebalance: 0
+✗ F: 59
+✗ R: 46
+✓ C2 cycle in one tick: 0
+✓ C2 cycle across ticks: 0
+✓ B1: 0
+✓ B2: 0
+✓ B3: 0
+✓ B3 last: 0
+✓ B4: 0
+✓ B5: 0
+✓ B6: 0
+  first C1:
+    max=164 ceiling=131 fresh budget=49; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 200, read 3, created 3); edges n0->n1, n0->n2, n1->n2, n2->n1; start archived {}
+      tick 0: compact archives [n0, n1, n2]; refill promotes [n0] -> archived {n1, n2}, 128 chars
+      tick 1: rebalance swaps n1 in/n0 out -> archived {n0, n2}, 143 chars
+      tick 2: nothing acts -> archived {n0, n2}, 143 chars (= state after tick 1)
+  first C1 compact->rebalance:
+    max=164 ceiling=131 fresh budget=49; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 200, read 3, created 3); edges n0->n1, n0->n2, n1->n2, n2->n1; start archived {}
+      tick 0: compact archives [n0, n1, n2]; refill promotes [n0] -> archived {n1, n2}, 128 chars
+      tick 1: rebalance swaps n1 in/n0 out -> archived {n0, n2}, 143 chars
+      tick 2: nothing acts -> archived {n0, n2}, 143 chars (= state after tick 1)
+  first F:
+    max=164 ceiling=131 fresh budget=49; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 200, read 3, created 3); edges n0->n1, n0->n2, n1->n2, n2->n1; start archived {}
+      tick 0: compact archives [n0, n1, n2]; refill promotes [n0] -> archived {n1, n2}, 128 chars
+      tick 1: rebalance swaps n1 in/n0 out -> archived {n0, n2}, 143 chars
+      tick 2: nothing acts -> archived {n0, n2}, 143 chars (= state after tick 1)
+  first R:
+    max=147 ceiling=117 fresh budget=44; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 20, read 3, created 3); edges n0->n1, n1->n2, n2->n0; start archived {n1, n2}
+      tick 0: rebalance swaps n1 in/n0 out n2 in/n1 out -> archived {n0, n1}, 128 chars
+      tick 1: nothing acts -> archived {n0, n1}, 128 chars (= state after tick 0)
+===== variant A+B+pot
+✗ C1: 361
+✓ C1 compact->refill: 0
+✗ C1 compact->rebalance: 361
+✓ C1 rebalance->refill: 0
+✓ C1 rebalance->rebalance: 0
+✗ F: 361
+✗ R: 205
+✓ C2 cycle in one tick: 0
+✓ C2 cycle across ticks: 0
+✓ B1: 0
+✓ B2: 0
+✓ B3: 0
+✓ B3 last: 0
+✓ B4: 0
+✓ B5: 0
+✓ B6: 0
+  first C1:
+    max=177 ceiling=141 fresh budget=53; nodes n0(gist 80, read 1, created 1, endorsed), n1(gist 80, read 2, created 2); edges n0->n1; start archived {}
+      tick 0: compact archives [n0, n1], resurrects [n0] -> archived {n1}, 168 chars
+      tick 1: rebalance swaps n1 in/n0 out -> archived {n0}, 168 chars
+      tick 2: nothing acts -> archived {n0}, 168 chars (= state after tick 1)
+  first C1 compact->rebalance:
+    max=177 ceiling=141 fresh budget=53; nodes n0(gist 80, read 1, created 1, endorsed), n1(gist 80, read 2, created 2); edges n0->n1; start archived {}
+      tick 0: compact archives [n0, n1], resurrects [n0] -> archived {n1}, 168 chars
+      tick 1: rebalance swaps n1 in/n0 out -> archived {n0}, 168 chars
+      tick 2: nothing acts -> archived {n0}, 168 chars (= state after tick 1)
+  first F:
+    max=177 ceiling=141 fresh budget=53; nodes n0(gist 80, read 1, created 1, endorsed), n1(gist 80, read 2, created 2); edges n0->n1; start archived {}
+      tick 0: compact archives [n0, n1], resurrects [n0] -> archived {n1}, 168 chars
+      tick 1: rebalance swaps n1 in/n0 out -> archived {n0}, 168 chars
+      tick 2: nothing acts -> archived {n0}, 168 chars (= state after tick 1)
+  first R:
+    max=180 ceiling=144 fresh budget=54; nodes n0(gist 20, read 1, created 1), n1(gist 20, read 2, created 2), n2(gist 20, read 3, created 3); edges n0->n1, n0->n2, n1->n0, n1->n2, n2->n1; start archived {n1, n2}
+      tick 0: rebalance swaps n1 in/n0 out n2 in/n1 out -> archived {n0, n1}, 143 chars
+      tick 1: nothing acts -> archived {n0, n1}, 143 chars (= state after tick 0)
